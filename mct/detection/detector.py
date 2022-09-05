@@ -113,9 +113,9 @@ if __name__ == '__main__':
     director.build_YOLOv5()
     detector = builder.get_product()
 
-    video_loader = cv2.VideoCapture('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/street.mp4')
+    video_loader = cv2.VideoCapture('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/fish.mp4')
     cv2.namedWindow('show', cv2.WINDOW_NORMAL)
-    from mct2.utils.vis_utils import plot_box
+    from mct.utils.vis_utils import plot_box
 
     buf = []
     frame_count = 0

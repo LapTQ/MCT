@@ -5,7 +5,7 @@ from filterpy.kalman import KalmanFilter
 from pathlib import Path
 import yaml
 
-from mct2.utils.img_utils import xyxy2xysr, xysr2xyxy
+from mct.utils.img_utils import xyxy2xysr, xysr2xyxy
 
 
 HERE = Path(__file__).parent
@@ -46,6 +46,7 @@ class KalmanBoxStandard(KalmanBoxBase):
 
         KalmanBoxStandard.count += 1
         self.id = KalmanBoxStandard.count
+        self.conf = None
 
         self.age = 0
         self.hit_streak = 0
@@ -74,13 +75,13 @@ class KalmanBoxStandard(KalmanBoxBase):
         # TODO check history
         self.history = []
         self.kf.update(xyxy2xysr(box[:4]).reshape(4, 1))
+        self.conf = box[4]
 
     def get_state(self):
         """
-        return [x1, y1, x2, y2]
+        return [x1, y1, x2, y2, conf]
         """
-        # TODO return conf?
-        return xysr2xyxy(self.kf.x[:4].reshape(4,))
+        return np.concatenate([xysr2xyxy(self.kf.x[:4].reshape(4,)), [self.conf]], axis=0)
 
 
 class KalmanBoxStandardBuilder(KalmanBoxBuilder):
@@ -102,8 +103,9 @@ class KalmanBoxStandardBuilder(KalmanBoxBuilder):
         return product
 
     def set_initial_z(self, box) -> None:
-        # TODO conf
+        # [id, x1, y1, x2, y2, conf]
         self._kalmanbox.kf.x[:4] = xyxy2xysr(box[:4]).reshape(4, 1)
+        self._kalmanbox.conf = box[4].item()
 
     def set_F(self) -> None:
         self._kalmanbox.kf.F = np.array(self._cfg['F'], dtype='float32')

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from mct2.detection.detector import DetectorBase, YOLOv5, DetectorDirector, YOLOv5Builder
-from mct2.tracking.tracker import TrackerBase, SORT, TrackerDirector, SORTBuilder
+from mct.detection.detector import DetectorBase, YOLOv5, DetectorDirector, YOLOv5Builder
+from mct.tracking.tracker import TrackerBase, SORT, TrackerDirector, SORTBuilder
 
 
 class SCTBase(ABC):
