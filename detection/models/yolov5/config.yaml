@@ -1,5 +1,0 @@
-model: yolov5s
-weights: weights/best.pt
-size: 640
-conf: 0.25
-iou: 0.45

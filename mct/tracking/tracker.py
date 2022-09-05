@@ -1,10 +1,9 @@
-import os
 from pathlib import Path
 import yaml
 
 import numpy as np
 
-from tracking.utils.img_utils import iou_associate, xyxy2xysr, xysr2xyxy
+from mct.tracking.utils.img_utils import iou_associate, xyxy2xysr, xysr2xyxy
 from filterpy.kalman import KalmanFilter
 
 HERE = Path(__file__).parent
@@ -32,7 +31,6 @@ class KalmanBox:
     def load_config(self):
         with open(HERE/'models'/'kalman'/'config.yaml') as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
-        f.close()
 
         # TODO tune (QUAN TRONG)
         self.kf.F = np.array(config['F'], dtype='float32')
@@ -89,7 +87,6 @@ class SORT:
     def load_config(self):
         with open(HERE/'models'/'sort'/'config.yaml') as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
-        f.close()
 
         print('[CFG] SORT max_age:', config['max_age'])
         print('[CFG] SORT min_hits', config['min_hits'])
@@ -103,7 +100,7 @@ class SORT:
     def update(self, dets=np.empty((0, 5))):
         """
         dets: [[x1, y1, x2, y2, conf],...]
-        Return [[frame, id, x1, y1, x2, y2], ...] if ret is True
+        Return [[frame, id, x1, y1, x2, y2], ...]
         """
 
         self.frame_count += 1
@@ -147,7 +144,7 @@ class SORT:
 
 
 if __name__ == '__main__':
-    seq_dets = np.loadtxt('../output/dets.txt', delimiter=',')
+    seq_dets = np.loadtxt('../../output/dets.txt', delimiter=',')
 
     # TODO tham so
     tracker = SORT()
