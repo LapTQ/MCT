@@ -33,6 +33,7 @@ def parse_opt():
     ap.add_argument('--db_framework', type=str, default='pymongo') # pymongo mongoengine
     ap.add_argument('--port', type=int, help='port of localhost to save to database')
     ap.add_argument('--save_txt', action='store_true', help='save to .txt in MOT challenge format')
+    ap.add_argument('--export_video', action='store_true', help='save visualization as video')
 
     opt = ap.parse_args()
 
@@ -103,6 +104,15 @@ def main(opt):
         txt_buffer = []
         out_txt = open(opt.output/(now + '_' + name_root + '.txt'), 'w')
 
+    if opt.export_video:
+        H = loader.get_height()
+        W = loader.get_width()
+        out_video = cv2.VideoWriter(str(opt.output/(now + '_' + name_root + '.mp4')),
+                                    cv2.VideoWriter_fourcc(*'MJPG'),
+                                    FPS,
+                                    (W, H)
+        )
+
     print('[TIME] Loading models:', time.time() - t0)
 
     print('[INFO] Processing', opt.input)
@@ -144,12 +154,17 @@ def main(opt):
                     f'{int(obj[0])}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
             # print('[TIME] Save to .txt:', time.time() - t0)
 
-        if opt.display:
-            t0 = time.time()
+        if opt.display or opt.export_video:
             # TODO visualizer
-            show_img = plot_box(frame, ret) # ret      [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
-            cv2.imshow(filename, show_img)
+            t0 = time.time()
+            show_img = plot_box(frame, ret)     # ret      [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
             # print('[TIME] Visualization:', time.time() - t0)
+
+        if opt.display:
+            cv2.imshow(filename, show_img)
+
+        if opt.export_video:
+            out_video.write(show_img)
 
     loader.release()
     cv2.destroyAllWindows()
@@ -161,6 +176,9 @@ def main(opt):
         print('\n'.join(txt_buffer), file=out_txt)
         print('[INFO] Result saved in', opt.output/(now + '_' + name_root + '.txt'))
         out_txt.close()
+
+    if opt.export_video:
+        out_video.release()
 
 
 if __name__ == '__main__':

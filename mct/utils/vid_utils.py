@@ -17,6 +17,14 @@ class LoaderBase(ABC):
         pass
 
     @abstractmethod
+    def get_height(self) -> int:
+        pass
+
+    @abstractmethod
+    def get_width(self) -> int:
+        pass
+
+    @abstractmethod
     def read(self) -> Tuple[bool, np.ndarray]:
         """
         return ret, frame
@@ -48,12 +56,20 @@ class VideoLoader(LoaderBase):
     def __init__(self):
         self.pool = None
         self.length = None
+        self.height = None
+        self.width = None
 
     def get_fps(self) -> float:
         return self.pool.get(cv2.CAP_PROP_FPS)
 
     def __len__(self) -> int:
         return self.length
+
+    def get_height(self) -> int:
+        return self.height
+
+    def get_width(self) -> int:
+        return self.width
 
     def read(self) -> Tuple[bool, np.ndarray]:
         ret, frame = self.pool.read()
@@ -79,6 +95,8 @@ class VideoLoaderBuilder(LoaderBuilder):
     def set_input(self, path) -> None:
         print(path)
         self.loader.pool = cv2.VideoCapture(path)
+        self.loader.height = self.loader.pool.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        self.loader.width = self.loader.pool.get(cv2.CAP_PROP_FRAME_WIDTH)
         if path == 0:
             self.loader.length = int(1e9)
         else:
@@ -91,6 +109,8 @@ class ImageFolderLoader(LoaderBase):
         self.pool = None
         self.fps = None
         self.length = None
+        self.height = None
+        self.width = None
 
         self.i = 0
 
@@ -99,6 +119,12 @@ class ImageFolderLoader(LoaderBase):
 
     def __len__(self) -> int:
         return self.length
+
+    def get_height(self) -> int:
+        return self.height
+
+    def get_width(self) -> int:
+        return self.width
 
     def read(self) -> Tuple[bool, np.ndarray]:
         if self.i < len(self.pool):
@@ -134,11 +160,16 @@ class ImageFolderLoaderBuilder(LoaderBuilder):
         if path is None:
             self.loader.fps = 30
             self.loader.length = len(self.loader.pool)
+            H, W, _ = cv2.imread(self.loader.pool[0]).shape
+            self.loader.height = H
+            self.loader.width = W
         else:
             cfg = ConfigParser()
             cfg.read(path)
             self.loader.fps = float(cfg['Sequence']['frameRate'])
             self.loader.length = int(cfg['Sequence']['seqLength'])
+            self.loader.height = int(cfg['Sequence']['imHeight'])
+            self.loader.width = int(cfg['Sequence']['imWidth'])
 
 
 class LoaderDirector:
