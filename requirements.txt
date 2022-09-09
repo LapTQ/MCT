@@ -1,14 +1,19 @@
 # pip install -r requirements.txt
 
-numpy>=1.18.5
-opencv-python~=4.5.4.60
-opencv-contrib-python~=4.5.4.60
-opencv-python-headless~=4.5.4.60
-matplotlib>=3.2.2
+numpy==1.18.5
+opencv-python==4.5.4.60
+opencv-contrib-python==4.5.4.60
+opencv-python-headless==4.5.4.60
+matplotlib==3.2.2
 qtconsole
-filterpy~=1.4.5
-scikit-image~=0.19.3
-lap~=0.4.0
-torch~=1.12.1
-torchvision~=0.13.1
+PyYAML==5.3.1
+pandas==1.1.4
+seaborn==0.11.0
+filterpy==1.4.5
+scikit-image==0.19.3
+#lap~=0.4.0
+torch==1.12.1
+torchvision==0.13.1
 tqdm~=4.64.0
+pymongo[srv]==4.2.0
+mongoengine==0.24.2

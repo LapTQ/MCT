@@ -1,13 +1,12 @@
 import os
 import argparse
-import cv2
 import time
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import cv2
 
-import pymongo
 from pymongo import MongoClient
 
 import sys
@@ -15,6 +14,7 @@ sys.path.append(sys.path[0] + '/..')
 
 from mct.sct import SCT
 from mct.utils.vis_utils import plot_box
+from mct.utils.db_utils import DBDirector, PymongoBuilder, MongoEngineBuilder
 
 
 HERE = Path(__file__).parent
@@ -29,6 +29,7 @@ def parse_opt():
     ap.add_argument('--output', type=str, default='../output/')
     ap.add_argument('--display', action='store_true')
     ap.add_argument('--save_db', action='store_true')
+    ap.add_argument('--db_framework', type=str, default='pymongo') # pymongo mongoengine
     ap.add_argument('--port', type=int)
     ap.add_argument('--save_txt', action='store_true')
 
@@ -41,7 +42,7 @@ def main(opt):
 
     if not os.path.isdir(opt.output):
         os.makedirs(opt.output, exist_ok=True)
-    opt.output = Path(opt.output)
+    opt.output = Path(opt.output) # TODO
 
     if opt.input == '0':
         opt.input = 0
@@ -64,10 +65,20 @@ def main(opt):
     now = datetime.now().strftime("%Y%m%d%H%M%S")
 
     if opt.save_db:
-        print("[INFO] Connecting to database at mongodb://localhost:27017")
-        mongo_client = MongoClient('localhost', opt.port)
-        sct_db = mongo_client['sct_db']
-        sct_collections = sct_db[now + '_' + name_root]
+        print(f"[INFO] Connecting to database using port {opt.port}")
+        db_director = DBDirector()
+        if opt.db_framework == 'pymongo':
+            db_builder = PymongoBuilder()
+            db_director.set_builder(db_builder)
+            db_director.build_pymongo('localhost', opt.port, 'sct_db', now + '_' + name_root)
+            mongo = db_builder.get_product()
+        elif opt.db_framework == 'mongoengine':
+            db_builder = MongoEngineBuilder()
+            db_director.set_builder(db_builder)
+            db_director.build_mongoengine('localhost', opt.port, 'sct_db', now + '_' + name_root)
+            mongo = db_builder.get_product()
+        else:
+            raise ValueError(f'{opt.db_framework} not supported')
 
     if opt.display:
         cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
@@ -96,27 +107,19 @@ def main(opt):
         print('[TIME] Detection:', time.time() - t0)
 
         t0 = time.time()
-        # TODO ret = [[frame, id, x1, y1, w, h], ...]
+        # TODO tracklets = [[frame, id, x1, y1, w, h], ...]
         # TODO add frame num to dets?
         # TODO refactor: adapter
         # TODO tại sao trong code của kalman không dùng tới conf của dets? kiểm tra lại thông số của kalman xem có liên quan không
-        ret = tracker.update(dets)  # [id, x1, y1, x2, y2, conf]
+        tracklets = tracker.update(dets)  # [[id, x1, y1, x2, y2, conf]...]
+
+        ret = np.concatenate([np.array([[frame_count]] * len(tracklets)), tracklets], axis=1) # [[frame, id, x1, y1, x2, y2, conf]...]
 
         print('[TIME] Tracking:', time.time() - t0)
 
         if opt.save_db:
             t0 = time.time()
-            for obj in ret:
-                sct_collections.update_one(
-                    {'trackid': np.int32(obj[0])},
-                    {'$push': {'detections': {'frameid': frame_count,
-                                              'box': obj[1:5].tolist(), # xyxy
-                                              'score': obj[5]
-                                              }
-                               }
-                     },
-                    upsert=True
-                )
+            mongo.update(ret)
             print('[TIME] Save to database:', time.time() - t0)
 
         if opt.save_txt:
@@ -124,19 +127,21 @@ def main(opt):
             for obj in ret:
                 # [frame, id, x1, y1, w, h, conf, -1, -1, -1]
                 txt_buffer.append(
-                    f'{frame_count}, {np.int32(obj[0])}, {obj[1]:.2f}, {obj[2]:.2f}, {(obj[3] - obj[1]):.2f}, {(obj[4] - obj[2]):.2f}, {obj[5]:.6f}, -1, -1, -1')
+                    f'{int(obj[0])}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
             print('[TIME] Save to .txt:', time.time() - t0)
 
         if opt.display:
             t0 = time.time()
             # TODO visualizer
-            info = np.concatenate([np.array([[frame_count]] * len(ret)), ret], axis=1)
-            show_img = plot_box(frame, info)
+            show_img = plot_box(frame, ret) # ret      [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
             cv2.imshow(filename, show_img)
             print('[TIME] Visualization:', time.time() - t0)
 
     video_loader.release()
     cv2.destroyAllWindows()
+
+    if opt.save_db:
+        mongo.close()
 
     if opt.save_txt:
         print('\n'.join(txt_buffer), file=out_txt)
