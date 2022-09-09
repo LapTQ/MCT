@@ -36,7 +36,6 @@ class SORT(TrackerBase):
         self.min_hits = None
         self.iou_threshold = None
 
-        # TODO use frame from input
         self.frame_count = 0
         self.objects = []   # temporarily observed Kalman objects, not "displayed objects"
 
