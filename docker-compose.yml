@@ -1,0 +1,28 @@
+version: '3.9'
+services:
+  mct_backend:
+    stdin_open: true
+    tty: true
+
+    ############# EITHER ###########
+    build:
+      context: .
+      dockerfile: docker/Dockerfile   # relative to context
+    # image: image_mct_backend
+    ################################
+
+    container_name: "laptq_mct_backend"
+    ports:
+      - "2222:8000"
+    volumes:
+      - .:/home/code/MCT       # relative to this file
+    depends_on:
+      - mct_mongodb
+
+  mct_mongodb:
+    image: mongo
+    container_name: "laptq_mct_mongodb"
+#    volumes:
+#      - /media/tran/003D94E1B568C6D11/Workingspace/MCT/output/mongo-data   # relative to this file
+    ports:
+      - "1111:27017"

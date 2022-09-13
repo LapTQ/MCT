@@ -31,7 +31,8 @@ def parse_opt():
     ap.add_argument('--display', action='store_true', help='visualize tracking result')
     ap.add_argument('--save_db', action='store_true', help='save result to database')
     ap.add_argument('--db_framework', type=str, default='pymongo') # pymongo mongoengine
-    ap.add_argument('--port', type=int, help='port of localhost to save to database')
+    ap.add_argument('--db_host', type=str, required=True) # 'localhost' 'mct_mongodb'
+    ap.add_argument('--db_port', type=int, required=True, help='port of db container') # 27017
     ap.add_argument('--save_txt', action='store_true', help='save to .txt in MOT challenge format')
     ap.add_argument('--export_video', action='store_true', help='save visualization as video')
 
@@ -49,10 +50,10 @@ def main(opt):
         return
 
     if opt.output is None:
-        opt.output = HERE/'../output'
+        opt.output = str(HERE/'../output')
     if not os.path.isdir(opt.output):
         os.makedirs(opt.output, exist_ok=True)
-    opt.output = Path(opt.output) # TODO
+    opt.output = Path(opt.output)
 
     t0 = time.time()
 
@@ -82,17 +83,17 @@ def main(opt):
 
     # database
     if opt.save_db:
-        print(f"[INFO] Connecting to database using port {opt.port}")
+        print(f"[INFO] Connecting to database using port {opt.db_port}")
         db_director = DBDirector()
         if opt.db_framework == 'pymongo':
             db_builder = PymongoBuilder()
             db_director.set_builder(db_builder)
-            db_director.build_pymongo('localhost', opt.port, 'sct_db', now + '_' + name_root)
+            db_director.build_pymongo(opt.db_host, opt.db_port, 'sct_db', now + '_' + name_root)
             mongo = db_builder.get_product()
         elif opt.db_framework == 'mongoengine':
             db_builder = MongoEngineBuilder()
             db_director.set_builder(db_builder)
-            db_director.build_mongoengine('localhost', opt.port, 'sct_db', now + '_' + name_root)
+            db_director.build_mongoengine(opt.db_host, opt.db_port, 'sct_db', now + '_' + name_root)
             mongo = db_builder.get_product()
         else:
             raise ValueError(f'{opt.db_framework} not supported')
@@ -107,7 +108,7 @@ def main(opt):
     if opt.export_video:
         H = loader.get_height()
         W = loader.get_width()
-        out_video = cv2.VideoWriter(str(opt.output/(now + '_' + name_root + '.mp4')),
+        out_video = cv2.VideoWriter(str(opt.output/(now + '_' + name_root + '.avi')),
                                     cv2.VideoWriter_fourcc(*'MJPG'),
                                     FPS,
                                     (W, H)
@@ -120,7 +121,10 @@ def main(opt):
     for _ in tqdm(range(len(loader))):
         ret, frame = loader.read()
 
-        if not ret or frame is None or cv2.waitKey(int(1000 / FPS)) & 0xFF == ord('q'):
+        condition = not ret or frame is None
+        if opt.display:
+            condition = condition or cv2.waitKey(int(1000 / FPS)) & 0xFF == ord('q')
+        if condition:
             break
 
         frame_count += 1
@@ -155,10 +159,8 @@ def main(opt):
             # print('[TIME] Save to .txt:', time.time() - t0)
 
         if opt.display or opt.export_video:
-            # TODO visualizer
             t0 = time.time()
             show_img = plot_box(frame, ret)     # ret      [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
-            # print('[TIME] Visualization:', time.time() - t0)
 
         if opt.display:
             cv2.imshow(filename, show_img)
@@ -167,7 +169,6 @@ def main(opt):
             out_video.write(show_img)
 
     loader.release()
-    cv2.destroyAllWindows()
 
     if opt.save_db:
         mongo.close()
@@ -176,6 +177,9 @@ def main(opt):
         print('\n'.join(txt_buffer), file=out_txt)
         print('[INFO] Result saved in', opt.output/(now + '_' + name_root + '.txt'))
         out_txt.close()
+
+    if opt.display:
+        cv2.destroyAllWindows()
 
     if opt.export_video:
         out_video.release()
