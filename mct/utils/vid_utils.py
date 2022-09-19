@@ -95,8 +95,8 @@ class VideoLoaderBuilder(LoaderBuilder):
     def set_input(self, path) -> None:
         print(path)
         self.loader.pool = cv2.VideoCapture(path)
-        self.loader.height = self.loader.pool.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        self.loader.width = self.loader.pool.get(cv2.CAP_PROP_FRAME_WIDTH)
+        self.loader.height = int(self.loader.pool.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.loader.width = int(self.loader.pool.get(cv2.CAP_PROP_FRAME_WIDTH))
         if path == 0:
             self.loader.length = int(1e9)
         else:
@@ -160,7 +160,7 @@ class ImageFolderLoaderBuilder(LoaderBuilder):
         if path is None:
             self.loader.fps = 30
             self.loader.length = len(self.loader.pool)
-            H, W, _ = cv2.imread(self.loader.pool[0]).shape
+            H, W = cv2.imread(self.loader.pool[0]).shape[:2]
             self.loader.height = H
             self.loader.width = W
         else:

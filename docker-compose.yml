@@ -5,10 +5,10 @@ services:
     tty: true
 
     ############# EITHER ###########
-    build:
-      context: .
-      dockerfile: docker/Dockerfile   # relative to context
-    # image: image_mct_backend
+#    build:
+#      context: .
+#      dockerfile: docker/Dockerfile   # relative to context
+    image: image_mct_backend
     ################################
 
     container_name: "laptq_mct_backend"

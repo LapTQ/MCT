@@ -27,14 +27,15 @@ def parse_opt():
     # ap.add_argument('--hardware', type=str, required=True)
     ap.add_argument('--input', type=str, required=True, help='path to a video/webcam or an image folder')
     ap.add_argument('--imdir_ini', type=str, default=None, help='path to image folder metadata')
-    ap.add_argument('--output', type=str, default=None, help='path to output folder')
-    ap.add_argument('--display', action='store_true', help='visualize tracking result')
     ap.add_argument('--save_db', action='store_true', help='save result to database')
     ap.add_argument('--db_framework', type=str, default='pymongo') # pymongo mongoengine
-    ap.add_argument('--db_host', type=str, required=True) # 'localhost' 'mct_mongodb'
-    ap.add_argument('--db_port', type=int, required=True, help='port of db container') # 27017
+    ap.add_argument('--db_host', type=str, default=None, help='address of db container') # 'localhost' 'mct_mongodb'
+    ap.add_argument('--db_port', type=int, default=None, help='port of db container') # 27017
+    ap.add_argument('--db_name', type=str, default='sct_db', help='name of database')
+    ap.add_argument('--output', type=str, default=None, help='path to output folder')
     ap.add_argument('--save_txt', action='store_true', help='save to .txt in MOT challenge format')
     ap.add_argument('--export_video', action='store_true', help='save visualization as video')
+    ap.add_argument('--display', action='store_true', help='visualize tracking result')
 
     opt = ap.parse_args()
 
@@ -83,17 +84,19 @@ def main(opt):
 
     # database
     if opt.save_db:
-        print(f"[INFO] Connecting to database using port {opt.db_port}")
+        assert opt.db_host is not None, "--db_host must be specified if --save_db is set"
+        assert opt.db_port is not None, "--db_port must be specified if --save_db is set"
+        print(f"[INFO] Connecting to {opt.db_host} using port {opt.db_port}")
         db_director = DBDirector()
         if opt.db_framework == 'pymongo':
             db_builder = PymongoBuilder()
             db_director.set_builder(db_builder)
-            db_director.build_pymongo(opt.db_host, opt.db_port, 'sct_db', now + '_' + name_root)
+            db_director.build_pymongo(opt.db_host, opt.db_port, opt.db_name, now + '_' + name_root)
             mongo = db_builder.get_product()
         elif opt.db_framework == 'mongoengine':
             db_builder = MongoEngineBuilder()
             db_director.set_builder(db_builder)
-            db_director.build_mongoengine(opt.db_host, opt.db_port, 'sct_db', now + '_' + name_root)
+            db_director.build_mongoengine(opt.db_host, opt.db_port, opt.db_name, now + '_' + name_root)
             mongo = db_builder.get_product()
         else:
             raise ValueError(f'{opt.db_framework} not supported')
@@ -118,7 +121,9 @@ def main(opt):
 
     print('[INFO] Processing', opt.input)
     frame_count = 0
-    for _ in tqdm(range(len(loader))):
+    pbar = tqdm(range(len(loader)))
+    for _ in pbar:
+        
         ret, frame = loader.read()
 
         condition = not ret or frame is None
@@ -128,6 +133,8 @@ def main(opt):
             break
 
         frame_count += 1
+        
+        start_time = time.time()
 
         t0 = time.time()
 
@@ -142,6 +149,9 @@ def main(opt):
         tracklets = tracker.update(dets)  # [[id, x1, y1, x2, y2, conf]...]
 
         ret = np.concatenate([np.array([frame_count] * len(tracklets)).reshape(-1, 1), tracklets], axis=1) # [[frame, id, x1, y1, x2, y2, conf]...]
+        
+        end_time = time.time()
+        pbar.set_postfix({'FPS': int(1/(end_time - start_time))})
 
         # print('[TIME] Tracking:', time.time() - t0)
 
