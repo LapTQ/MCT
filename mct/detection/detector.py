@@ -52,7 +52,8 @@ class YOLOv5(DetectorBase):
         if BGR:
             img = img[:, :, ::-1]
 
-        preds = self.model([img], size=self.input_size)  # RGB, include NMS
+        size = max(img.shape) if self.input_size == -1 else self.input_size
+        preds = self.model([img], size=size)  # RGB, include NMS
         ret = preds.xyxy[0][:, :5].numpy()  # preds.xyxy = [[[x1, y1, x2, y2, conf, class_id], ...]]
         return ret
 

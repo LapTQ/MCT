@@ -193,7 +193,7 @@ def main(opt):
 
     if opt.export_video:
         out_video.release()
-
+        print('[INFO] Video demo saved in', str(opt.output/(now + '_' + name_root + '.avi')))
 
 if __name__ == '__main__':
     opt = parse_opt()

@@ -105,12 +105,15 @@ class SORTBuilder(TrackerBuilder):
 
     def set_max_age(self) -> None:
         self._tracker.max_age = self._cfg['max_age']
+        print('[CFG] SORT max_age:', self._cfg['max_age'])
 
     def set_min_hits(self) -> None:
         self._tracker.min_hits = self._cfg['min_hits']
+        print('[CFG] SORT min_hits:', self._cfg['min_hits'])
 
     def set_iou_threshold(self) -> None:
         self._tracker.iou_threshold = self._cfg['iou_threshold']
+        print('[CFG] SORT iou_threshold:', self._cfg['iou_threshold'])
 
     def get_product(self) -> TrackerBase:
         product = self._tracker
