@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from mct.detection.detector import DetectorBase, YOLOv5, DetectorDirector, YOLOv5Builder
-from mct.tracking.tracker import TrackerBase, SORT, TrackerDirector, SORTBuilder
+from mct.detection.detector import DetectorBase, DetectorDirector, YOLOv5Builder
+from mct.tracking.tracker import TrackerBase, TrackerDirector, SORTBuilder
+from mct.utils.vid_utils import LoaderBase
 
 
 class SCTBase(ABC):
@@ -11,23 +12,23 @@ class SCTBase(ABC):
         pass
 
     @abstractmethod
-    def create_tracker(self) -> TrackerBase:
+    def create_tracker(self, loader: LoaderBase) -> TrackerBase:
         pass
 
 
 class SCT(SCTBase):
     """YOLOv5 + SORT"""
 
-    def create_detector(self) -> YOLOv5:
+    def create_detector(self) -> DetectorBase:
         director = DetectorDirector()
         builder = YOLOv5Builder()
         director.set_builder(builder)
         director.build_YOLOv5()
         return builder.get_product()
 
-    def create_tracker(self) -> SORT:
+    def create_tracker(self, loader: LoaderBase) -> TrackerBase:
         director = TrackerDirector()
-        builder = SORTBuilder()
+        builder = SORTBuilder(loader)
         director.set_builder(builder)
         director.build_SORT()
         return builder.get_product()

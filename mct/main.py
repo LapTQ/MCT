@@ -58,11 +58,6 @@ def main(opt):
 
     t0 = time.time()
 
-    # TODO different options here: if opt.hardware == 'weak':
-    sct = SCT()
-    detector = sct.create_detector()
-    tracker = sct.create_tracker()
-
     # video loader
     loader_director = LoaderDirector()
     if os.path.isdir(opt.input):    # if input a folder of images
@@ -76,11 +71,17 @@ def main(opt):
         loader_director.build_videoloader(opt.input)
         loader = loader_builder.get_product()
 
+    # TODO different options here: if opt.hardware == 'weak':
+    sct = SCT()
+    detector = sct.create_detector()
+    tracker = sct.create_tracker(loader)
+
     FPS = loader.get_fps()
 
     filename = os.path.basename(str(opt.input))
     name_root, _ = os.path.splitext(filename)
     now = datetime.now().strftime("%Y%m%d%H%M%S")
+    out_name_root = now + '_' + name_root
 
     # database
     if opt.save_db:
@@ -91,12 +92,12 @@ def main(opt):
         if opt.db_framework == 'pymongo':
             db_builder = PymongoBuilder()
             db_director.set_builder(db_builder)
-            db_director.build_pymongo(opt.db_host, opt.db_port, opt.db_name, now + '_' + name_root)
+            db_director.build_pymongo(opt.db_host, opt.db_port, opt.db_name, out_name_root)
             mongo = db_builder.get_product()
         elif opt.db_framework == 'mongoengine':
             db_builder = MongoEngineBuilder()
             db_director.set_builder(db_builder)
-            db_director.build_mongoengine(opt.db_host, opt.db_port, opt.db_name, now + '_' + name_root)
+            db_director.build_mongoengine(opt.db_host, opt.db_port, opt.db_name, out_name_root)
             mongo = db_builder.get_product()
         else:
             raise ValueError(f'{opt.db_framework} not supported')
@@ -106,12 +107,12 @@ def main(opt):
 
     if opt.save_txt:
         txt_buffer = []
-        out_txt = open(opt.output/(now + '_' + name_root + '.txt'), 'w')
+        out_txt = open(opt.output/(out_name_root + '.txt'), 'w')
 
     if opt.export_video:
         H = loader.get_height()
         W = loader.get_width()
-        out_video = cv2.VideoWriter(str(opt.output/(now + '_' + name_root + '.avi')),
+        out_video = cv2.VideoWriter(str(opt.output/(out_name_root + '.avi')),
                                     cv2.VideoWriter_fourcc(*'MJPG'),
                                     FPS,
                                     (W, H)
@@ -185,7 +186,7 @@ def main(opt):
 
     if opt.save_txt:
         print('\n'.join(txt_buffer), file=out_txt)
-        print('[INFO] Result saved in', opt.output/(now + '_' + name_root + '.txt'))
+        print('[INFO] Result saved in', opt.output/(out_name_root + '.txt'))
         out_txt.close()
 
     if opt.display:
@@ -193,7 +194,7 @@ def main(opt):
 
     if opt.export_video:
         out_video.release()
-        print('[INFO] Video demo saved in', str(opt.output/(now + '_' + name_root + '.avi')))
+        print('[INFO] Video demo saved in', str(opt.output/(out_name_root + '.avi')))
 
 if __name__ == '__main__':
     opt = parse_opt()

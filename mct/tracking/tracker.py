@@ -6,6 +6,7 @@ import yaml
 
 from mct.utils.img_utils import iou_associate
 from mct.tracking.kalmanbox import KalmanBoxDirector, KalmanBoxStandardBuilder
+from mct.utils.vid_utils import LoaderBase
 
 
 HERE = Path(__file__).parent
@@ -47,7 +48,7 @@ class SORT(TrackerBase):
         return builder.get_product()
 
     # TODO thu xoa default dets=np.empty di -> cho lam output cua detection
-    def update(self, dets: np.ndarray=np.empty((0, 5))) -> np.ndarray:
+    def update(self, dets: np.ndarray = np.empty((0, 5))) -> np.ndarray:
         """
         dets: [[x1, y1, x2, y2, conf],...]
         Return [[frame, id, x1, y1, x2, y2], ...]
@@ -92,11 +93,12 @@ class SORT(TrackerBase):
 
 class SORTBuilder(TrackerBuilder):
 
-    def __init__(self) -> None:
+    def __init__(self, loader: LoaderBase) -> None:
         self._tracker = None
 
         with open(HERE/'../configs/sort.yaml', 'r') as f:
             self._cfg = yaml.load(f, Loader=yaml.FullLoader)
+        self.loader = loader
 
         self.reset()
 
@@ -104,11 +106,11 @@ class SORTBuilder(TrackerBuilder):
         self._tracker = SORT()
 
     def set_max_age(self) -> None:
-        self._tracker.max_age = self._cfg['max_age']
+        self._tracker.max_age = int(self._cfg['max_age'] * self.loader.get_fps())
         print('[CFG] SORT max_age:', self._cfg['max_age'])
 
     def set_min_hits(self) -> None:
-        self._tracker.min_hits = self._cfg['min_hits']
+        self._tracker.min_hits = int(self._cfg['min_hits'] * self.loader.get_fps())
         print('[CFG] SORT min_hits:', self._cfg['min_hits'])
 
     def set_iou_threshold(self) -> None:

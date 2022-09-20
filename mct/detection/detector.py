@@ -54,7 +54,7 @@ class YOLOv5(DetectorBase):
 
         size = max(img.shape) if self.input_size == -1 else self.input_size
         preds = self.model([img], size=size)  # RGB, include NMS
-        ret = preds.xyxy[0][:, :5].numpy()  # preds.xyxy = [[[x1, y1, x2, y2, conf, class_id], ...]]
+        ret = preds.xyxy[0][:, :5].cpu().numpy()  # preds.xyxy = [[[x1, y1, x2, y2, conf, class_id], ...]]
         return ret
 
 
@@ -75,7 +75,11 @@ class YOLOv5Builder(DetectorBuilder):
     def set_model(self) -> None:
         assert os.path.exists(HERE/self._cfg['weights']), 'No such file or directory'
         print('[CFG] YOLOv5 model:', HERE/self._cfg['weights'])
-        self._detector.model = torch.hub.load('ultralytics/yolov5', 'custom', path=HERE/self._cfg['weights'])
+        model = torch.hub.load('ultralytics/yolov5', 'custom', path=HERE/self._cfg['weights'])
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model.to(device)
+        self._detector.model = model
+        print('[CFG] YOLOv5 device:', device)
 
         print('[CFG] YOLOv5 iou threshold:', self._cfg['iou'])
         self._detector.model.iou = self._cfg['iou']
