@@ -1,8 +1,13 @@
+from pathlib import Path
+
 from abc import ABC, abstractmethod
-from mct.detection.detector import DetectorBase, DetectorDirector, YOLOv5Builder
-from mct.tracking.tracker import TrackerBase, TrackerDirector, SORTBuilder
+from mct.detection.detector import DetectorBase, YOLOv5
+from mct.tracking.tracker import TrackerBase, SORT
+from mct.tracking.kalmanbox import KalmanBox
 from mct.utils.vid_utils import LoaderBase
 
+
+HERE = Path(__file__).parent
 
 class SCTBase(ABC):
 
@@ -16,20 +21,15 @@ class SCTBase(ABC):
         pass
 
 
-class SCT(SCTBase):
+class SimpleSCT(SCTBase):
     """YOLOv5 + SORT"""
 
     def create_detector(self) -> DetectorBase:
-        director = DetectorDirector()
-        builder = YOLOv5Builder()
-        director.set_builder(builder)
-        director.build_YOLOv5()
-        return builder.get_product()
+        detector = YOLOv5.Builder(HERE / './configs/yolov5s.yaml').get_product()
+        return detector
 
     def create_tracker(self, loader: LoaderBase) -> TrackerBase:
-        director = TrackerDirector()
-        builder = SORTBuilder(loader)
-        director.set_builder(builder)
-        director.build_SORT()
-        return builder.get_product()
+        kalmanbox_builder = KalmanBox.Builder(HERE / './configs/kalmanboxstandard.yaml')
+        tracker = SORT.Builder(HERE/'./configs/sort.yaml', loader, kalmanbox_builder).get_product()
+        return tracker
 

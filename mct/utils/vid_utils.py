@@ -26,9 +26,7 @@ class LoaderBase(ABC):
 
     @abstractmethod
     def read(self) -> Tuple[bool, np.ndarray]:
-        """
-        return ret, frame
-        """
+        """return ret, frame"""
         pass
 
     @abstractmethod
@@ -36,31 +34,48 @@ class LoaderBase(ABC):
         pass
 
 
-class LoaderBuilder(ABC):
+class BuilderBase(ABC):
 
     @abstractmethod
-    def reset(self) -> None:
+    def __init__(self):
         pass
 
     @abstractmethod
-    def get_product(self) -> None:
+    def _reset(self) -> None:
         pass
 
     @abstractmethod
-    def set_input(self, path) -> None:
+    def get_product(self) -> LoaderBase:
         pass
 
 
 class VideoLoader(LoaderBase):
 
-    def __init__(self):
-        self.pool = None
-        self.length = None
-        self.height = None
-        self.width = None
+    class Builder(BuilderBase):
+
+        def __init__(self, path):
+            self._reset()
+
+            cap = cv2.VideoCapture(path)
+            self._product.pool = cap
+            self._product.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self._product.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self._product.fps = cap.get(cv2.CAP_PROP_FPS)
+            if path == 0:
+                self._product.length = int(1e9)
+            else:
+                self._product.length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        def _reset(self) -> None:
+            self._product = VideoLoader()
+
+        def get_product(self) -> LoaderBase:
+            product = self._product
+            self._reset()
+            return product
 
     def get_fps(self) -> float:
-        return self.pool.get(cv2.CAP_PROP_FPS)
+        return self.fps
 
     def __len__(self) -> int:
         return self.length
@@ -79,40 +94,38 @@ class VideoLoader(LoaderBase):
         self.pool.release()
 
 
-class VideoLoaderBuilder(LoaderBuilder):
-
-    def __init__(self):
-        self.loader = None
-
-    def reset(self) -> None:
-        self.loader = VideoLoader()
-
-    def get_product(self) -> None:
-        product = self.loader
-        self.reset()
-        return product
-
-    def set_input(self, path) -> None:
-        print(path)
-        self.loader.pool = cv2.VideoCapture(path)
-        self.loader.height = int(self.loader.pool.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.loader.width = int(self.loader.pool.get(cv2.CAP_PROP_FRAME_WIDTH))
-        if path == 0:
-            self.loader.length = int(1e9)
-        else:
-            self.loader.length = int(self.loader.pool.get(cv2.CAP_PROP_FRAME_COUNT))
-
-
 class ImageFolderLoader(LoaderBase):
 
-    def __init__(self):
-        self.pool = None
-        self.fps = None
-        self.length = None
-        self.height = None
-        self.width = None
+    class Builder(BuilderBase):
 
-        self.i = 0
+        def __init__(self, path, meta):
+            self._reset()
+
+            cap = [os.path.join(path, filename) for filename in sorted(os.listdir(path))]
+            self._product.pool = cap
+            self._product.i = 0
+            if meta is None:
+                self._product.fps = 30
+                self._product.length = len(cap)
+                H, W = cv2.imread(cap[0]).shape[:2]
+                self._product.height = H
+                self._product.width = W
+            else:
+                cfg = ConfigParser()
+                cfg.read(meta)
+                self._product.fps = float(cfg['Sequence']['frameRate'])
+                self._product.length = int(cfg['Sequence']['seqLength'])
+                self._product.height = int(cfg['Sequence']['imHeight'])
+                self._product.width = int(cfg['Sequence']['imWidth'])
+
+
+        def _reset(self) -> None:
+            self._product = ImageFolderLoader()
+
+        def get_product(self) -> LoaderBase:
+            product = self._product
+            self._reset()
+            return product
 
     def get_fps(self) -> float:
         return self.fps
@@ -138,57 +151,5 @@ class ImageFolderLoader(LoaderBase):
 
     def release(self) -> None:
         pass
-
-
-class ImageFolderLoaderBuilder(LoaderBuilder):
-
-    def __init__(self):
-        self.loader = None
-
-    def reset(self) -> None:
-        self.loader = ImageFolderLoader()
-
-    def get_product(self) -> None:
-        product = self.loader
-        self.reset()
-        return product
-
-    def set_input(self, path) -> None:
-        self.loader.pool = [os.path.join(path, filename) for filename in sorted(os.listdir(path))]
-
-    def set_metadata(self, path) -> None:
-        if path is None:
-            self.loader.fps = 30
-            self.loader.length = len(self.loader.pool)
-            H, W = cv2.imread(self.loader.pool[0]).shape[:2]
-            self.loader.height = H
-            self.loader.width = W
-        else:
-            cfg = ConfigParser()
-            cfg.read(path)
-            self.loader.fps = float(cfg['Sequence']['frameRate'])
-            self.loader.length = int(cfg['Sequence']['seqLength'])
-            self.loader.height = int(cfg['Sequence']['imHeight'])
-            self.loader.width = int(cfg['Sequence']['imWidth'])
-
-
-class LoaderDirector:
-
-    def __init__(self):
-        self._builder = None
-
-    def set_builder(self, builder):
-        self._builder = builder
-
-    def build_videoloader(self, path):
-        self._builder.reset()
-        self._builder.set_input(path)
-
-    def build_imagefolderloader(self, imdir_path, ini_path):
-        self._builder.reset()
-        self._builder.set_input(imdir_path)
-        self._builder.set_metadata(ini_path)
-
-
 
 

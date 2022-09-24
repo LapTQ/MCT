@@ -11,10 +11,10 @@ import cv2
 import sys
 sys.path.append(sys.path[0] + '/..')
 
-from mct.sct import SCT
+from mct.sct import SimpleSCT
 from mct.utils.vis_utils import plot_box
-from mct.utils.db_utils import DBDirector, PymongoBuilder, MongoEngineBuilder
-from mct.utils.vid_utils import LoaderDirector, VideoLoaderBuilder, ImageFolderLoaderBuilder
+from mct.utils.db_utils import Pymongo, MongoEngine
+from mct.utils.vid_utils import VideoLoader, ImageFolderLoader
 
 
 HERE = Path(__file__).parent
@@ -29,8 +29,8 @@ def parse_opt():
     ap.add_argument('--imdir_ini', type=str, default=None, help='path to image folder metadata')
     ap.add_argument('--save_db', action='store_true', help='save result to database')
     ap.add_argument('--db_framework', type=str, default='pymongo') # pymongo mongoengine
-    ap.add_argument('--db_host', type=str, default=None, help='address of db container') # 'localhost' 'mct_mongodb'
-    ap.add_argument('--db_port', type=int, default=None, help='port of db container') # 27017
+    ap.add_argument('--db_host', type=str, default=None, help='address of db container') # from host: 'localhost', from docker env: 'mct_mongodb'
+    ap.add_argument('--db_port', type=int, default=None, help='port of db container') # from host: 1111, from docker env: 27017
     ap.add_argument('--db_name', type=str, default='sct_db', help='name of database')
     ap.add_argument('--output', type=str, default=None, help='path to output folder')
     ap.add_argument('--save_txt', action='store_true', help='save to .txt in MOT challenge format')
@@ -44,12 +44,14 @@ def parse_opt():
 
 def main(opt):
 
+    # process input path
     if opt.input == '0':
         opt.input = 0
     elif not os.path.exists(opt.input):
         print('[INFO] Video %s not exists' % opt.input)
         return
 
+    # process output path
     if opt.output is None:
         opt.output = str(HERE/'../output')
     if not os.path.isdir(opt.output):
@@ -59,25 +61,20 @@ def main(opt):
     t0 = time.time()
 
     # video loader
-    loader_director = LoaderDirector()
     if os.path.isdir(opt.input):    # if input a folder of images
-        loader_builder = ImageFolderLoaderBuilder()
-        loader_director.set_builder(loader_builder)
-        loader_director.build_imagefolderloader(opt.input, opt.imdir_ini)
-        loader = loader_builder.get_product()
-    else:   # if input a video/cam
-        loader_builder = VideoLoaderBuilder()
-        loader_director.set_builder(loader_builder)
-        loader_director.build_videoloader(opt.input)
-        loader = loader_builder.get_product()
+        loader = ImageFolderLoader.Builder(opt.input, opt.imdir_ini).get_product()
+    else:                           # if input a video/cam
+        loader = VideoLoader.Builder(opt.input).get_product()
 
+    # create detector and tracker
     # TODO different options here: if opt.hardware == 'weak':
-    sct = SCT()
+    sct = SimpleSCT()
     detector = sct.create_detector()
     tracker = sct.create_tracker(loader)
 
     FPS = loader.get_fps()
 
+    # process output name
     filename = os.path.basename(str(opt.input))
     name_root, _ = os.path.splitext(filename)
     now = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -88,19 +85,22 @@ def main(opt):
         assert opt.db_host is not None, "--db_host must be specified if --save_db is set"
         assert opt.db_port is not None, "--db_port must be specified if --save_db is set"
         print(f"[INFO] Connecting to {opt.db_host} using port {opt.db_port}")
-        db_director = DBDirector()
         if opt.db_framework == 'pymongo':
-            db_builder = PymongoBuilder()
-            db_director.set_builder(db_builder)
-            db_director.build_pymongo(opt.db_host, opt.db_port, opt.db_name, out_name_root)
-            mongo = db_builder.get_product()
+            mongo = Pymongo.Builder(opt.db_host, opt.db_port
+                                    ).set_database(opt.db_name
+                                                   ).set_collection(out_name_root
+                                                                    ).get_product()
         elif opt.db_framework == 'mongoengine':
-            db_builder = MongoEngineBuilder()
-            db_director.set_builder(db_builder)
-            db_director.build_mongoengine(opt.db_host, opt.db_port, opt.db_name, out_name_root)
-            mongo = db_builder.get_product()
+            mongo = MongoEngine.Builder(opt.db_host, opt.db_port
+                                        ).set_databse(opt.db_name
+                                                      ).set_collection(out_name_root
+                                                                    ).get_product()
         else:
             raise ValueError(f'{opt.db_framework} not supported')
+
+        print(f"[INFO] DB tool: {opt.db_framework}")
+        print(f"[INFO] DB database name: {opt.db_name}")
+        print(f"[INFO] DB collection name: {out_name_root}")
 
     if opt.display:
         cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
@@ -127,6 +127,7 @@ def main(opt):
         
         ret, frame = loader.read()
 
+        # terminal condition
         condition = not ret or frame is None
         if opt.display:
             condition = condition or cv2.waitKey(int(1000 / FPS)) & 0xFF == ord('q')
@@ -183,10 +184,11 @@ def main(opt):
 
     if opt.save_db:
         mongo.close()
+        print('[INFO] DB closed')
 
     if opt.save_txt:
         print('\n'.join(txt_buffer), file=out_txt)
-        print('[INFO] Result saved in', opt.output/(out_name_root + '.txt'))
+        print('[INFO] MOT17-format .txt saved in', opt.output/(out_name_root + '.txt'))
         out_txt.close()
 
     if opt.display:

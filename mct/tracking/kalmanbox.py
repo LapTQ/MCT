@@ -13,6 +13,20 @@ HERE = Path(__file__).parent
 
 class KalmanBoxBase(ABC):
 
+    class Builder(ABC):
+
+        @abstractmethod
+        def __init__(self):
+            pass
+
+        @abstractmethod
+        def _reset(self):
+            pass
+
+        @abstractmethod
+        def get_product(self):
+            pass
+
     @abstractmethod
     def predict(self) -> np.ndarray:
         pass
@@ -26,48 +40,65 @@ class KalmanBoxBase(ABC):
         pass
 
 
-class KalmanBoxBuilder(ABC):
-
-    @abstractmethod
-    def reset(self):
-        pass
-
-    @abstractmethod
-    def get_product(self):
-        pass
-
-
-class KalmanBoxStandard(KalmanBoxBase):
+class KalmanBox(KalmanBoxBase):
 
     count = 0
 
-    def __init__(self):
-        self.kf = KalmanFilter(dim_x=7, dim_z=4)
+    class Builder(KalmanBoxBase.Builder):
 
-        KalmanBoxStandard.count += 1
-        self.id = KalmanBoxStandard.count
-        self.conf = None
+        def __init__(self, cfg_path):
+            """Construct from YAML"""
 
-        self.age = 0
-        self.hit_streak = 0
-        self.history = []
+            # setting from YAML
+            with open(cfg_path, 'r') as f:
+                self._cfg = yaml.load(f, Loader=yaml.FullLoader)
+
+            self._reset()
+
+
+        def set_box(self, box):
+            """box: [x1, y1, x2, y2, conf]"""
+            self._product.kf.x[:4] = xyxy2xysr(box[:4]).reshape(4, 1)
+            self._product.conf = box[4].item()
+
+            return self
+
+        def _reset(self) -> None:
+            self._product = KalmanBox()
+
+            KalmanBox.count += 1
+            self._product.id = KalmanBox.count
+
+            self._product.age = 0
+            self._product.hit_streak = 0
+            self._product.history = []
+
+            self._product.kf = KalmanFilter(dim_x=7, dim_z=4)
+            self._product.kf.F = np.array(self._cfg['F'], dtype='float32')
+            self._product.kf.H = np.array(self._cfg['H'], dtype='float32')
+            self._product.kf.P = np.array(self._cfg['P'], dtype='float32')
+            self._product.kf.Q = np.array(self._cfg['Q'], dtype='float32')
+            self._product.kf.R = np.array(self._cfg['R'], dtype='float32')
+
+        def get_product(self) -> KalmanBoxBase:
+            product = self._product
+            self._reset()
+            return product
 
     def predict(self):
-        """
-        return [x1, y1, x2, y2]
-        """
+        """return [x1, y1, x2, y2]"""
         if self.kf.x[6] + self.kf.x[2] <= 0:
             self.kf.x[6] = 0
         self.kf.predict()
-        # TODO tune dieu kien nay (QUAN TRONG)
-        # if self.age > 0:
-        #     self.hit_streak = 0         # cần thiết vì để đảm bảo cả min_hits frame đầu tiên đều được detect
+        # TODO bat/tat dieu kien nay (QUAN TRONG)
+        if self.age > 0:
+            self.hit_streak = 0         # cần thiết vì để đảm bảo cả min_hits frame đầu tiên đều được detect
         self.age += 1
         self.history.append(xysr2xyxy(self.kf.x[:4].reshape(4,)))
         return self.history[-1]
 
     def update(self, box):
-        # box: [x1, y1, x2, y2, conf]
+        """box: [x1, y1, x2, y2, conf]"""
         # TODO handle default box = np.empty((0, 5))
         self.age = 0
         self.hit_streak += 1
@@ -78,66 +109,21 @@ class KalmanBoxStandard(KalmanBoxBase):
         self.conf = box[4]
 
     def get_state(self):
-        """
-        return [x1, y1, x2, y2, conf]
-        """
+        """return [x1, y1, x2, y2, conf]"""
         return np.concatenate([xysr2xyxy(self.kf.x[:4].reshape(4,)), [self.conf]], axis=0)
 
 
-class KalmanBoxStandardBuilder(KalmanBoxBuilder):
+if __name__ == '__main__':
 
-    def __init__(self):
-        self._kalmanbox = None
-
-        with open(HERE/'../configs/kalmanboxstandard.yaml', 'r') as f:
-            self._cfg = yaml.load(f, Loader=yaml.FullLoader)
-
-        self.reset()
-
-    def reset(self) -> None:
-        self._kalmanbox = KalmanBoxStandard()
-
-    def get_product(self) -> KalmanBoxBase:
-        product = self._kalmanbox
-        self.reset()
-        return product
-
-    def set_initial_z(self, box) -> None:
-        # [id, x1, y1, x2, y2, conf]
-        self._kalmanbox.kf.x[:4] = xyxy2xysr(box[:4]).reshape(4, 1)
-        self._kalmanbox.conf = box[4].item()
-
-    def set_F(self) -> None:
-        self._kalmanbox.kf.F = np.array(self._cfg['F'], dtype='float32')
-
-    def set_H(self) -> None:
-        self._kalmanbox.kf.H = np.array(self._cfg['H'], dtype='float32')
-
-    def set_P(self) -> None:
-        self._kalmanbox.kf.P = np.array(self._cfg['P'], dtype='float32')
-
-    def set_Q(self) -> None:
-        self._kalmanbox.kf.Q = np.array(self._cfg['Q'], dtype='float32')
-
-    def set_R(self) -> None:
-        self._kalmanbox.kf.R = np.array(self._cfg['R'], dtype='float32')
+    kalmanbox_builder = KalmanBox.Builder('../configs/kalmanboxstandard.yaml')
+    kb = kalmanbox_builder.set_box(np.array([1, 2, 3, 4, 5])).get_product()
+    kb.update([3, 4, 5, 6, 7])
+    print(kb.conf)
 
 
-class KalmanBoxDirector:
 
-    def __init__(self):
-        self._builder = None
 
-    def set_builder(self, builder: KalmanBoxBuilder) -> None:
-        self._builder = builder
 
-    def build_KalmanBoxStandard(self, box: np.ndarray):
-        self._builder.reset()
-        self._builder.set_initial_z(box)
-        self._builder.set_F()
-        self._builder.set_H()
-        self._builder.set_P()
-        self._builder.set_Q()
-        self._builder.set_R()
+
 
 

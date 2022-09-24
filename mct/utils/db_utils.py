@@ -22,33 +22,51 @@ class DBBase(ABC):
         pass
 
 
-class DBBuilder(ABC):
+class BuilderBase(ABC):
 
     @abstractmethod
-    def reset(self) -> None:
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def _reset(self) -> None:
         pass
 
     @abstractmethod
     def get_product(self) -> DBBase:
         pass
 
-    @abstractmethod
-    def set_collection(self, collection) -> None:
-        pass
-
 
 class Pymongo(DBBase):
 
-    def __init__(self):
-        self.client = None
-        self.database = None
-        self.collection = None
+    class Builder(BuilderBase):
+
+        def __init__(self, host, port):
+            self._reset()
+
+            self._product.client = MongoClient(host, port)
+
+        def set_database(self, database):
+            self._product.database = self._product.client[database]
+
+            return self
+
+        def set_collection(self, collection):
+            self._product.collection = self._product.database[collection]
+
+            return self
+
+
+        def _reset(self) -> None:
+            self._product = Pymongo()
+
+        def get_product(self) -> DBBase:
+            product = self._product
+            self._reset()
+            return product
 
     def update(self, tracklets: np.ndarray) -> None:
-        """
-        update tracks
-        tracklets: [[frame, id, x1, y1, x2, y2, conf],...]
-        """
+        """tracklets: [[frame, id, x1, y1, x2, y2, conf],...]"""
         assert len(tracklets.shape) == 2 and tracklets.shape[1] == 7, 'Invalid tracklets shape'
         for tl in tracklets:
             self.collection.update_one(
@@ -66,35 +84,48 @@ class Pymongo(DBBase):
         self.client.close()
 
 
-class PymongoBuilder(DBBuilder):
-
-    def __init__(self):
-        self.mongo = None
-
-    def reset(self) -> None:
-        self.mongo = Pymongo()
-
-    def get_product(self) -> DBBase:
-        product = self.mongo
-        self.reset()
-        return product
-
-    def set_client(self, host, port) -> None:
-        self.mongo.client = MongoClient(host, port)
-
-    def set_database(self, database) -> None:
-        self.mongo.database = self.mongo.client[database]
-
-    def set_collection(self, collection) -> None:
-        self.mongo.collection = self.mongo.database[collection]
-
-
 class MongoEngine(DBBase):
 
-    def __init__(self):
-        self.database = None
-        self.detection_document = None
-        self.track_document = None
+    class Builder(BuilderBase):
+
+        def __init__(self, host, port):
+            self._reset()
+
+            self.host = host
+            self.port = port
+
+        def set_databse(self, database):
+            connect(host=f'mongodb://{self.host}:{self.port}/{database}')
+            self._product.database = database
+
+            return self
+
+        def set_collection(self, collection) -> None:
+            class Detection(EmbeddedDocument):
+                frameid = IntField(required=True)
+                box = ListField(field=FloatField(), default=[], required=True)
+                score = FloatField(required=True)
+
+            class Track(Document):
+                trackid = IntField(db_field='trackid', required=True, unique=True)
+                detections = EmbeddedDocumentListField(Detection, db_field='detections', default=[], required=True)
+                meta = {
+                    'collection': collection,
+                    # 'indexes': ['trackid']  # TODO check
+                }
+
+            self._product.detection_document = Detection
+            self._product.track_document = Track
+
+            return self
+
+        def _reset(self) -> None:
+            self._product = MongoEngine()
+
+        def get_product(self) -> DBBase:
+            product = self._product
+            self._reset()
+            return product
 
     def update(self, tracklets: np.ndarray) -> None:
         """
@@ -112,60 +143,5 @@ class MongoEngine(DBBase):
     def close(self) -> None:
         disconnect(self.database)
 
-
-class MongoEngineBuilder(DBBuilder):
-
-    def __init__(self):
-        self.mongo = None
-
-    def reset(self) -> None:
-        self.mongo = MongoEngine()
-
-    def get_product(self) -> DBBase:
-        product = self.mongo
-        self.reset()
-        return product
-
-    def set_database(self, host, port, database) -> None:
-        connect(host=f'mongodb://{host}:{port}/{database}')
-        self.mongo.database = database
-
-    def set_collection(self, collection) -> None:
-
-        class Detection(EmbeddedDocument):
-            frameid = IntField(required=True)
-            box = ListField(field=FloatField(), default=[], required=True)
-            score = FloatField(required=True)
-
-        class Track(Document):
-            trackid = IntField(db_field='trackid', required=True, unique=True)
-            detections = EmbeddedDocumentListField(Detection, db_field='detections', default=[], required=True)
-            meta = {
-                'collection': collection,
-                # 'indexes': ['trackid']  # TODO check
-            }
-
-        self.mongo.detection_document = Detection
-        self.mongo.track_document = Track
-
-
-class DBDirector:
-
-    def __init__(self):
-        self._builder = None
-
-    def set_builder(self, builder: DBBuilder) -> None:
-        self._builder = builder
-
-    def build_pymongo(self, host, port, database, collection) -> None:
-        self._builder.reset()
-        self._builder.set_client(host, port)
-        self._builder.set_database(database)
-        self._builder.set_collection(collection)
-
-    def build_mongoengine(self, host, port, database, collection) -> None:
-        self._builder.reset()
-        self._builder.set_database(host, port, database)
-        self._builder.set_collection(collection)
 
 

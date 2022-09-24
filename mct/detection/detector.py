@@ -16,34 +16,49 @@ class DetectorBase(ABC):
 
     @abstractmethod
     def predict(self, img: np.ndarray, BGR: bool) -> np.ndarray:
-        pass
-
-
-class DetectorBuilder(ABC):
-
-    @abstractmethod
-    def reset(self) -> None:
-        pass
-
-    @abstractmethod
-    def set_model(self) -> None:
-        pass
-
-    @abstractmethod
-    def set_input_size(self) -> None:
-        pass
-
-    @abstractmethod
-    def get_product(self) -> DetectorBase:
+        """return [[x1, y1, x2, y2, conf], ...]"""
         pass
 
 
 class YOLOv5(DetectorBase):
 
-    def __init__(self) -> None:
-        self.model = None
-        self.input_size = None
+    class Builder:
 
+        def __init__(self, cfg_path):
+            """Construct from YAML"""
+            self._reset()
+
+            cfg_parent = Path(cfg_path).parent
+            with open(cfg_path, 'r') as f:
+                cfg = yaml.load(f, Loader=yaml.FullLoader)
+
+            # set model
+            weight_path = cfg_parent / cfg['weights']
+            assert os.path.exists(weight_path), 'No such file or directory'
+            model = torch.hub.load('ultralytics/yolov5', 'custom', path=weight_path)
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+            model.to(device)
+            model.iou = cfg['iou']
+            model.conf = cfg['conf']
+            self._product.model = model
+
+            print('[CFG] YOLOv5 model:', weight_path)
+            print('[CFG] YOLOv5 device:', device)
+            print('[CFG] YOLOv5 iou threshold:', cfg['iou'])
+            print('[CFG] YOLOv5 confidence threshold:', cfg['conf'])
+
+            # set input size
+            self._product.input_size = cfg['size']
+            print('[CFG] YOLOv5 input size:', cfg['size'])
+
+        def _reset(self) -> None:
+            self._product = YOLOv5()
+
+        def get_product(self) -> DetectorBase:
+            product = self._product
+            self._reset()
+            return product
 
     def predict(self, img: np.ndarray, BGR: bool) -> np.ndarray:
         """
@@ -58,65 +73,11 @@ class YOLOv5(DetectorBase):
         return ret
 
 
-class YOLOv5Builder(DetectorBuilder):
-
-    def __init__(self):
-        self._detector = None
-
-        with open(HERE/'../configs/yolov5s.yaml', 'r') as f:
-            self._cfg = yaml.load(f, Loader=yaml.FullLoader)
-
-        self.reset()
-
-    def reset(self) -> None:
-        self._detector = YOLOv5()
-
-    # TODO config loader
-    def set_model(self) -> None:
-        assert os.path.exists(HERE/self._cfg['weights']), 'No such file or directory'
-        print('[CFG] YOLOv5 model:', HERE/self._cfg['weights'])
-        model = torch.hub.load('ultralytics/yolov5', 'custom', path=HERE/self._cfg['weights'])
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model.to(device)
-        self._detector.model = model
-        print('[CFG] YOLOv5 device:', device)
-
-        print('[CFG] YOLOv5 iou threshold:', self._cfg['iou'])
-        self._detector.model.iou = self._cfg['iou']
-
-        print('[CFG] YOLOv5 confidence threshold:', self._cfg['conf'])
-        self._detector.model.conf = self._cfg['conf']
-
-    def set_input_size(self) -> None:
-        print('[CFG] YOLOv5 input size:', self._cfg['size'])
-        self._detector.input_size = self._cfg['size']
-
-    def get_product(self) -> DetectorBase:
-        product = self._detector
-        self.reset()
-        return product
-
-
-class DetectorDirector:
-
-    def __init__(self) -> None:
-        self._builder = None
-
-    def set_builder(self, builder: DetectorBuilder) -> None:
-        self._builder = builder
-
-    def build_YOLOv5(self) -> None:
-        self._builder.reset()
-        self._builder.set_model()
-        self._builder.set_input_size()
+HERE / '../configs/yolov5s.yaml'
 
 
 if __name__ == '__main__':
-    director = DetectorDirector()
-    builder = YOLOv5Builder()
-    director.set_builder(builder)
-    director.build_YOLOv5()
-    detector = builder.get_product()
+    detector = YOLOv5.Builder(HERE / '../configs/yolov5s.yaml').get_product()
 
     # video_loader = cv2.VideoCapture('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/fish.mp4')
     # cv2.namedWindow('show', cv2.WINDOW_NORMAL)

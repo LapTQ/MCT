@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 
 from mct.utils.img_utils import iou_associate
-from mct.tracking.kalmanbox import KalmanBoxDirector, KalmanBoxStandardBuilder
+from mct.tracking.kalmanbox import KalmanBoxBase, KalmanBox
 from mct.utils.vid_utils import LoaderBase
 
 
@@ -19,33 +19,37 @@ class TrackerBase(ABC):
         pass
 
 
-class TrackerBuilder(ABC):
-
-    @abstractmethod
-    def reset(self) -> None:
-        pass
-
-    @abstractmethod
-    def get_product(self) -> TrackerBase:
-        pass
-
-
 class SORT(TrackerBase):
 
-    def __init__(self) -> None:
-        self.max_age = None
-        self.min_hits = None
-        self.iou_threshold = None
+    class Builder:
 
-        self.frame_count = 0
-        self.objects = []   # temporarily observed Kalman objects, not "displayed objects"
+        def __init__(self, cfg_path: str, loader: LoaderBase, kalmanbox_builder: KalmanBoxBase.Builder):
+            self._reset()
 
-    def create_KalmanBox(self, box):
-        director = KalmanBoxDirector()
-        builder = KalmanBoxStandardBuilder()
-        director.set_builder(builder)
-        director.build_KalmanBoxStandard(box)
-        return builder.get_product()
+            self._product.frame_count = 0
+            self._product.objects = []  # temporarily observed Kalman objects, not "displayed objects"
+
+            # setting from YAML
+            with open(cfg_path, 'r') as f:
+                cfg = yaml.load(f, Loader=yaml.FullLoader)
+
+            self._product.max_age = int(cfg['max_age'] * loader.get_fps())
+            self._product.min_hits = int(cfg['min_hits'] * loader.get_fps())
+            self._product.iou_threshold = cfg['iou_threshold']
+
+            self._product.kalmanbox_builder = kalmanbox_builder
+
+            print('[CFG] SORT max_age:', cfg['max_age'])
+            print('[CFG] SORT min_hits:', cfg['min_hits'])
+            print('[CFG] SORT iou_threshold:', cfg['iou_threshold'])
+
+        def _reset(self) -> None:
+            self._product = SORT()
+
+        def get_product(self) -> KalmanBoxBase:
+            product = self._product
+            self._reset()
+            return product
 
     # TODO thu xoa default dets=np.empty di -> cho lam output cua detection
     def update(self, dets: np.ndarray = np.empty((0, 5))) -> np.ndarray:
@@ -77,12 +81,13 @@ class SORT(TrackerBase):
             self.objects[m[1]].update(dets[m[0]])
 
         for d in unmatched_dets:
-            self.objects.append(self.create_KalmanBox(dets[d]))
+            self.objects.append(self.kalmanbox_builder.set_box(dets[d]).get_product())
 
         ret = []
         for i in range(len(self.objects) - 1, -1, -1):
             obj = self.objects[i]
             # TODO sao self.frame_count <= (thay vi <???? => mat frame 3)
+            # TODO xem todo o KalmanBox, viec bat tat todo co anh huong rat lon den visualize @@
             if obj.age <= self.max_age and (self.frame_count <= self.min_hits or obj.hit_streak >= self.min_hits):
                 ret.append(np.concatenate([[obj.id], obj.get_state()]))  # [id] + [x1, y1, x2, y2, conf]
             if obj.age > self.max_age:
@@ -90,55 +95,3 @@ class SORT(TrackerBase):
 
         return np.array(ret).reshape(-1, 6)
 
-
-class SORTBuilder(TrackerBuilder):
-
-    def __init__(self, loader: LoaderBase) -> None:
-        self._tracker = None
-
-        with open(HERE/'../configs/sort.yaml', 'r') as f:
-            self._cfg = yaml.load(f, Loader=yaml.FullLoader)
-        self.loader = loader
-
-        self.reset()
-
-    def reset(self) -> None:
-        self._tracker = SORT()
-
-    def set_max_age(self) -> None:
-        self._tracker.max_age = int(self._cfg['max_age'] * self.loader.get_fps())
-        print('[CFG] SORT max_age:', self._cfg['max_age'])
-
-    def set_min_hits(self) -> None:
-        self._tracker.min_hits = int(self._cfg['min_hits'] * self.loader.get_fps())
-        print('[CFG] SORT min_hits:', self._cfg['min_hits'])
-
-    def set_iou_threshold(self) -> None:
-        self._tracker.iou_threshold = self._cfg['iou_threshold']
-        print('[CFG] SORT iou_threshold:', self._cfg['iou_threshold'])
-
-    def get_product(self) -> TrackerBase:
-        product = self._tracker
-        self.reset()
-        return product
-
-
-class TrackerDirector:
-
-    def __init__(self) -> None:
-        self._builder = None
-
-    def set_builder(self, builder: TrackerBuilder) -> None:
-        self._builder = builder
-
-    def build_SORT(self) -> None:
-        self._builder.reset()
-        self._builder.set_max_age()
-        self._builder.set_min_hits()
-        self._builder.set_iou_threshold()
-
-
-if __name__ == '__main__':
-
-    # TODO danh gia ket qua tung modun
-    pass
