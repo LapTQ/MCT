@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 
 from mct.utils.img_utils import iou_associate
-from mct.tracking.kalmanbox import KalmanBoxBase, KalmanBox
+from mct.tracking.kalmanbox import KalmanBoxBase
 from mct.utils.vid_utils import LoaderBase
 
 
