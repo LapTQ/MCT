@@ -4,6 +4,9 @@ import numpy as np
 from pathlib import Path
 import yaml
 
+import sys
+sys.path.append(sys.path[0] + '/../..')
+
 from mct.utils.img_utils import iou_associate
 from mct.tracking.kalmanbox import KalmanBoxBase
 from mct.utils.vid_utils import LoaderBase
@@ -95,3 +98,49 @@ class SORT(TrackerBase):
 
         return np.array(ret).reshape(-1, 6)
 
+
+if __name__ == '__main__':
+    import sys
+
+    sys.path.append(sys.path[0] + '/../..')
+
+    from mct.utils.vid_utils import ImageFolderLoader
+    from mct.tracking.kalmanbox import KalmanBox
+    from tqdm import tqdm
+    import numpy as np
+    import os
+
+    kalmanbox_builder = KalmanBox.Builder(HERE / '../configs/kalmanboxstandard.yaml')
+
+    root = str(HERE/'../../output/det')
+    out_dir = str(HERE / '../../eval/TrackEval/data/trackers/mot_challenge/MOT17-train/SCT/data')
+    os.makedirs(out_dir, exist_ok=True)
+    for filename in os.listdir(root):
+        basename = os.path.splitext(filename)[0]
+        loader = ImageFolderLoader.Builder(os.path.join(str(HERE/'../../data/MOT17/train'), basename, 'img1'),
+                                           os.path.join(str(HERE/'../../data/MOT17/train'), basename, 'seqinfo.ini')).get_product()
+
+        output_path = out_dir + '/' + basename + '.txt'
+        txt_buffer = []
+        out_txt = open(output_path, 'w')
+
+        tracker = SORT.Builder(str(HERE / '../configs/sort.yaml'), loader, kalmanbox_builder).get_product()
+
+        dets_seq = np.loadtxt(os.path.join(root, filename), delimiter=',')
+        for frame_count in tqdm(range(int(dets_seq[:, 0].max()))):
+            frame_count += 1
+
+            dets = dets_seq[dets_seq[:, 0] == frame_count][:, 1:] ## [[x1, y1, x2, y2, conf], ...]
+            tracklets = tracker.update(dets)  # [[id, x1, y1, x2, y2, conf]...]
+
+            ret = np.concatenate([np.array([frame_count] * len(tracklets)).reshape(-1, 1), tracklets],
+                                 axis=1)  # [[frame, id, x1, y1, x2, y2, conf]...]
+            for obj in ret:
+                # [frame, id, x1, y1, w, h, conf, -1, -1, -1]
+                txt_buffer.append(
+                    f'{int(obj[0])}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
+
+        loader.release()
+
+        print('\n'.join(txt_buffer), file=out_txt)
+        print('[INFO] MOT17-format .txt saved in', output_path)

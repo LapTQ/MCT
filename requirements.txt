@@ -1,13 +1,13 @@
 # pip install -r requirements.txt
 
-numpy==1.23.2
+numpy==1.21.6 # 1.23.2
 opencv-python==4.5.4.60
 opencv-contrib-python==4.5.4.60
 opencv-python-headless==4.5.4.60
 matplotlib==3.5.3
 qtconsole
 PyYAML==5.3.1
-pandas==1.4.3
+pandas==1.3.5 # 1.4.3
 seaborn==0.11.2
 filterpy==1.4.5
 scikit-image==0.19.3

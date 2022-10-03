@@ -10,15 +10,43 @@ Yếu tố ảnh hưởng đến SORT:
 * các thông số của kalman filter
 * FPS
 
+
+## Colab evaluation code
+
 ```
-HOTA: SCT-pedestrian               HOTA      DetA      AssA      DetRe     DetPr     AssRe     AssPr     LocA      RHOTA     HOTA(0)   LocA(0)   HOTALocA(0)
-COMBINED                           31.872    25.28     40.647    26.995    71.427    43.371    82.584    81.938    33.005    40.478    75.301    30.48
-
-CLEAR: SCT-pedestrian              MOTA      MOTP      MODA      CLR_Re    CLR_Pr    MTR       PTR       MLR       sMOTA     CLR_TP    CLR_FN    CLR_FP    IDSW      MT        PT        ML        Frag
-COMBINED                           25.585    79.799    26.029    31.911    84.436    15.629    36.142    48.23     19.138    107505    229386    19817     1496      256       592       790       1928
-
-Count: SCT-pedestrian              Dets      GT_Dets   IDs       GT_IDs    
-COMBINED                           127322    336891    2891      1638
+!git clone https://LapTQ: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@github.com/LapTQ/MCT.git
+%cd MCT
+%cd data
+!wget https://motchallenge.net/data/MOT17.zip
+!unzip MOT17.zip
+%cd ../eval
+!wget https://github.com/JonathonLuiten/TrackEval/archive/refs/heads/master.zip
+!unzip master.zip
+!mv TrackEval-master TrackEval
+%cd TrackEval
+!wget https://omnomnom.vision.rwth-aachen.de/data/TrackEval/data.zip
+!unzip data.zip
+%cd ../..
+!pip install -r requirements.txt
 ```
 
+```
+%cd /content/MCT/
+!python eval/predict_mot17.py
+```
 
+```
+%cd /content/MCT/eval/TrackEval
+!python scripts/run_mot_challenge.py --BENCHMARK MOT17 --TRACKERS_TO_EVAL SCT --METRICS HOTA --USE_PARALLEL False --NUM_PARALLEL_CORES 1
+# !python scripts/run_mot_challenge.py --BENCHMARK MOT17 --TRACKERS_TO_EVAL SCT --METRICS CLEAR --USE_PARALLEL False --NUM_PARALLEL_CORES 1
+```
+
+```
+%cd /content/MCT
+!python3 mct/detection/detector.py
+```
+
+```
+%cd /content/MCT
+!python3 mct/tracking/tracker.py
+```

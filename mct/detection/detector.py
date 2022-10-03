@@ -73,38 +73,51 @@ class YOLOv5(DetectorBase):
         return ret
 
 
-HERE / '../configs/yolov5s.yaml'
-
-
 if __name__ == '__main__':
+
+    import sys
+    sys.path.append(sys.path[0] + '/../..')
+
+    from mct.utils.vid_utils import ImageFolderLoader
+    from tqdm import tqdm
+    import os
+
+
+    root = str(HERE/'../../data/MOT17/train')
+    out_dir = str(HERE / '../../output/det')
+    os.makedirs(out_dir, exist_ok=True)
+
+
     detector = YOLOv5.Builder(HERE / '../configs/yolov5s.yaml').get_product()
 
-    # video_loader = cv2.VideoCapture('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/fish.mp4')
-    # cv2.namedWindow('show', cv2.WINDOW_NORMAL)
-    # from mct.utils.vis_utils import plot_box
-    #
-    # buf = []
-    # frame_count = 0
-    #
-    # for _ in range(int(video_loader.get(cv2.CAP_PROP_FRAME_COUNT))):
-    #     frame_count += 1
-    #     print('frame:', frame_count)
-    #     ret, frame = video_loader.read()
-    #
-    #     if not ret or frame is None:
-    #         break
-    #
-    #     dets = detector.predict(frame, BGR=True)
-    #
-    #     show_img = plot_box(frame, dets[:, :4])
-    #     cv2.imshow('show', show_img)
-    #     cv2.waitKey(1)
-    #
-    #     for det in dets:
-    #         # [frame, id, x1, y1, w, h, conf, -1, -1, -1]
-    #         buf.append(
-    #             f'{frame_count}, -1, {det[0].item():.6f}, {det[1].item():.6f}, {(det[2] - det[0]).item():.6f}, {(det[3] - det[1]).item():.6f}, {det[4].item():.6f}, -1, -1, -1')
-    #
-    # # print('\n'.join(buf), file=open('../../output/dets.txt', 'w'))
-    # video_loader.release()
+    for dir in os.listdir(root):
+        input_path = os.path.join(root, dir, 'img1')
+        loader = ImageFolderLoader.Builder(input_path, None).get_product()
+        output_path = out_dir + '/' + dir + '.txt'
+        txt_buffer = []
+        out_txt = open(output_path, 'w')
+
+        frame_count = 0
+        pbar = tqdm(range(len(loader)))
+        for _ in pbar:
+
+            ret, frame = loader.read()
+
+            # terminal condition
+            condition = not ret or frame is None
+            if condition:
+                break
+
+            frame_count += 1
+            dets = detector.predict(frame, BGR=True)  # [[x1, y1, x2, y2, conf], ...]
+
+            for obj in dets:
+                # [[frame, x1, y1, x2, y2, conf]]
+                txt_buffer.append(
+                    f'{frame_count}, {float(obj[0])}, {float(obj[1])}, {float(obj[2])}, {float(obj[3])}, {float(obj[4])}')
+
+        loader.release()
+        print('\n'.join(txt_buffer), file=out_txt)
+        print('[INFO] MOT17-format .txt saved in', output_path)
+        out_txt.close()
 
