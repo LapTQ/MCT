@@ -1,4 +1,6 @@
 from pathlib import Path
+from typing import Union
+import numpy as np
 
 from abc import ABC, abstractmethod
 from mct.detection.detector import DetectorBase, YOLOv5
@@ -13,23 +15,48 @@ class SCTBase(ABC):
 
     # TODO type checking
     @abstractmethod
-    def create_detector(self) -> DetectorBase:
-        pass
-
-    @abstractmethod
-    def create_tracker(self, loader: LoaderBase) -> TrackerBase:
+    def predict(self, frame: np.ndarray, BGR: bool) -> np.ndarray:
         pass
 
 
 class SimpleSCT(SCTBase):
     """YOLOv5 + SORT"""
 
-    def create_detector(self) -> DetectorBase:
-        detector = YOLOv5.Builder(HERE / './configs/yolov5s.yaml').get_product()
-        return detector
+    class Builder:
 
-    def create_tracker(self, loader: LoaderBase) -> TrackerBase:
-        kalmanbox_builder = KalmanBox.Builder(HERE / './configs/kalmanboxstandard.yaml')
-        tracker = SORT.Builder(HERE/'./configs/sort.yaml', loader, kalmanbox_builder).get_product()
-        return tracker
+        def __init__(self, loader: LoaderBase) -> None:
+            self._reset()
+
+            self._product.detector = YOLOv5.Builder(str(HERE / './configs/yolov5s.yaml')).get_product()
+
+            kalmanbox_builder = KalmanBox.Builder(str(HERE / './configs/kalmanboxstandard.yaml'))
+            self._product.tracker = SORT.Builder(str(HERE / './configs/sort.yaml'), loader,
+                                                 kalmanbox_builder).get_product()
+
+            self._product.frame_count = 0
+
+        def _reset(self):
+            self._product = SimpleSCT()
+
+        def get_product(self) -> SCTBase:
+            product = self._product
+            self._reset()
+            return product
+
+    def predict(self, frame: np.ndarray, BGR: bool) -> np.ndarray:
+
+        self.frame_count += 1
+
+        dets = self.detector.predict(frame, BGR=BGR)  # [[x1, y1, x2, y2, conf], ...]
+
+        # TODO refactor: adapter
+        # TODO tại sao trong code của kalman không dùng tới conf của dets? kiểm tra lại thông số của kalman xem có liên quan không
+        tracklets = self.tracker.update(dets)  # [[id, x1, y1, x2, y2, conf]...]
+
+        ret = np.concatenate([np.array([self.frame_count] * len(tracklets)).reshape(-1, 1), tracklets],
+                             axis=1)  # [[frame, id, x1, y1, x2, y2, conf]...]
+
+        return ret
+
+
 

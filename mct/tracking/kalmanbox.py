@@ -46,7 +46,7 @@ class KalmanBox(KalmanBoxBase):
 
     class Builder(KalmanBoxBase.Builder):
 
-        def __init__(self, cfg_path):
+        def __init__(self, cfg_path:str):
             """Construct from YAML"""
 
             # setting from YAML

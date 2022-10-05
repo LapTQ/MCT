@@ -24,7 +24,7 @@ class YOLOv5(DetectorBase):
 
     class Builder:
 
-        def __init__(self, cfg_path):
+        def __init__(self, cfg_path: str):
             """Construct from YAML"""
             self._reset()
 

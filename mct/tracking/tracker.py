@@ -49,7 +49,7 @@ class SORT(TrackerBase):
         def _reset(self) -> None:
             self._product = SORT()
 
-        def get_product(self) -> KalmanBoxBase:
+        def get_product(self) -> TrackerBase:
             product = self._product
             self._reset()
             return product
@@ -57,7 +57,7 @@ class SORT(TrackerBase):
     # TODO thu xoa default dets=np.empty di -> cho lam output cua detection
     def update(self, dets: np.ndarray = np.empty((0, 5))) -> np.ndarray:
         """
-        dets: [[x1, y1, x2, y2, conf],...]
+        dets: [[x1, y1, KalmanBoxBasex2, y2, conf],...]
         Return [[frame, id, x1, y1, x2, y2], ...]
         """
         self.frame_count += 1

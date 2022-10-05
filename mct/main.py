@@ -68,9 +68,7 @@ def main(opt):
 
     # create detector and tracker
     # TODO different options here: if opt.hardware == 'weak':
-    sct = SimpleSCT()
-    detector = sct.create_detector()
-    tracker = sct.create_tracker(loader)
+    sct = SimpleSCT.Builder(loader).get_product()
 
     FPS = loader.get_fps()
 
@@ -121,10 +119,9 @@ def main(opt):
     print('[TIME] Loading models:', time.time() - t0)
 
     print('[INFO] Processing', opt.input)
-    frame_count = 0
     pbar = tqdm(range(len(loader)))
     for _ in pbar:
-        
+
         ret, frame = loader.read()
 
         # terminal condition
@@ -134,36 +131,22 @@ def main(opt):
         if condition:
             break
 
-        frame_count += 1
-        
         start_time = time.time()
 
-        t0 = time.time()
+        ret = sct.predict(frame, BGR=True)  # [[frame, id, x1, y1, x2, y2, conf]...]
 
-        dets = detector.predict(frame, BGR=True)    # [[x1, y1, x2, y2, conf], ...]
-
-        # print('[INFO] Detect %d people' % dets.shape[0])
-        # print('[TIME] Detection:', time.time() - t0)
-
-        t0 = time.time()
-        # TODO refactor: adapter
-        # TODO tại sao trong code của kalman không dùng tới conf của dets? kiểm tra lại thông số của kalman xem có liên quan không
-        tracklets = tracker.update(dets)  # [[id, x1, y1, x2, y2, conf]...]
-
-        ret = np.concatenate([np.array([frame_count] * len(tracklets)).reshape(-1, 1), tracklets], axis=1) # [[frame, id, x1, y1, x2, y2, conf]...]
-        
         end_time = time.time()
         pbar.set_postfix({'FPS': int(1/(end_time - start_time))})
 
         # print('[TIME] Tracking:', time.time() - t0)
 
         if opt.save_db:
-            t0 = time.time()
+            # t0 = time.time()
             mongo.update(ret)
             # print('[TIME] Save to database:', time.time() - t0)
 
         if opt.save_txt:
-            t0 = time.time()
+            # t0 = time.time()
             for obj in ret:
                 # [frame, id, x1, y1, w, h, conf, -1, -1, -1]
                 txt_buffer.append(
