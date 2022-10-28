@@ -45,8 +45,6 @@ class SimpleSCT(SCTBase):
 
     def predict(self, frame: np.ndarray, BGR: bool) -> np.ndarray:
 
-        self.frame_count += 1
-
         dets = self.detector.predict(frame, BGR=BGR)  # [[x1, y1, x2, y2, conf], ...]
 
         # TODO refactor: adapter
@@ -55,6 +53,8 @@ class SimpleSCT(SCTBase):
 
         ret = np.concatenate([np.array([self.frame_count] * len(tracklets)).reshape(-1, 1), tracklets],
                              axis=1)  # [[frame, id, x1, y1, x2, y2, conf]...]
+
+        self.frame_count += 1
 
         return ret
 

@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
+from datetime import datetime
 
 from pymongo import MongoClient
-from mongoengine import connect, disconnect, Document, IntField, FloatField, EmbeddedDocument, ListField, EmbeddedDocumentListField
+from mongoengine import connect, disconnect, Document, IntField, FloatField, EmbeddedDocument, ListField, EmbeddedDocumentListField, DateTimeField
 
 
 
@@ -66,14 +67,15 @@ class Pymongo(DBBase):
             return product
 
     def update(self, tracklets: np.ndarray) -> None:
-        """tracklets: [[frame, id, x1, y1, x2, y2, conf],...]"""
-        assert len(tracklets.shape) == 2 and tracklets.shape[1] == 7, 'Invalid tracklets shape'
+        """tracklets: [[cam_id, videoid, time, frame, id, x1, y1, x2, y2, conf],...]"""
+        assert len(tracklets.shape) == 2 and tracklets.shape[1] == 10, 'Invalid tracklets shape'
         for tl in tracklets:
             self.collection.update_one(
-                {'trackid': int(tl[1])},
-                {'$push': {'detections': {'frameid': int(tl[0]),
-                                          'box': tl[2:6].tolist(),  # xyxy
-                                          'score': tl[6]
+                {'camid': int(tl[0]), 'videoid': int(tl[1]), 'trackid': int(tl[4])},
+                {'$push': {'detections': {'time': datetime.fromtimestamp(tl[2]),
+                                          'frameid': int(tl[3]),
+                                          'box': tl[5:9].tolist(),  # xyxy
+                                          'score': tl[9]
                                           }
                            }
                  },
@@ -102,16 +104,20 @@ class MongoEngine(DBBase):
 
         def set_collection(self, collection) -> None:
             class Detection(EmbeddedDocument):
+                time = DateTimeField(default=None)
                 frameid = IntField(required=True)
                 box = ListField(field=FloatField(), default=[], required=True)
                 score = FloatField(required=True)
 
             class Track(Document):
-                trackid = IntField(db_field='trackid', required=True, unique=True)
+                camid = IntField(db_field='camid', default=None)
+                videoid = IntField(db_field='videoid', default=None)
+                trackid = IntField(db_field='trackid', required=True)
                 detections = EmbeddedDocumentListField(Detection, db_field='detections', default=[], required=True)
                 meta = {
                     'collection': collection,
-                    # 'indexes': ['trackid']  # TODO check
+                    'indexes': [{'fields': ('camid', 'videoid', 'trackid'),
+                                 'unique': True}]  # TODO check
                 }
 
             self._product.detection_document = Detection
@@ -130,15 +136,20 @@ class MongoEngine(DBBase):
     def update(self, tracklets: np.ndarray) -> None:
         """
         update tracks
-        tracklets: [[frame, id, x1, y1, x2, y2, conf],...]
+        tracklets: [[camid, videoid, time, frame, id, x1, y1, x2, y2, conf],...]
         """
         for tl in tracklets:
             rec_detection = self.detection_document(
-                frameid=int(tl[0]),
-                box=tl[2:6].tolist(),  # xyxy
-                score=tl[6]
+                time=datetime.fromtimestamp(tl[2]),
+                frameid=int(tl[3]),
+                box=tl[5:9].tolist(),  # xyxy
+                score=tl[9]
             )
-            self.track_document.objects(trackid=int(tl[1])).update(push__detections=rec_detection, upsert=True)
+            self.track_document.objects(
+                camid=int(tl[0]),
+                videoid=int(tl[1]),
+                trackid=int(tl[4])
+            ).update(push__detections=rec_detection, upsert=True)
 
     def close(self) -> None:
         disconnect(self.database)

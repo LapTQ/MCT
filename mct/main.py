@@ -111,7 +111,7 @@ def main(opt):
         H = loader.get_height()
         W = loader.get_width()
         out_video = cv2.VideoWriter(str(opt.output/(out_name_root + '.avi')),
-                                    cv2.VideoWriter_fourcc(*'MJPG'),
+                                    cv2.VideoWriter_fourcc(*'XVID'),
                                     FPS,
                                     (W, H)
         )
@@ -133,7 +133,7 @@ def main(opt):
 
         start_time = time.time()
 
-        ret = sct.predict(frame, BGR=True)  # [[frame, id, x1, y1, x2, y2, conf]...]
+        ret = sct.predict(frame, BGR=True)  # [[frame, id, x1, y1, x2, y2, conf]...], frame from 0
 
         end_time = time.time()
         pbar.set_postfix({'FPS': int(1/(end_time - start_time))})
@@ -148,9 +148,9 @@ def main(opt):
         if opt.save_txt:
             # t0 = time.time()
             for obj in ret:
-                # [frame, id, x1, y1, w, h, conf, -1, -1, -1]
+                # [frame, id, x1, y1, w, h, conf, -1, -1, -1], frame from 1
                 txt_buffer.append(
-                    f'{int(obj[0])}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
+                    f'{int(obj[0]) + 1}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
             # print('[TIME] Save to .txt:', time.time() - t0)
 
         if opt.display or opt.export_video:

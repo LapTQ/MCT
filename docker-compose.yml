@@ -27,7 +27,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              capabilities: [gpu]
+            capabilities: [gpu]
 #                - gpu
 #                - utility # nvidia-smi
 #                - compute # CUDA. Required to avoid "CUDA version: N/A"
