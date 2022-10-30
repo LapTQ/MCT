@@ -24,6 +24,10 @@ class KalmanBoxBase(ABC):
             pass
 
         @abstractmethod
+        def set_id(self, id: int):
+            pass
+
+        @abstractmethod
         def get_product(self):
             pass
 
@@ -42,8 +46,6 @@ class KalmanBoxBase(ABC):
 
 class KalmanBox(KalmanBoxBase):
 
-    count = 0
-
     class Builder(KalmanBoxBase.Builder):
 
         def __init__(self, cfg_path:str):
@@ -55,6 +57,11 @@ class KalmanBox(KalmanBoxBase):
 
             self._reset()
 
+        def set_id(self, id:int):
+            self._product.id = id
+
+            return self
+
 
         def set_box(self, box):
             """box: [x1, y1, x2, y2, conf]"""
@@ -65,9 +72,6 @@ class KalmanBox(KalmanBoxBase):
 
         def _reset(self) -> None:
             self._product = KalmanBox()
-
-            KalmanBox.count += 1
-            self._product.id = KalmanBox.count
 
             self._product.age = 0
             self._product.hit_streak = 0

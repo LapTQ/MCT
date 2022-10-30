@@ -30,6 +30,7 @@ class SORT(TrackerBase):
             self._reset()
 
             self._product.frame_count = 0
+            self._product.id_count = 0
             self._product.objects = []  # temporarily observed Kalman objects, not "displayed objects"
 
             # setting from YAML
@@ -84,7 +85,8 @@ class SORT(TrackerBase):
             self.objects[m[1]].update(dets[m[0]])
 
         for d in unmatched_dets:
-            self.objects.append(self.kalmanbox_builder.set_box(dets[d]).get_product())
+            self.id_count += 1
+            self.objects.append(self.kalmanbox_builder.set_box(dets[d]).set_id(self.id_count).get_product())
 
         ret = []
         for i in range(len(self.objects) - 1, -1, -1):
