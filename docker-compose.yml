@@ -12,6 +12,7 @@ services:
     ################################
 
     container_name: "laptq_mct_backend"
+    entrypoint: ["/bin/bash"]
     ports:
       - "2222:8000"
     volumes:
@@ -27,7 +28,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-            capabilities: [gpu]
+              capabilities: [gpu]
 #                - gpu
 #                - utility # nvidia-smi
 #                - compute # CUDA. Required to avoid "CUDA version: N/A"

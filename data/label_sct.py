@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from tqdm import tqdm
+from threading import Thread
 
 import numpy as np
 import cv2
@@ -55,7 +56,7 @@ def main(opt):
             return
         elif opt.input[i] == '0':
             opt.input[i] = 0
-    # opt.input == [path_vid1, path_vid2, path_vid3, ...]
+    # opt.input is [path_vid1, path_vid2, path_vid3, ...]
 
     ########### process output path ############
     if opt.output is None:
@@ -63,8 +64,6 @@ def main(opt):
     if not os.path.isdir(opt.output):
         os.makedirs(opt.output, exist_ok=True)
     opt.output = Path(opt.output)
-
-    t0 = time.time()
 
     # database
     if opt.save_db:
@@ -89,42 +88,40 @@ def main(opt):
         print(f"[INFO] DB database name: {opt.db_name}")
         print(f"[INFO] DB collection name: {sct_db_name}")
 
-    # video loader
-    for _input in opt.input:
+    def _do_sct(_input):
+
         (*_, cam_id), vid_id, *record_time = os.path.splitext(os.path.split(_input)[-1])[0].split('_')
         cam_id = int(cam_id)
         vid_id = int(vid_id)
         record_time = datetime.strptime('_'.join(record_time), '%Y-%m-%d_%H-%M-%S-%f')
 
+        t0 = time.time()
+
         loader = VideoLoader.Builder(_input).get_product()
-
-        # create detector and tracker
-        # TODO different options here: if opt.hardware == 'weak':
         sct = SimpleSCT.Builder(loader).get_product()
-
-        FPS = loader.get_fps()
 
         # process output name
         filename = os.path.basename(str(_input))
         stem, _ = os.path.splitext(filename)
-        now = datetime.now().strftime("%Y%m%d%H%M%S")
-        out_stem = now + '_' + stem
+        out_stem = datetime.now().strftime("%Y%m%d%H%M%S") + '_' + stem
+
+        FPS = loader.get_fps()
 
         if opt.display:
             cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
 
         if opt.save_txt:
             txt_buffer = []
-            out_txt = open(opt.output/(out_stem + '.txt'), 'w')
+            out_txt = open(opt.output / (out_stem + '.txt'), 'w')
 
         if opt.export_video:
             H = loader.get_height()
             W = loader.get_width()
-            out_video = cv2.VideoWriter(str(opt.output/(out_stem + '.avi')),
+            out_video = cv2.VideoWriter(str(opt.output / (out_stem + '.avi')),
                                         cv2.VideoWriter_fourcc(*'XVID'),
                                         FPS,
                                         (W, H)
-            )
+                                        )
 
         print('[TIME] Loading models:', time.time() - t0)
 
@@ -145,29 +142,28 @@ def main(opt):
             ret = sct.predict(frame, BGR=True)  # [[frame, id, x1, y1, x2, y2, conf]...]
 
             end_time = time.time()
-            pbar.set_postfix({'FPS': int(1/(end_time - start_time))})
+            pbar.set_postfix({'FPS': int(1 / (end_time - start_time))})
 
             # print('[TIME] Tracking:', time.time() - t0)
 
             if opt.save_db:
                 if len(ret) > 0:
                     mongo.update(np.concatenate(
-                                    [np.repeat([[cam_id, vid_id, (record_time + timedelta(seconds=ret[0, 0] / FPS)).timestamp()]], len(ret), axis=0),
-                                     ret],
-                                    axis=1)
-                    ) # [[cam, vid, time, frame, id, x1,...],...])
+                        [np.repeat([[cam_id, vid_id, (record_time + timedelta(seconds=ret[0, 0] / FPS)).timestamp()]],
+                                   len(ret), axis=0),
+                         ret],
+                        axis=1)
+                    )  # [[cam, vid, time, frame, id, x1,...],...])
 
             if opt.save_txt:
-                # t0 = time.time()
                 for obj in ret:
                     # [frame, id, x1, y1, w, h, conf, -1, -1, -1]
                     txt_buffer.append(
                         f'{int(obj[0]) + 1}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
-                # print('[TIME] Save to .txt:', time.time() - t0)
 
             if opt.display or opt.export_video:
-                t0 = time.time()
-                show_img = plot_box(frame, ret)     # ret      [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
+                show_img = plot_box(frame,
+                                    ret)  # ret      [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
 
             if opt.display:
                 cv2.imshow(filename, show_img)
@@ -179,7 +175,7 @@ def main(opt):
 
         if opt.save_txt:
             print('\n'.join(txt_buffer), file=out_txt)
-            print('[INFO] MOT17-format .txt saved in', opt.output/(out_stem + '.txt'))
+            print('[INFO] MOT17-format .txt saved in', opt.output / (out_stem + '.txt'))
             out_txt.close()
 
         if opt.display:
@@ -187,7 +183,14 @@ def main(opt):
 
         if opt.export_video:
             out_video.release()
-            print('[INFO] Video demo saved in', str(opt.output/(out_stem + '.avi')))
+            print('[INFO] Video demo saved in', str(opt.output / (out_stem + '.avi')))
+
+    threads = [Thread(target=_do_sct, args=(_input,)) for _input in opt.input]
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
 
     if opt.save_db:
         mongo.close()

@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
+from threading import Thread, Lock
 
 import numpy as np
 from datetime import datetime
 
 from pymongo import MongoClient
 from mongoengine import connect, disconnect, Document, IntField, FloatField, EmbeddedDocument, ListField, EmbeddedDocumentListField, DateTimeField
-
 
 
 class DBBase(ABC):
@@ -23,7 +23,19 @@ class DBBase(ABC):
         pass
 
 
-class BuilderBase(ABC):
+class SingletonMeta(type):
+
+    _instances = {}
+    _lock: Lock = Lock()
+
+    def __call__(cls, *args, **kwargs):
+        with cls._lock:
+            if cls not in cls._instances:
+                cls._instances[cls] = super().__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
+class BuilderBase(metaclass=SingletonMeta):
 
     @abstractmethod
     def __init__(self):

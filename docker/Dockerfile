@@ -5,6 +5,7 @@ WORKDIR /home/code
 RUN apt-get update -y
 RUN apt-get install -y python-is-python3
 RUN apt-get -y install python3-pip
+RUN apt-get install nano -y
 
 # <src> is relative to context in docker-compose.yml
 # <des> is relative to WORKDIR
