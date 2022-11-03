@@ -37,7 +37,11 @@ services:
   mct_mongodb:
     image: mongo
     container_name: "laptq_mct_mongodb"
-#    volumes:
-#      - /media/tran/003D94E1B568C6D11/Workingspace/MCT/output/mongo-data   # relative to this file
+#    environment:
+#      # provide your credentials here
+#      - MONGO_INITDB_ROOT_USERNAME=laptq
+#      - MONGO_INITDB_ROOT_PASSWORD=1
+    volumes:
+      - ./output/data:/data   # relative to this file. To copy, need to run: sudo chmod -R a+rwX output/data/
     ports:
       - "1111:27017"

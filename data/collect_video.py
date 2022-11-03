@@ -8,9 +8,14 @@ from threading import Thread
 import queue
 import time
 
+CAM63 = 'rtsp://admin:123456a@@192.168.3.63/live'
+CAM64 = 'rtsp://admin:123456a@@192.168.3.64/live'
+CAM21 = 'rtsp://admin:12345@192.168.3.21/live'
+CAM27 = 'rtsp://admin:12345@192.168.3.27/live'
+
 CAMERAS = [
-    'rtsp://admin:123456a@@192.168.3.63/cam1',
-    'rtsp://admin:123456a@@192.168.3.64/cam2',
+    CAM21,
+    CAM27,
 ]
 DURATIONS = [
     1,
@@ -26,17 +31,17 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 def record(cam_address, duration):
 
-    cam_id = os.path.split(cam_address)[-1]
+    cam_id = os.path.split(cam_address)[0].split('.')[-1]
     cap = cv2.VideoCapture(cam_address)
 
     if not cap.isOpened():
         print('Cannot open RTSP stream from', cam_address)
-        exit(-1)
+        return
 
     exists = list(Path(OUT_DIR).glob(cam_id + '*.avi'))
     vid_id = 0 if len(exists) == 0 else int(sorted(exists)[-1].stem.split('_')[1]) + 1
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = 10.0 # cap.get(cv2.CAP_PROP_FPS) # 10.0
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 
@@ -50,7 +55,7 @@ def record(cam_address, duration):
     out_video_path = os.path.join(OUT_DIR, name)
     video_writer = cv2.VideoWriter(
         out_video_path,
-        cv2.VideoWriter_fourcc(*'XVID'),    # critical, much smaller than MJPG
+        cv2.VideoWriter_fourcc(*'XVID'),    # critical, XVID much smaller than MJPG
         fps,
         (W, H)
     )
@@ -58,15 +63,19 @@ def record(cam_address, duration):
     def _read():
         pbar = tqdm(range(n_frames), ascii=True, desc=name)
         n_errors = 0
+        moving_average_delay = 0
+        alpha = 0.7
+        max_alpha = 0.8
         for _ in pbar:
+            start_time = time.time()
             success, frame = cap.read()
-
+            moving_average_delay = alpha * (time.time() - start_time) + (max_alpha - alpha) * moving_average_delay
             if not success:
                 n_errors += 1
             else:
                 q.put(frame)
-                time.sleep(0.08)    # critical @@
-            pbar.set_postfix(n_errors=n_errors, queue_size=q.qsize())
+                time.sleep(moving_average_delay)
+            pbar.set_postfix(n_errors=n_errors, queue_size=q.qsize(), sleep=moving_average_delay)
 
     def _write():
         n_written = 0
@@ -92,11 +101,17 @@ def record(cam_address, duration):
     print(f'[INFO] Stream from {cam_address} is saved in {out_video_path}')
 
 
-
-
 if __name__ == '__main__':
 
     start_time = time.time()
     pool = Pool(len(CAMERAS))
     pool.starmap(record, zip(CAMERAS, DURATIONS))
     print('[INFO] Running time:', time.time() - start_time)
+
+    # cap = cv2.VideoCapture(CAM27)
+    # while True:
+    #     success, frame = cap.read()
+    #     print(frame.shape)
+    #     print(cap.get(cv2.CAP_PROP_FPS))
+    #     cv2.imshow('show', frame)
+    #     cv2.waitKey(1)

@@ -90,7 +90,7 @@ def main(opt):
 
     def _do_sct(_input):
 
-        (*_, cam_id), vid_id, *record_time = os.path.splitext(os.path.split(_input)[-1])[0].split('_')
+        cam_id, vid_id, *record_time = os.path.splitext(os.path.split(_input)[-1])[0].split('_')
         cam_id = int(cam_id)
         vid_id = int(vid_id)
         record_time = datetime.strptime('_'.join(record_time), '%Y-%m-%d_%H-%M-%S-%f')
