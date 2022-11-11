@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from tqdm import tqdm
 from threading import Thread
+from pathlib import Path
 
 import numpy as np
 import cv2
@@ -103,7 +104,7 @@ def main(opt):
         # process output name
         filename = os.path.basename(str(_input))
         stem, _ = os.path.splitext(filename)
-        out_stem = datetime.now().strftime("%Y%m%d%H%M%S") + '_' + stem
+        out_stem = stem # datetime.now().strftime("%Y%m%d%H%M%S") + '_' + stem
 
         FPS = loader.get_fps()
 
@@ -162,8 +163,7 @@ def main(opt):
                         f'{int(obj[0]) + 1}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
 
             if opt.display or opt.export_video:
-                show_img = plot_box(frame,
-                                    ret)  # ret      [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
+                show_img = plot_box(frame, ret)  # ret  [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
 
             if opt.display:
                 cv2.imshow(filename, show_img)
@@ -196,7 +196,84 @@ def main(opt):
         mongo.close()
         print('[INFO] DB closed')
 
+
+VID_DIR = os.path.join(HERE, 'recordings')
+TXT_DIR = os.path.join(HERE, 'recordings')
+
+def visualize_from_txt(vid_path, txt_path, **kwargs):
+
+    parent, filename = os.path.split(vid_path)
+
+    cap = cv2.VideoCapture(vid_path)
+    with open(txt_path, 'r') as f:
+        det_seq = np.array([[eval(e) for e in l.strip().split(',')[:7]] for l in f.readlines()])
+
+    if 'vid_path2' in kwargs:
+        cap2 = cv2.VideoCapture(kwargs['vid_path2'])
+        with open(kwargs['txt_path2'], 'r') as f:
+            det_seq2 = np.array([[eval(e) for e in l.strip().split(',')[:7]] for l in f.readlines()])
+
+    if kwargs.get('save_video', False):
+        writer = cv2.VideoWriter(os.path.join(parent, 'vis_' + (filename if 'vid_path2' not in kwargs else filename[3:])),
+                             cv2.VideoWriter_fourcc(*'XVID'),
+                             cap.get(cv2.CAP_PROP_FPS),
+                             (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        )
+
+    cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
+    for frame_count in range(int(cap.get(cv2.CAP_PROP_FRAME_COUNT))):
+        dets = det_seq[det_seq[:, 0] == frame_count]
+        dets[:, 4:6] += dets[:, 2:4]
+        success, frame = cap.read()
+        if 'vid_path2' not in kwargs:
+            vis_img = plot_box(frame, dets)
+            show_img = vis_img
+        else:
+            vid_id = int(filename.split('_')[1])
+
+            dets2 = det_seq2[det_seq2[:, 0] == frame_count]
+            dets2[:, 4:6] += dets2[:, 2:4]
+            success2, frame2 = cap2.read()
+
+            correspondence = kwargs['correspondence'][kwargs['correspondence'][:, 1] == vid_id]
+            for id1, id2 in correspondence[:, [2, 5]]:
+                dets[dets[:, 1] == id1, 1] = 100 - id1
+                dets2[dets2[:, 1] == id2, 1] = 100 - id1
+
+            vis_img = plot_box(frame, dets)
+            vis_img2 = plot_box(frame2, dets2)
+            show_img = np.concatenate([vis_img, vis_img2], axis=1)
+
+        if kwargs.get('save_video', False):
+            writer.write(show_img)
+
+        cv2.imshow(filename, show_img)
+        key = cv2.waitKey(1)
+        if key == 27:
+            break
+        elif key == ord('e'):
+            exit(0)
+        elif key == ord(' '):
+            cv2.waitKey(0)
+
+
+    cap.release()
+    if kwargs.get('save_video', False):
+        writer.release()
+    cv2.destroyAllWindows()
+
+
 if __name__ == '__main__':
-    opt = parse_opt()
-    main(opt)
+    # opt = parse_opt()
+    # main(opt)
+
+    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
+    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
+    txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
+
+    correspondence = np.loadtxt('recordings/correspondences.txt', delimiter=',', dtype=int)
+
+    for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
+        visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
 

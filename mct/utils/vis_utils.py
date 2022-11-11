@@ -1,7 +1,8 @@
 import numpy as np
 import cv2
 
-COLORS = [(121, 0, 148), (162, 206, 69), (253, 126, 251), (210, 116, 25), (20, 249, 29), (0, 255, 255), (0, 127, 255), (0, 0, 255)]
+COLORS = [(51, 255, 221), (55, 250, 250), (255, 221, 21), (102, 255, 102), (83, 50, 250), (209, 240, 170), (83, 179, 36), (240, 120, 240), (51, 153, 204), (187, 125, 250), (51, 204, 255)]
+
 
 def plot_box(img, boxes):
     """
@@ -27,10 +28,14 @@ def plot_box(img, boxes):
             color = COLORS[3]
         else:
             color = COLORS[ids[i] % len(COLORS)]
+            thickness = 2
+            space = 5
+            expected_text_H = 15
 
-            cv2.putText(img, str(ids[i]) + (f' ({int(confs[i] * 100)})' if confs[i] != -1 else ''), coords[i, :2], cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, thickness=2)
-
-        cv2.rectangle(img, coords[i, :2], coords[i, 2:4], color, 2)
+            y_text = coords[i, 1] - space if coords[i, 1] - space - expected_text_H > 0 else coords[i, 1] + space + expected_text_H
+            x_text = coords[i, 0] + space
+            cv2.putText(img, str(ids[i]) + (f' ({int(confs[i] * 100)})' if confs[i] != -1 else ''), (x_text, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, thickness=thickness)
+        cv2.rectangle(img, coords[i, :2], coords[i, 2:4], color=color, thickness=thickness)
 
     return img
 
