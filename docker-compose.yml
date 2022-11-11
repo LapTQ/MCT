@@ -1,38 +1,38 @@
 version: '3.9'
 services:
-#  mct_backend:
-#    stdin_open: true
-#    tty: true
-#
-#    ############# EITHER ###########
-##    build:
-##      context: .
-##      dockerfile: docker/Dockerfile   # relative to context
-#    image: image_mct_backend
-#    ################################
-#
-#    container_name: "laptq_mct_backend"
-#    entrypoint: ["/bin/bash"]
-#    ports:
-#      - "2222:8000"
-#    volumes:
-#      - .:/home/code/MCT       # relative to this file
-#    depends_on:
-#      - mct_mongodb
-#    runtime: nvidia
-#    environment:
-#      - NVIDIA_VISIBLE_DEVICES=all
-#      - NVIDIA_DRIVER_CAPABILITIES=all
-#    deploy:
-#      resources:
-#        reservations:
-#          devices:
-#            - driver: nvidia
-#              capabilities: [gpu]
-##                - gpu
-##                - utility # nvidia-smi
-##                - compute # CUDA. Required to avoid "CUDA version: N/A"
-##                - video   # NVDEC/NVENC. For instance to use a hardware accelerated ffmpeg. Skip it if you don't need it
+  mct_backend:
+    stdin_open: true
+    tty: true
+
+    ############# EITHER ###########
+#    build:
+#      context: .
+#      dockerfile: docker/Dockerfile   # relative to context
+    image: image_mct_backend
+    ################################
+
+    container_name: "laptq_mct_backend"
+    entrypoint: ["/bin/bash"]
+    ports:
+      - "2222:8000"
+    volumes:
+      - .:/home/code/MCT       # relative to this file
+    depends_on:
+      - mct_mongodb
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+#                - gpu
+#                - utility # nvidia-smi
+#                - compute # CUDA. Required to avoid "CUDA version: N/A"
+#                - video   # NVDEC/NVENC. For instance to use a hardware accelerated ffmpeg. Skip it if you don't need it
 
   mct_mongodb:
     image: mongo
@@ -41,7 +41,7 @@ services:
 #      # provide your credentials here
 #      - MONGO_INITDB_ROOT_USERNAME=laptq
 #      - MONGO_INITDB_ROOT_PASSWORD=1
-    volumes:
-      - ./output/data:/data   # relative to this file. To copy, need to run: sudo chmod -R a+rwX output/data/
+#    volumes:
+#      - ./output/data:/data   # relative to this file. To copy, need to run: sudo chmod -R a+rwX output/data/
     ports:
       - "1111:27017"
