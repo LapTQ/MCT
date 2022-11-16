@@ -35,7 +35,7 @@ class SingletonMeta(type):
         return cls._instances[cls]
 
 
-class BuilderBase(metaclass=SingletonMeta):
+class BuilderBase:  # (metaclass=SingletonMeta) hmm wrong somewhere
 
     @abstractmethod
     def __init__(self):

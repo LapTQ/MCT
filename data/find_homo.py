@@ -3,9 +3,10 @@ from pathlib import Path
 import numpy as np
 import argparse
 
+HERE = Path(__file__).parent
 
-CAM1 = '2d/cam1_00001_2022-10-31_15-22-12-192168327.avi'
-CAM2 = '2d/cam2_00001_2022-10-31_15-25-37-192168321.avi'
+CAM1 = str(HERE / 'recordings/21_00000_2022-11-03_14-56-57-643967.avi')
+CAM2 = str(HERE / 'recordings/27_00000_2022-11-03_14-56-56-863473.avi')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -101,7 +102,7 @@ def main(opt):
 
 
     src_pts, dst_pts = select_matches(src, dst)
-    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC)
+    H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
 
     if opt['name'] is not None:
         np.savetxt(opt['name'], H)
@@ -118,7 +119,26 @@ def main(opt):
     cv2.destroyAllWindows()
 
 
+'''
+[INFO] [530, 447] matched to [736, 488]
+[INFO] [476, 485] matched to [703, 445]
+[INFO] [525, 235] matched to [1034, 528]
+[INFO] [627, 268] matched to [984, 622]
+[INFO] [616, 626] matched to [532, 499]
+[INFO] [710, 403] matched to [753, 659]
+[INFO] [814, 635] matched to [450, 631]
+[INFO] [708, 283] matched to [963, 698]
+'''
+
 if __name__ == '__main__':
 
-    opt = parse_opt()
+    # opt = parse_opt()
+
+    opt = {
+        'src': CAM1,
+        'dst': CAM2,
+        'name': '21_to_27.txt',
+        'video': True
+    }
+
     main(opt)

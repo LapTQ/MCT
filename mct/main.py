@@ -150,7 +150,7 @@ def main(opt):
             for obj in ret:
                 # [frame, id, x1, y1, w, h, conf, -1, -1, -1], frame from 1
                 txt_buffer.append(
-                    f'{int(obj[0]) + 1}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
+                    f'{int(obj[0])}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
             # print('[TIME] Save to .txt:', time.time() - t0)
 
         if opt.display or opt.export_video:

@@ -27,11 +27,12 @@ def parse_opt():
     ap = argparse.ArgumentParser()
 
     ap.add_argument('--input', action='append', nargs='+', required=True, help='list of paths to videos or path to a directory of videos')
+    ap.add_argument('--from_txt', action='store_true', help='get detection result from txt instead of a tracker')
     ap.add_argument('--save_db', action='store_true', help='save result to database')
     ap.add_argument('--db_framework', type=str, default='pymongo') # pymongo mongoengine
     ap.add_argument('--db_host', type=str, default=None, help='address of db container') # from host: 'localhost', from docker env: 'mct_mongodb'
     ap.add_argument('--db_port', type=int, default=None, help='port of db container') # from host: 1111, from docker env: 27017
-    ap.add_argument('--db_name', type=str, default='tracking_db', help='name of database')
+    ap.add_argument('--db_name', type=str, default='sct_db', help='name of database')
     ap.add_argument('--output', type=str, default=None, help='path to output folder')
     ap.add_argument('--save_txt', action='store_true', help='save to .txt')
     ap.add_argument('--export_video', action='store_true', help='save visualization as video')
@@ -50,7 +51,8 @@ def main(opt):
     assert not (os.path.isdir(opt.input[0]) and len(opt.input) != 1), 'Support only 1 directory of videos'
     if os.path.isdir(opt.input[0]):
         # TODO glob video extensions only
-        opt.input = [os.path.join(opt.input[0], filename) for filename in os.listdir(opt.input[0])]
+        opt.input = [os.path.join(opt.input[0], filename) for filename in os.listdir(opt.input[0])
+                     if os.path.splitext(filename)[1] in ['.mp4', '.avi']]
     for i in range(len(opt.input)):
         if not os.path.exists(opt.input[i]):
             print('[ERROR] Video %s not exists' % opt.input[i])
@@ -99,7 +101,12 @@ def main(opt):
         t0 = time.time()
 
         loader = VideoLoader.Builder(_input).get_product()
-        sct = SimpleSCT.Builder(loader).get_product()
+
+        if not opt.from_txt:
+            sct = SimpleSCT.Builder(loader).get_product()
+        else:
+            with open(_input[:-3] + 'txt', 'r') as f:
+                det_seq = np.array([[eval(e) for e in l.strip().split(',')[:7]] for l in f.readlines()])
 
         # process output name
         filename = os.path.basename(str(_input))
@@ -111,7 +118,7 @@ def main(opt):
         if opt.display:
             cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
 
-        if opt.save_txt:
+        if not opt.from_txt and opt.save_txt:
             txt_buffer = []
             out_txt = open(opt.output / (out_stem + '.txt'), 'w')
 
@@ -140,7 +147,13 @@ def main(opt):
                 break
 
             start_time = time.time()
-            ret = sct.predict(frame, BGR=True)  # [[frame, id, x1, y1, x2, y2, conf]...]
+
+            if not opt.from_txt:
+                ret = sct.predict(frame, BGR=True)  # [[frame, id, x1, y1, x2, y2, conf]...]
+            else:
+                ret = det_seq[det_seq[:, 0] == _ + 1]
+                ret[:, 4:6] += ret[:, 2:4]
+
 
             end_time = time.time()
             pbar.set_postfix({'FPS': int(1 / (end_time - start_time))})
@@ -156,11 +169,11 @@ def main(opt):
                         axis=1)
                     )  # [[cam, vid, time, frame, id, x1,...],...])
 
-            if opt.save_txt:
+            if not opt.from_txt and opt.save_txt:
                 for obj in ret:
                     # [frame, id, x1, y1, w, h, conf, -1, -1, -1]
                     txt_buffer.append(
-                        f'{int(obj[0]) + 1}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
+                        f'{int(obj[0])}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
 
             if opt.display or opt.export_video:
                 show_img = plot_box(frame, ret)  # ret  [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
@@ -173,7 +186,7 @@ def main(opt):
 
         loader.release()
 
-        if opt.save_txt:
+        if not opt.from_txt and opt.save_txt:
             print('\n'.join(txt_buffer), file=out_txt)
             print('[INFO] MOT17-format .txt saved in', opt.output / (out_stem + '.txt'))
             out_txt.close()
