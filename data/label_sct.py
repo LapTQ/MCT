@@ -32,7 +32,8 @@ def parse_opt():
     ap.add_argument('--db_framework', type=str, default='pymongo') # pymongo mongoengine
     ap.add_argument('--db_host', type=str, default=None, help='address of db container') # from host: 'localhost', from docker env: 'mct_mongodb'
     ap.add_argument('--db_port', type=int, default=None, help='port of db container') # from host: 1111, from docker env: 27017
-    ap.add_argument('--db_name', type=str, default='sct_db', help='name of database')
+    ap.add_argument('--db_name', type=str, default='tracking', help='name of database')
+    ap.add_argument('--col_name', type=str, default='sct', help='name of collection')
     ap.add_argument('--output', type=str, default=None, help='path to output folder')
     ap.add_argument('--save_txt', action='store_true', help='save to .txt')
     ap.add_argument('--export_video', action='store_true', help='save visualization as video')
@@ -73,40 +74,53 @@ def main(opt):
         assert opt.db_host is not None, "--db_host must be specified if --save_db is set"
         assert opt.db_port is not None, "--db_port must be specified if --save_db is set"
         print(f"[INFO] Connecting to {opt.db_host} using port {opt.db_port}")
-        sct_db_name = datetime.now().strftime("%Y%m%d%H%M%S") + '_sct'
+        opt.col_name = datetime.now().strftime("%Y%m%d%H%M%S") + '_' + opt.col_name
         if opt.db_framework == 'pymongo':
             mongo = Pymongo.Builder(opt.db_host, opt.db_port
                                     ).set_database(opt.db_name
-                                                   ).set_collection(sct_db_name
+                                                   ).set_collection(opt.col_name
                                                                     ).get_product()
         elif opt.db_framework == 'mongoengine':
             mongo = MongoEngine.Builder(opt.db_host, opt.db_port
                                         ).set_databse(opt.db_name
-                                                      ).set_collection(sct_db_name
+                                                      ).set_collection(opt.col_name
                                                                        ).get_product()
         else:
             raise ValueError(f'{opt.db_framework} not supported')
 
         print(f"[INFO] DB tool: {opt.db_framework}")
         print(f"[INFO] DB database name: {opt.db_name}")
-        print(f"[INFO] DB collection name: {sct_db_name}")
+        print(f"[INFO] DB collection name: {opt.col_name}")
+
+    track_id_mapper = {}
 
     def _do_sct(_input):
 
+        # assuming video path is path/to/camid_vidid_%Y-%m-%d_%H-%M-%S-%f.avi
         cam_id, vid_id, *record_time = os.path.splitext(os.path.split(_input)[-1])[0].split('_')
         cam_id = int(cam_id)
         vid_id = int(vid_id)
         record_time = datetime.strptime('_'.join(record_time), '%Y-%m-%d_%H-%M-%S-%f')
 
+        if cam_id not in track_id_mapper:
+            track_id_mapper[cam_id] = {}
+        track_id_mapper[cam_id][vid_id] = {}
+
         t0 = time.time()
 
         loader = VideoLoader.Builder(_input).get_product()
 
+        # currently, 2 behaviours are not the same =))
         if not opt.from_txt:
             sct = SimpleSCT.Builder(loader).get_product()
         else:
             with open(_input[:-3] + 'txt', 'r') as f:
                 det_seq = np.array([[eval(e) for e in l.strip().split(',')[:7]] for l in f.readlines()])
+
+                for id in np.unique(det_seq[:, 1]):
+                    track_id_mapper[cam_id][vid_id][int(id)] = sum(len(track_id_mapper[cam_id][vid]) for vid in track_id_mapper[cam_id]) + 1
+                for i in range(len(det_seq)):
+                    det_seq[i, 1] = track_id_mapper[cam_id][vid_id][int(det_seq[i, 1])]
 
         # process output name
         filename = os.path.basename(str(_input))
@@ -153,7 +167,6 @@ def main(opt):
             else:
                 ret = det_seq[det_seq[:, 0] == _ + 1]
                 ret[:, 4:6] += ret[:, 2:4]
-
 
             end_time = time.time()
             pbar.set_postfix({'FPS': int(1 / (end_time - start_time))})
@@ -209,9 +222,22 @@ def main(opt):
         mongo.close()
         print('[INFO] DB closed')
 
+    with open(HERE/'recordings/mapper.txt', 'w') as f:
+        print(track_id_mapper, file=f)
+
+    with open(HERE/'recordings/correspondences.txt', 'r') as f:
+        correspondences = [eval(l[:-1]) for l in f.readlines()]
+    buf = []
+    for cor in correspondences:
+        buf.append(
+            f'{cor[0]},{cor[1]},{track_id_mapper[cor[0]][cor[1]][cor[2]]},{cor[3]},{cor[4]},{track_id_mapper[cor[3]][cor[4]][cor[5]]}')
+    with open(HERE/'recordings/correspondences_mapped.txt', 'w') as f:
+        print('\n'.join(buf), file=f)
+
 
 VID_DIR = os.path.join(HERE, 'recordings')
 TXT_DIR = os.path.join(HERE, 'recordings')
+
 
 def visualize_from_txt(vid_path, txt_path, **kwargs):
 
@@ -277,16 +303,16 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
 
 
 if __name__ == '__main__':
-    # opt = parse_opt()
-    # main(opt)
+    opt = parse_opt()
+    main(opt)
 
-    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
-    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
-    txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
-
-    correspondence = np.loadtxt('recordings/correspondences.txt', delimiter=',', dtype=int)
-
-    for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
-        visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
+    # vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    # txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
+    # vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
+    # txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
+    #
+    # correspondence = np.loadtxt('../output/mct.txt', delimiter=',', dtype=int) # 'recordings/correspondences.txt'
+    #
+    # for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
+    #     visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
 

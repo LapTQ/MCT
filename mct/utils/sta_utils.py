@@ -96,13 +96,14 @@ def bipartite_match(seq1, seq2):
 
     list_unmatched_idx1 = np.array([i for i in range(n1) if i not in list_idx1])
     list_unmatched_idx2 = np.array([i for i in range(n2) if i not in list_idx2])
+    # print(len(list_idx1), len(list_unmatched_idx1), len(list_unmatched_idx2))
 
     return (list_idx1, list_idx2), list_unmatched_idx1, list_unmatched_idx2
 
 
 def map_tracks(vid_id):
 
-    mongo = Pymongo.Builder('localhost', 1111).set_database('sct_db').set_collection('20221115154937_sct').get_product()
+    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection('20221118232802_sct').get_product()
 
     list_tracks = list(mongo.collection.find({'videoid': vid_id}))
 
@@ -116,18 +117,26 @@ def map_tracks(vid_id):
             by_camid[camid] = {}
         by_camid[camid][track['trackid']] = track['detections']
 
+    # just to get the frame height and width
+    # TODO: get frame height and width from database
     cap21 = cv2.VideoCapture(
         str(list(Path('../../data/recordings').glob(f'21_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
     cap27 = cv2.VideoCapture(
         str(list(Path('../../data/recordings').glob(f'27_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
     H_21_27 = np.loadtxt(str(HERE / '../../data/21_to_27.txt'))
 
-    # sample time correspondences of 2 tracks
     traj_dist_matrix = np.empty((len(by_camid[21].keys()), len(by_camid[27].keys())), dtype='float32')
+    iou_matrix = np.empty((len(by_camid[21].keys()), len(by_camid[27].keys())), dtype='float32')
+    # sample time correspondences of 2 tracks
     # TODO CHUY: cac trackid dang bat dau tu 1
     # TODO: 3 cam overlap
-    for cam21_trackid in by_camid[21].keys():
-        for cam27_trackid in by_camid[27].keys():
+    cam21_id_idxes = {}
+    cam27_id_idxes = {}
+    for track21_idx, cam21_trackid in enumerate(by_camid[21].keys()):
+        for track27_idx, cam27_trackid in enumerate(by_camid[27].keys()):
+
+            cam21_id_idxes[track21_idx] = cam21_trackid
+            cam27_id_idxes[track27_idx] = cam27_trackid
 
             traj1_time_series = [detection['time'].timestamp() for detection in by_camid[21][cam21_trackid]]
             traj2_time_series = [detection['time'].timestamp() for detection in by_camid[27][cam27_trackid]]
@@ -149,15 +158,21 @@ def map_tracks(vid_id):
 
             # TODO CHUY: cac trackid dang bat dau tu 1
             # TODO nghien cuu so luong match (VD iou), threshold
-            iou = len(list_idx21) / (len(list_idx21) + len(list_unmatched_idx21) + len(list_unmatched_idx27))
-            traj_dist_matrix[cam21_trackid - 1, cam27_trackid - 1] = 1/iou * trajectory_distance(repr_points21_trans, repr_points27, kind='euclid')
+            traj_dist_matrix[track21_idx, track27_idx] = trajectory_distance(repr_points21_trans, repr_points27, kind='euclid')
+            iou_matrix[track21_idx, track27_idx] = len(list_idx21) / (len(list_idx21) + len(list_unmatched_idx21) + len(list_unmatched_idx27))
+
+    traj_cost_matrix = traj_dist_matrix / iou_matrix
 
     print(traj_dist_matrix)
+    print(iou_matrix)
+    print(traj_cost_matrix)
     # TODO CHUY: cac trackid dang bat dau tu 1
-    list_matched_track21, list_matched_track27 = linear_sum_assignment(traj_dist_matrix)
+    list_matched_track21_idx, list_matched_track27_idx = linear_sum_assignment(traj_cost_matrix)
+    list_matched_track21 = [cam21_id_idxes[idx] for idx in list_matched_track21_idx]
+    list_matched_track27 = [cam27_id_idxes[idx] for idx in list_matched_track27_idx]
     ret = []
     for trackid21, trackid27 in zip(list_matched_track21, list_matched_track27):
-        ret.append(f'21,{vid_id},{trackid21 + 1},27,{vid_id},{trackid27 + 1}')
+        ret.append(f'21,{vid_id},{trackid21},27,{vid_id},{trackid27}')
     return '\n'.join(ret)
 
 
@@ -231,10 +246,8 @@ def map_tracks(vid_id):
 def evaluate(true_path, pred_path):
     with open(true_path, 'r') as f:
         true = set(l[:-1] for l in f.readlines())
-        print(true)
     with open(pred_path, 'r') as f:
         pred = set(l[:-1] for l in f.readlines())
-        print(pred)
 
     TP = true.intersection(pred)
     FP = pred.difference(true)
@@ -246,6 +259,7 @@ def evaluate(true_path, pred_path):
     recall = len(TP) / (len(TP) + len(FN))
     print('Precision', precision)
     print('Recall', recall)
+    print(FN)
 
 
 # TODO (tomorrow):
@@ -257,13 +271,20 @@ def evaluate(true_path, pred_path):
 
 if __name__ == '__main__':
 
-    # ret = []
-    # for vid_id in range(16):
-    #     ret.append(map_tracks(vid_id))
-    # with open('../../output/mct.txt', 'w') as f:
-    #     print('\n'.join(ret), file=f)
+    ret = []
+    for vid_id in range(16):
+        ret.append(map_tracks(vid_id))
+    with open('../../output/mct.txt', 'w') as f:
+        print('\n'.join(ret), file=f)
 
-    evaluate('../../data/recordings/correspondences.txt', '../../output/mct.txt')
+    evaluate('../../data/recordings/correspondences_mapped.txt', '../../output/mct.txt')
+
+    # map_tracks(0)
+
+    # for each (cam1id, cam2id) in homo_db:
+    #   find all [(cam1id, track1id, cam2id, track2id) in sct_db x sct_db and not in mct_db and (track1id and track2id have overlapping times)]
+    #   group those [(cam1id, track1id, cam2id, track2id)] by (cam1id, cam2id)
+    #   for each group: do STA
 
 
 
