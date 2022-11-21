@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 from vis_utils import COLORS
+from tqdm import tqdm
 
 HERE = Path(__file__).parent
 
@@ -100,143 +101,144 @@ def bipartite_match(seq1, seq2):
     return (list_idx1, list_idx2), list_unmatched_idx1, list_unmatched_idx2
 
 
-def map_tracks(vid_id):
+def get_homo(src, dst):
+
+    # TODO any
+    return np.loadtxt(str(HERE / '../../data/21_to_27.txt'))
+
+def map_tracks(cam1, cam2, vid_id):
 
     mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection('20221118235019_sct').get_product()
 
-    list_tracks = list(mongo.collection.find({'videoid': vid_id}))
+    list_tracks = list(mongo.collection.find({'videoid': vid_id, 'camid': {'$in': [cam1, cam2]}}))
 
     mongo.close()
 
     # categorize tracks by camid
-    by_camid = {}
+    by_camid = {cam1: {}, cam2: {}}
     for track in list_tracks:
-        camid = track['camid']
-        if camid not in by_camid:
-            by_camid[camid] = {}
-        by_camid[camid][track['trackid']] = track['detections']
+        by_camid[track['camid']][track['trackid']] = track['detections']
 
     # just to get the frame height and width
-    # TODO: get frame height and width from database
-    cap21 = cv2.VideoCapture(
-        str(list(Path('../../data/recordings').glob(f'21_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
-    cap27 = cv2.VideoCapture(
-        str(list(Path('../../data/recordings').glob(f'27_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
-    H_21_27 = np.loadtxt(str(HERE / '../../data/21_to_27.txt'))
+    # TODO: get frame height and width from database/config
+    cap1 = cv2.VideoCapture(
+        str(list(Path('../../data/recordings').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
+    cap2 = cv2.VideoCapture(
+        str(list(Path('../../data/recordings').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
+    homo = get_homo(cam1, cam2)
 
-    traj_dist_matrix = np.empty((len(by_camid[21].keys()), len(by_camid[27].keys())), dtype='float32')
-    iou_matrix = np.empty((len(by_camid[21].keys()), len(by_camid[27].keys())), dtype='float32')
+    distance_matrix = np.empty((len(by_camid[cam1]), len(by_camid[cam2])), dtype='float32')
+    iou_matrix = np.empty((len(by_camid[cam1]), len(by_camid[cam2])), dtype='float32')
     # sample time correspondences of 2 tracks
-    # TODO CHUY: cac trackid dang bat dau tu 1
-    # TODO: 3 cam overlap
-    cam21_id_idxes = {}
-    cam27_id_idxes = {}
-    for track21_idx, cam21_trackid in enumerate(by_camid[21].keys()):
-        for track27_idx, cam27_trackid in enumerate(by_camid[27].keys()):
+    track_indexes1 = {}
+    track_indexes2 = {}
+    for idx1, id1 in enumerate(by_camid[cam1]):
+        for idx2, id2 in enumerate(by_camid[cam2]):
 
-            cam21_id_idxes[track21_idx] = cam21_trackid
-            cam27_id_idxes[track27_idx] = cam27_trackid
+            track_indexes1[idx1] = id1
+            track_indexes2[idx2] = id2
 
-            traj1_time_series = [detection['time'].timestamp() for detection in by_camid[21][cam21_trackid]]
-            traj2_time_series = [detection['time'].timestamp() for detection in by_camid[27][cam27_trackid]]
+            timestamps1 = [det['time'].timestamp() for det in by_camid[cam1][id1]]
+            timestamps2 = [det['time'].timestamp() for det in by_camid[cam2][id2]]
 
             # TODO thu nghiem anh Manh: map tren tung frag de xem vung nao ko nen dung homo
-            (list_idx21, list_idx27), list_unmatched_idx21, list_unmatched_idx27 = bipartite_match(traj1_time_series, traj2_time_series)
-            print(f'[INFO] Number of points sampled from trackid {cam21_trackid} and {cam27_trackid}: {len(list_idx21)}')
-            sampled_boxes21 = [by_camid[21][cam21_trackid][idx]['box'] for idx in list_idx21]
-            sampled_boxes27 = [by_camid[27][cam27_trackid][idx]['box'] for idx in list_idx27]
+            (matched_indexes1, matched_indexes2), unmatched_indexes1, unmatched_indexes2 = bipartite_match(timestamps1, timestamps2)
+            # print(f'[INFO] Number of points sampled from trackid {id1} and {id2}: {len(matched_indexes1)}')
+            sampled_boxes1 = [by_camid[cam1][id1][idx]['box'] for idx in matched_indexes1]
+            sampled_boxes2 = [by_camid[cam2][id2][idx]['box'] for idx in matched_indexes2]
 
-            repr_points21 = get_box_repr(sampled_boxes21, kind='foot', midpoint=(cap21.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap21.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-            repr_points27 = get_box_repr(sampled_boxes27, kind='foot', midpoint=(cap27.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap27.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+            repr_points1 = get_box_repr(sampled_boxes1, kind='foot', midpoint=(cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+            repr_points2 = get_box_repr(sampled_boxes2, kind='foot', midpoint=(cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
-            repr_points21_trans = cv2.perspectiveTransform(repr_points21.reshape(-1, 1, 2), H_21_27)
-            if repr_points21_trans is None:
-                repr_points21_trans = []
+            repr_points1_trans = cv2.perspectiveTransform(repr_points1.reshape(-1, 1, 2), homo)
+            if repr_points1_trans is None:
+                repr_points1_trans = []
             else:
-                repr_points21_trans = repr_points21_trans.reshape(-1, 2)
+                repr_points1_trans = repr_points1_trans.reshape(-1, 2)
 
-            # TODO CHUY: cac trackid dang bat dau tu 1
             # TODO nghien cuu so luong match (VD iou), threshold
-            traj_dist_matrix[track21_idx, track27_idx] = trajectory_distance(repr_points21_trans, repr_points27, kind='euclid')
-            iou_matrix[track21_idx, track27_idx] = len(list_idx21) / (len(list_idx21) + len(list_unmatched_idx21) + len(list_unmatched_idx27))
+            distance_matrix[idx1, idx2] = trajectory_distance(repr_points1_trans, repr_points2, kind='euclid')
+            iou_matrix[idx1, idx2] = len(matched_indexes1) / (len(matched_indexes1) + len(unmatched_indexes1) + len(unmatched_indexes2))
 
-    traj_cost_matrix = traj_dist_matrix / iou_matrix
+    cost_matrix = distance_matrix / iou_matrix
 
-    print(traj_dist_matrix)
-    print(iou_matrix)
-    print(traj_cost_matrix)
-    # TODO CHUY: cac trackid dang bat dau tu 1
-    list_matched_track21_idx, list_matched_track27_idx = linear_sum_assignment(traj_cost_matrix)
-    list_matched_track21 = [cam21_id_idxes[idx] for idx in list_matched_track21_idx]
-    list_matched_track27 = [cam27_id_idxes[idx] for idx in list_matched_track27_idx]
+    # print(distance_matrix)
+    # print(iou_matrix)
+    # print(cost_matrix)
+
+    matched_track_indexes1, matched_track_indexes2 = linear_sum_assignment(cost_matrix)
+    matched_track_ids1 = [track_indexes1[idx] for idx in matched_track_indexes1]
+    matched_track_ids_2 = [track_indexes2[idx] for idx in matched_track_indexes2]
     ret = []
-    for trackid21, trackid27 in zip(list_matched_track21, list_matched_track27):
-        ret.append(f'21,{vid_id},{trackid21},27,{vid_id},{trackid27}')
+    for id1, id2 in zip(matched_track_ids1, matched_track_ids_2):
+        ret.append(f'{cam1},{vid_id},{id1},{cam2},{vid_id},{id2}')
 
-    # # ======================== VISUALIZATION ==========================
-    # n_frames = int(min(cap21.get(cv2.CAP_PROP_FRAME_COUNT), cap27.get(cv2.CAP_PROP_FRAME_COUNT)))
+    # ======================== VISUALIZATION ==========================
+    # n_frames = int(min(cap1.get(cv2.CAP_PROP_FRAME_COUNT), cap2.get(cv2.CAP_PROP_FRAME_COUNT)))
     # window_name = 'show'
     # cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    # white = np.full((int(cap27.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap27.get(cv2.CAP_PROP_FRAME_WIDTH)), 3), 255, dtype='uint8')
-    # history21 = {}
-    # history27 = {}
+    # white = np.full((int(cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap2.get(cv2.CAP_PROP_FRAME_WIDTH)), 3), 255, dtype='uint8')
+    # history1 = {}
+    # history2 = {}
     # for frame_count in range(1, n_frames + 1):
-    #     success, frame21 = cap21.read()
-    #     success, frame27 = cap27.read()
+    #     success, frame1 = cap1.read()
+    #     success, frame2 = cap2.read()
     #
-    #     dets21 = []
-    #     dets27 = []
-    #     for trackid in by_camid[21].keys():
-    #         for detection in by_camid[21][trackid]:
+    #     dets1 = []
+    #     dets2 = []
+    #     for trackid in by_camid[cam1].keys():
+    #         for detection in by_camid[cam1][trackid]:
     #             if detection['frameid'] == frame_count:
-    #                 dets21.append([frame_count, trackid] + detection['box'] + [detection['score']])
+    #                 dets1.append([frame_count, trackid] + detection['box'] + [detection['score']])
     #
-    #     for trackid in by_camid[27].keys():
-    #         for detection in by_camid[27][trackid]:
+    #     for trackid in by_camid[cam2].keys():
+    #         for detection in by_camid[cam2][trackid]:
     #             if detection['frameid'] == frame_count:
-    #                 dets27.append([frame_count, trackid] + detection['box'] + [detection['score']])
+    #                 dets2.append([frame_count, trackid] + detection['box'] + [detection['score']])
     #
-    #     dets21 = np.array(dets21).reshape(-1, 7)
-    #     dets27 = np.array(dets27).reshape(-1, 7)
+    #     dets1 = np.array(dets1).reshape(-1, 7)
+    #     dets2 = np.array(dets2).reshape(-1, 7)
     #
-    #     points21 = get_box_repr(dets21[:, 2:6], kind='foot', midpoint=(frame21.shape[1] // 2, frame21.shape[0]))
-    #     points27 = get_box_repr(dets27[:, 2:6], kind='foot', midpoint=(frame27.shape[1] // 2, frame27.shape[0]))
+    #     points1 = get_box_repr(dets1[:, 2:6], kind='foot', midpoint=(frame1.shape[1] // 2, frame1.shape[0]))
+    #     points2 = get_box_repr(dets2[:, 2:6], kind='foot', midpoint=(frame2.shape[1] // 2, frame2.shape[0]))
     #
-    #     points21_trans = cv2.perspectiveTransform(points21.reshape(-1, 1, 2), H_21_27)
-    #     if points21_trans is None:
-    #         points21_trans = []
+    #     points1_trans = cv2.perspectiveTransform(points1.reshape(-1, 1, 2), homo)
+    #     if points1_trans is None:
+    #         points1_trans = []
     #     else:
-    #         points21_trans = points21_trans.reshape(-1, 2)
+    #         points1_trans = points1_trans.reshape(-1, 2)
     #
-    #     frame21_trans = cv2.warpPerspective(frame21, H_21_27, (frame27.shape[1], frame27.shape[0]))
+    #     frame1_trans = cv2.warpPerspective(frame1, homo, (frame2.shape[1], frame2.shape[0]))
     #
-    #     for box, id in zip(points21_trans, dets21[:, 1]):
-    #         cv2.circle(frame21_trans, np.int32(box), radius=3, color=COLORS[(int(id) + 5) % len(COLORS)], thickness=-1)
+    #     for box, id in zip(points1_trans, dets1[:, 1]):
+    #         cv2.circle(frame1_trans, np.int32(box), radius=3, color=COLORS[(int(id) + 5) % len(COLORS)], thickness=-1)
     #
     #         # write full trajectory
     #         cv2.circle(white, np.int32(box), radius=3, color=COLORS[(int(id) + 5) % len(COLORS)], thickness=-1)
-    #         if int(id) in history21:
-    #             cv2.line(white, np.int32(box), history21[int(id)], color=COLORS[(int(id) + 5) % len(COLORS)], thickness=1)
-    #         history21[int(id)] = np.int32(box)
+    #         if int(id) in history1:
+    #             cv2.line(white, np.int32(box), history1[int(id)], color=COLORS[(int(id) + 5) % len(COLORS)], thickness=1)
+    #         history1[int(id)] = np.int32(box)
     #
-    #     for box, id in zip(points27, dets27[:, 1]):
-    #         cv2.circle(frame27, np.int32(box), radius=3, color=COLORS[int(id) % len(COLORS)], thickness=-1)
+    #     for box, id in zip(points2, dets2[:, 1]):
+    #         cv2.circle(frame2, np.int32(box), radius=3, color=COLORS[int(id) % len(COLORS)], thickness=-1)
     #
     #         # write full trajectory
     #         cv2.circle(white, np.int32(box), radius=3, color=COLORS[int(id) % len(COLORS)], thickness=-1)
-    #         if int(id) in history27:
-    #             cv2.line(white, np.int32(box), history27[int(id)], color=COLORS[int(id) % len(COLORS)], thickness=1)
-    #         history27[int(id)] = np.int32(box)
+    #         if int(id) in history2:
+    #             cv2.line(white, np.int32(box), history2[int(id)], color=COLORS[int(id) % len(COLORS)], thickness=1)
+    #         history2[int(id)] = np.int32(box)
     #
-    #     show_img = np.concatenate([frame21_trans, frame27, white], axis=1)
+    #     show_img = np.concatenate([frame1_trans, frame2, white], axis=1)
     #
     #     cv2.imshow(window_name, show_img)
     #     key = cv2.waitKey(50)
     #     if key == 27:
     #         break
+    #     elif key == ord('e'):
+    #         exit(0)
     #     elif key == ord(' '):
     #         cv2.waitKey(0)
-    # # =====================================================================
+    # =====================================================================
 
     return '\n'.join(ret)
 
@@ -258,7 +260,6 @@ def evaluate(true_path, pred_path):
     recall = len(TP) / (len(TP) + len(FN))
     print('Precision', precision)
     print('Recall', recall)
-    print(FN)
 
 
 # TODO (tomorrow):
@@ -270,15 +271,15 @@ def evaluate(true_path, pred_path):
 
 if __name__ == '__main__':
 
-    # ret = []
-    # for vid_id in range(16):
-    #     ret.append(map_tracks(vid_id))
-    # with open('../../output/mct.txt', 'w') as f:
-    #     print('\n'.join(ret), file=f)
+    ret = []
+    for vid_id in tqdm(range(16)):
+        ret.append(map_tracks(21, 27, vid_id))
+    with open('../../output/mct.txt', 'w') as f:
+        print('\n'.join(ret), file=f)
 
-    # evaluate('../../data/recordings/correspondences_mapped.txt', '../../output/mct.txt')
+    evaluate('../../data/recordings/correspondences_mapped.txt', '../../output/mct.txt')
 
-    map_tracks(0)
+    # map_tracks(0)
 
     # for each (cam1, cam2) in homo_db:
 
