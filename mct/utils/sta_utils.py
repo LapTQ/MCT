@@ -96,14 +96,13 @@ def bipartite_match(seq1, seq2):
 
     list_unmatched_idx1 = np.array([i for i in range(n1) if i not in list_idx1])
     list_unmatched_idx2 = np.array([i for i in range(n2) if i not in list_idx2])
-    # print(len(list_idx1), len(list_unmatched_idx1), len(list_unmatched_idx2))
 
     return (list_idx1, list_idx2), list_unmatched_idx1, list_unmatched_idx2
 
 
 def map_tracks(vid_id):
 
-    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection('20221118232802_sct').get_product()
+    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection('20221118235019_sct').get_product()
 
     list_tracks = list(mongo.collection.find({'videoid': vid_id}))
 
@@ -173,8 +172,6 @@ def map_tracks(vid_id):
     ret = []
     for trackid21, trackid27 in zip(list_matched_track21, list_matched_track27):
         ret.append(f'21,{vid_id},{trackid21},27,{vid_id},{trackid27}')
-    return '\n'.join(ret)
-
 
     # # ======================== VISUALIZATION ==========================
     # n_frames = int(min(cap21.get(cv2.CAP_PROP_FRAME_COUNT), cap27.get(cv2.CAP_PROP_FRAME_COUNT)))
@@ -241,6 +238,8 @@ def map_tracks(vid_id):
     #         cv2.waitKey(0)
     # # =====================================================================
 
+    return '\n'.join(ret)
+
 
 
 def evaluate(true_path, pred_path):
@@ -271,20 +270,18 @@ def evaluate(true_path, pred_path):
 
 if __name__ == '__main__':
 
-    ret = []
-    for vid_id in range(16):
-        ret.append(map_tracks(vid_id))
-    with open('../../output/mct.txt', 'w') as f:
-        print('\n'.join(ret), file=f)
+    # ret = []
+    # for vid_id in range(16):
+    #     ret.append(map_tracks(vid_id))
+    # with open('../../output/mct.txt', 'w') as f:
+    #     print('\n'.join(ret), file=f)
 
-    evaluate('../../data/recordings/correspondences_mapped.txt', '../../output/mct.txt')
+    # evaluate('../../data/recordings/correspondences_mapped.txt', '../../output/mct.txt')
 
-    # map_tracks(0)
+    map_tracks(0)
 
-    # for each (cam1id, cam2id) in homo_db:
-    #   find all [(cam1id, track1id, cam2id, track2id) in sct_db x sct_db and not in mct_db and (track1id and track2id have overlapping times)]
-    #   group those [(cam1id, track1id, cam2id, track2id)] by (cam1id, cam2id)
-    #   for each group: do STA
+    # for each (cam1, cam2) in homo_db:
+
 
 
 

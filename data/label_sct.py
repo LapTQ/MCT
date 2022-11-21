@@ -222,8 +222,8 @@ def main(opt):
         mongo.close()
         print('[INFO] DB closed')
 
-    with open(HERE/'recordings/mapper.txt', 'w') as f:
-        print(track_id_mapper, file=f)
+    # with open(HERE/'recordings/mapper.txt', 'w') as f:
+    #     print(track_id_mapper, file=f)
 
     with open(HERE/'recordings/correspondences.txt', 'r') as f:
         correspondences = [eval(l[:-1]) for l in f.readlines()]
