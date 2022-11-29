@@ -5,8 +5,8 @@ import argparse
 
 HERE = Path(__file__).parent
 
-CAM1 = str(HERE / 'recordings/21_00000_2022-11-03_14-56-57-643967.avi')
-CAM2 = str(HERE / 'recordings/27_00000_2022-11-03_14-56-56-863473.avi')
+CAM1 = 'rtsp://admin:123456a@@192.168.3.63/live' # str(HERE / 'recordings/21_00000_2022-11-03_14-56-57-643967.avi')
+CAM2 = 'rtsp://admin:123456a@@192.168.3.64/live' # str(HERE / 'recordings/27_00000_2022-11-03_14-56-56-863473.avi')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -137,7 +137,7 @@ if __name__ == '__main__':
     opt = {
         'src': CAM1,
         'dst': CAM2,
-        'name': '21_to_27.txt',
+        'name': None, # '21_to_27.txt',
         'video': True
     }
 

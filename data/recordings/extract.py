@@ -3,7 +3,7 @@ from pathlib import Path
 
 HERE = str(Path(__file__).parent)
 
-files = [str(path) for path in Path(HERE).glob('*.zip')]
+files = [str(path) for path in Path(HERE).glob('*000*.zip')]
 
 for filename in files:
     basename = os.path.splitext(filename)[0]

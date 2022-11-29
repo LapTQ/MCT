@@ -119,8 +119,11 @@ def main(opt):
 
                 for id in np.unique(det_seq[:, 1]):
                     track_id_mapper[cam_id][vid_id][int(id)] = sum(len(track_id_mapper[cam_id][vid]) for vid in track_id_mapper[cam_id]) + 1
-                for i in range(len(det_seq)):
-                    det_seq[i, 1] = track_id_mapper[cam_id][vid_id][int(det_seq[i, 1])]
+
+                # ======== CHANGE ID ACROSS VIDEOS ======
+                # for i in range(len(det_seq)):
+                #     det_seq[i, 1] = track_id_mapper[cam_id][vid_id][int(det_seq[i, 1])]
+                # =======================================
 
         # process output name
         filename = os.path.basename(str(_input))
@@ -150,6 +153,8 @@ def main(opt):
         print('[INFO] Processing', _input)
         pbar = tqdm(range(len(loader)))
         for _ in pbar:
+            start_time = time.time()
+
             # TODO add capture time from loader
             ret, frame = loader.read()
 
@@ -159,8 +164,6 @@ def main(opt):
                 condition = condition or cv2.waitKey(int(1000 / FPS)) & 0xFF == ord('q')
             if condition:
                 break
-
-            start_time = time.time()
 
             if not opt.from_txt:
                 ret = sct.predict(frame, BGR=True)  # [[frame, id, x1, y1, x2, y2, conf]...]
@@ -222,17 +225,19 @@ def main(opt):
         mongo.close()
         print('[INFO] DB closed')
 
-    # with open(HERE/'recordings/mapper.txt', 'w') as f:
-    #     print(track_id_mapper, file=f)
-
-    with open(HERE/'recordings/correspondences.txt', 'r') as f:
-        correspondences = [eval(l[:-1]) for l in f.readlines()]
-    buf = []
-    for cor in correspondences:
-        buf.append(
-            f'{cor[0]},{cor[1]},{track_id_mapper[cor[0]][cor[1]][cor[2]]},{cor[3]},{cor[4]},{track_id_mapper[cor[3]][cor[4]][cor[5]]}')
-    with open(HERE/'recordings/correspondences_mapped.txt', 'w') as f:
-        print('\n'.join(buf), file=f)
+    # ========== CHANGE ID ACROSS VIDEO ===========
+    # # with open(HERE/'recordings/mapper.txt', 'w') as f:
+    # #     print(track_id_mapper, file=f)
+    #
+    # with open(HERE/'recordings/correspondences.txt', 'r') as f:
+    #     correspondences = [eval(l[:-1]) for l in f.readlines()]
+    # buf = []
+    # for cor in correspondences:
+    #     buf.append(
+    #         f'{cor[0]},{cor[1]},{track_id_mapper[cor[0]][cor[1]][cor[2]]},{cor[3]},{cor[4]},{track_id_mapper[cor[3]][cor[4]][cor[5]]}')
+    # with open(HERE/'recordings/correspondences_mapped.txt', 'w') as f:
+    #     print('\n'.join(buf), file=f)
+    # =============================================
 
 
 VID_DIR = os.path.join(HERE, 'recordings')
@@ -302,17 +307,45 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
     cv2.destroyAllWindows()
 
 
+def show(vid_path1, vid_path2):
+    cap1 = cv2.VideoCapture(vid_path1)
+    cap2 = cv2.VideoCapture(vid_path2)
+
+    cv2.namedWindow(os.path.split(vid_path1)[1], cv2.WINDOW_NORMAL)
+    while True:
+        _, frame1 = cap1.read()
+        _, frame2 = cap2.read()
+        collage = np.concatenate([frame1, frame2], axis=1)
+
+        cv2.imshow(os.path.split(vid_path1)[1], collage)
+
+        key = cv2.waitKey(5)
+        if key == 27 or not _:
+            break
+        elif key == ord(' '):
+            cv2.waitKey(0)
+
+    cv2.destroyAllWindows()
+
+
+
+
+
 if __name__ == '__main__':
-    opt = parse_opt()
-    main(opt)
+    # opt = parse_opt()
+    # main(opt)
 
-    # vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    # txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
-    # vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
-    # txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
-    #
-    # correspondence = np.loadtxt('../output/mct.txt', delimiter=',', dtype=int) # 'recordings/correspondences.txt'
-    #
-    # for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
-    #     visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
+    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
+    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
+    txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
 
+    correspondence = np.loadtxt('recordings/correspondences.txt', delimiter=',', dtype=int) # 'recordings/correspondences.txt'
+
+    for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
+        visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
+
+    # vid_list1 = sorted([str(path) for path in Path('../output').glob('21*.avi')])
+    # vid_list2 = sorted([str(path) for path in Path('../output').glob('27*.avi')])
+    # for vid_path1, vid_path2 in zip(vid_list1, vid_list2):
+    #     show(vid_path1, vid_path2)
