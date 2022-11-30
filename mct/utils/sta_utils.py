@@ -317,6 +317,7 @@ def analyze_homo(cam1, cam2, vid_id, correspondence, vis=False, export_video=Fal
 
     min_timestamp = min(vid1_starttime.timestamp(), vid2_starttime.timestamp())
     max_timestamp = max(vid1_endtime.timestamp(), vid2_endtime.timestamp())
+    frame_diff = int((vid2_starttime.timestamp() - vid1_starttime.timestamp()) * fps)
     n_timestamp = int((max_timestamp - min_timestamp) * fps + 1)
 
     # n_timestamp = max([len(seq) for cam in by_camid for seq in by_camid[cam].values()])
@@ -381,11 +382,23 @@ def analyze_homo(cam1, cam2, vid_id, correspondence, vis=False, export_video=Fal
 
     count_total = 0
     count_false = 0
+    frame_skipped = False
+    distance_tensor = distance_tensor[:, :, abs(frame_diff):]
+    mask_tensor = mask_tensor[:, :, abs(frame_diff):]
+    n_timestamp -= abs(frame_skipped)
     for frame_count in tqdm(range(n_timestamp)):
         matches = []
         matched_track_indexes1, matched_track_indexes2 = linear_sum_assignment(distance_tensor[:, :, frame_count])
         matched_track_ids1 = [track_indexes1[idx] for idx in matched_track_indexes1]
         matched_track_ids2 = [track_indexes2[idx] for idx in matched_track_indexes2]
+
+        if not frame_skipped:
+            for _ in range(abs(frame_diff)):
+                if frame_diff > 0:
+                    _, frame1 = cap1.read()
+                else:
+                    __, frame2 = cap2.read()
+            frame_skipped = True
 
         _, frame1 = cap1.read()
         __, frame2 = cap2.read()
@@ -406,7 +419,7 @@ def analyze_homo(cam1, cam2, vid_id, correspondence, vis=False, export_video=Fal
                 matches.append((id1, id2))
                 count_total += 1
 
-                c1, c1_trans, c2, p1, p1_trans, p2 = points_records[(frame_count, id1, id2)]
+                c1, c1_trans, c2, p1, p1_trans, p2 = points_records[(frame_count + abs(frame_diff), id1, id2)]
 
                 if (id1, id2) not in correspondence:
                     count_false += 1
@@ -512,7 +525,6 @@ if __name__ == '__main__':
 
     cam1 = 21
     cam2 = 27
-    vid_id = 3
     for vid_id in range(16):
         with open('../../data/recordings/correspondences.txt', 'r') as f:
             true = [eval(l[:-1]) for l in f.readlines()]
