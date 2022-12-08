@@ -5,8 +5,8 @@ import argparse
 
 HERE = Path(__file__).parent
 
-CAM1 = 'rtsp://admin:123456a@@192.168.3.63/live' # str(HERE / 'recordings/21_00000_2022-11-03_14-56-57-643967.avi')
-CAM2 = 'rtsp://admin:123456a@@192.168.3.64/live' # str(HERE / 'recordings/27_00000_2022-11-03_14-56-56-863473.avi')
+CAM1 = str(HERE / 'recordings/21_00019_2022-12-02_18-15-20-498917.avi')
+CAM2 = str(HERE / 'recordings/27_00019_2022-12-02_18-15-21-292795.avi')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -128,6 +128,18 @@ def main(opt):
 [INFO] [710, 403] matched to [753, 659]
 [INFO] [814, 635] matched to [450, 631]
 [INFO] [708, 283] matched to [963, 698]
+
+
+
+[INFO] [1124, 409] matched to [265, 320]
+[INFO] [1200, 543] matched to [347, 448]
+[INFO] [1120, 476] matched to [240, 393]
+[INFO] [1128, 566] matched to [221, 486]
+[INFO] [1044, 454] matched to [137, 400]
+[INFO] [1127, 667] matched to [208, 605]
+[INFO] [1044, 543] matched to [117, 481]
+[INFO] [1186, 497] matched to [341, 400]
+[INFO] [1037, 378] matched to [161, 319]
 '''
 
 if __name__ == '__main__':
@@ -137,8 +149,10 @@ if __name__ == '__main__':
     opt = {
         'src': CAM1,
         'dst': CAM2,
-        'name': None, # '21_to_27.txt',
+        'name': None, #'21_to_27.txt',
         'video': True
     }
 
     main(opt)
+    
+    # fix distortion with openCV: search "camera distortion openCV"

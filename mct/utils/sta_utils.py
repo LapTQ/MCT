@@ -113,7 +113,7 @@ def get_homo(src, dst):
 
 def map_tracks(cam1, cam2, vid_id, export_video=False):
 
-    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection('20221124143517_sct').get_product()
+    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection('20221208170629_sct').get_product()
 
     list_tracks = list(mongo.collection.find({'videoid': vid_id, 'camid': {'$in': [cam1, cam2]}}))
 
@@ -127,9 +127,9 @@ def map_tracks(cam1, cam2, vid_id, export_video=False):
     # just to get the frame height and width
     # TODO: get frame height and width from database/config
     cap1 = cv2.VideoCapture(
-        str(list(Path('../../data/recordings').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
+        str(list(Path(HERE/'../../data/recordings').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
     cap2 = cv2.VideoCapture(
-        str(list(Path('../../data/recordings').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
+        str(list(Path(HERE/'../../data/recordings').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
     homo = get_homo(cam1, cam2)
 
     distance_matrix = np.empty((len(by_camid[cam1]), len(by_camid[cam2])), dtype='float32')
@@ -179,10 +179,11 @@ def map_tracks(cam1, cam2, vid_id, export_video=False):
 
     # ======================== VISUALIZATION ==========================
     correspondence = np.stack([matched_track_ids1, matched_track_ids2], axis=1)
-    LENGTH = 30
+    LENGTH = 15
     n_frames = int(min(cap1.get(cv2.CAP_PROP_FRAME_COUNT), cap2.get(cv2.CAP_PROP_FRAME_COUNT)))
-    window_name = 'show'
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    if not export_video:
+        window_name = 'show'
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     history = {cam1: {}, cam2: {}}
     writer_created = False
     for frame_count in tqdm(range(1, n_frames + 1)):
@@ -250,7 +251,10 @@ def map_tracks(cam1, cam2, vid_id, export_video=False):
             history[cam2][id].append(pts)
             if len(history[cam2][id]) > LENGTH:
                 del history[cam2][id][0]
-            color = COLORS[(correspondence[correspondence[:, 1] == id][0, 0]) % len(COLORS)]
+            if len(correspondence[correspondence[:, 1] == id]) > 0:
+                color = COLORS[correspondence[correspondence[:, 1] == id][0, 0] % len(COLORS)]
+            else:
+                color = COLORS[(correspondence[:, 0].max() + 2 + id - correspondence[:, 1].min()) % len(COLORS)]
             cv2.polylines(frame2, [box], True, color, thickness=2)
             frame2 = draw_track(frame2, history[cam2][id], color=color, radius=5)
             white = draw_track(white, history[cam2][id], color=color, radius=3, camid=cam2)
@@ -272,14 +276,15 @@ def map_tracks(cam1, cam2, vid_id, export_video=False):
             else:
                 writer.write(show_img)
 
-        cv2.imshow(window_name, show_img)
-        key = cv2.waitKey(50)
-        if key == 27:
-            break
-        elif key == ord('e'):
-            exit(0)
-        elif key == ord(' '):
-            cv2.waitKey(0)
+        if not export_video:
+            cv2.imshow(window_name, show_img)
+            key = cv2.waitKey(1)
+            if key == 27:
+                break
+            elif key == ord('e'):
+                exit(0)
+            elif key == ord(' '):
+                cv2.waitKey(0)
     # =====================================================================
 
     return '\n'.join(ret)
@@ -288,7 +293,7 @@ def map_tracks(cam1, cam2, vid_id, export_video=False):
 def analyze_homo(cam1, cam2, vid_id, correspondence, vis=False, export_video=False):
 
     mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection(
-        '20221124143517_sct').get_product()
+        '20221208170629_sct').get_product()
 
     list_tracks = list(mongo.collection.find({'videoid': vid_id, 'camid': {'$in': [cam1, cam2]}}))
 
@@ -301,8 +306,8 @@ def analyze_homo(cam1, cam2, vid_id, correspondence, vis=False, export_video=Fal
 
     # just to get the frame height and width
     # TODO: get frame height and width from database/config
-    vid1_path = str(list(Path('../../data/recordings').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
-    vid2_path = str(list(Path('../../data/recordings').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
+    vid1_path = str(list(Path(HERE/'../../data/recordings').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
+    vid2_path = str(list(Path(HERE/'../../data/recordings').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
     cap1 = cv2.VideoCapture(vid1_path)
     cap2 = cv2.VideoCapture(vid2_path)
     homo = get_homo(cam1, cam2)
@@ -500,6 +505,8 @@ def evaluate(true_path, pred_path):
     recall = len(TP) / (len(TP) + len(FN))
     print('Precision', precision)
     print('Recall', recall)
+    print(FP)
+    print(FN)
 
 
 # TODO (tomorrow):
@@ -512,25 +519,30 @@ def evaluate(true_path, pred_path):
 if __name__ == '__main__':
 
     # ret = []
-    # for vid_id in tqdm(range(16)):
+    # for vid_id in tqdm(range(19, 25)):
     #     ret.append(map_tracks(21, 27, vid_id))
     # with open('../../output/mct.txt', 'w') as f:
     #     print('\n'.join(ret), file=f)
     #
-    # evaluate('../../data/recordings/correspondences.txt', '../../output/mct.txt')
+    evaluate('../../data/recordings/correspondences.txt', '../../output/mct.txt')
+    """
+    {'21,19,4,27,19,2', '21,19,2,27,19,1', '21,19,1,27,19,4', '21,20,1,27,20,3', '21,20,3,27,20,1'}
+    {'21,19,4,27,19,4', '21,19,2,27,19,2', '21,20,3,27,20,3'}
+    """
 
     # from multiprocessing import Pool
-    # pool = Pool(16)
-    # pool.starmap(map_tracks, [(21, 27, vid_id, True) for vid_id in range(16)])
+    # pool = Pool(2)
+    # pool.starmap(map_tracks, [(21, 27, vid_id, True) for vid_id in range(21, 23)])
 
-    cam1 = 21
-    cam2 = 27
-    for vid_id in range(16):
-        with open('../../data/recordings/correspondences.txt', 'r') as f:
-            true = [eval(l[:-1]) for l in f.readlines()]
-            true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
-        print('VID', vid_id, end=': ')
-        analyze_homo(cam1, cam2, vid_id, correspondence=true, vis=True, export_video=False)
+    # # ANALYZE
+    # cam1 = 21
+    # cam2 = 27
+    # for vid_id in range(16):
+    #     with open(str(HERE/'../../data/recordings/correspondences.txt'), 'r') as f:
+    #         true = [eval(l[:-1]) for l in f.readlines()]
+    #         true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
+    #     print('VID', vid_id, end=': ')
+    #     analyze_homo(cam1, cam2, vid_id, correspondence=true, vis=True, export_video=False)
 
 
 

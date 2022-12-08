@@ -7,50 +7,61 @@ from multiprocessing import Pool
 from threading import Thread
 import queue
 import time
+import math
+
 
 CAM63 = 'rtsp://admin:123456a@@192.168.3.63/live'
 CAM64 = 'rtsp://admin:123456a@@192.168.3.64/live'
 CAM21 = 'rtsp://admin:12345@192.168.3.21/live'
 CAM27 = 'rtsp://admin:12345@192.168.3.27/live'
 
+CAMID_MAPPER = {
+    CAM63: 63,
+    CAM64: 64,
+    CAM21: 21,
+    CAM27: 27
+}
 CAMERAS = [
     CAM21,
     CAM27,
 ]
 DURATIONS = [
-    1,
-    1,
+    2,
+    2,
 ]  # minutes
 
 OUT_DIR = Path(__file__).parent / 'recordings'
 DATETIME_FORMAT = '%Y-%m-%d_%H-%M-%S-%f'
 VID_EXT = '.avi'
+N_SKIP = 0
+ALPHA = 0.2
+MAX_ALPHA = 0.4 # 0.8
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
 def record(cam_address, duration):
 
-    cam_id = os.path.split(cam_address)[0].split('.')[-1]
+    cam_id = CAMID_MAPPER[cam_address]
     cap = cv2.VideoCapture(cam_address)
 
     if not cap.isOpened():
         print('Cannot open RTSP stream from', cam_address)
         return
 
-    exists = list(Path(OUT_DIR).glob(cam_id + '*.avi'))
+    exists = list(Path(OUT_DIR).glob(str(cam_id) + '*.avi'))
     vid_id = 0 if len(exists) == 0 else int(sorted(exists)[-1].stem.split('_')[1]) + 1
 
-    fps = 10.0 # cap.get(cv2.CAP_PROP_FPS) # 10.0
+    fps = 10.0 / (N_SKIP + 1) # cap.get(cv2.CAP_PROP_FPS) / (N_SKIP + 1) # 10.0 / (N_SKIP + 1)
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 
-    n_frames = int(duration * 60 * fps)
+    n_frames = math.ceil(duration * 60 * fps)
 
     q = queue.Queue()
 
     now = datetime.now().strftime(DATETIME_FORMAT)
-    name = cam_id + '_' + ('00000' + str(vid_id))[-5:] + '_' + now + VID_EXT
+    name = str(cam_id) + '_' + ('00000' + str(vid_id))[-5:] + '_' + now + VID_EXT
 
     out_video_path = os.path.join(OUT_DIR, name)
     video_writer = cv2.VideoWriter(
@@ -61,20 +72,21 @@ def record(cam_address, duration):
     )
 
     def _read():
-        pbar = tqdm(range(n_frames), ascii=True, desc=name)
+        pbar = tqdm(range(n_frames * (N_SKIP + 1) + 1), ascii=True, desc=name)
         n_errors = 0
         moving_average_delay = 0
-        alpha = 0.7
-        max_alpha = 0.8
+        frame_count = 0
         for _ in pbar:
+            frame_count += 1
             start_time = time.time()
             success, frame = cap.read()
-            moving_average_delay = alpha * (time.time() - start_time) + (max_alpha - alpha) * moving_average_delay
+            moving_average_delay = ALPHA * (time.time() - start_time) + (MAX_ALPHA - ALPHA) * moving_average_delay
             if not success:
                 n_errors += 1
             else:
-                q.put(frame)
-                time.sleep(moving_average_delay)
+                if frame_count % (N_SKIP + 1) == 0:
+                    q.put(frame)
+            time.sleep(moving_average_delay)
             pbar.set_postfix(n_errors=n_errors, queue_size=q.qsize(), sleep=moving_average_delay)
 
     def _write():
@@ -107,8 +119,12 @@ if __name__ == '__main__':
     pool = Pool(len(CAMERAS))
     pool.starmap(record, zip(CAMERAS, DURATIONS))
     print('[INFO] Running time:', time.time() - start_time)
+    
+    
+    
+    
 
-    # cap = cv2.VideoCapture(CAM27)
+    # cap = cv2.VideoCapture(CAM63)
     # while True:
     #     success, frame = cap.read()
     #     print(frame.shape)

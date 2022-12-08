@@ -183,13 +183,13 @@ def main(opt):
                                    len(ret), axis=0),
                          ret],
                         axis=1)
-                    )  # [[cam, vid, time, frame, id, x1,...],...])
+                    )  # [[cam, vid, time, frame, id, x1, y1, x2, y2, conf],...])
 
             if not opt.from_txt and opt.save_txt:
                 for obj in ret:
                     # [frame, id, x1, y1, w, h, conf, -1, -1, -1]
                     txt_buffer.append(
-                        f'{int(obj[0])}, {int(obj[1])}, {obj[2]:.2f}, {obj[3]:.2f}, {(obj[4] - obj[2]):.2f}, {(obj[5] - obj[3]):.2f}, {obj[6]:.6f}, -1, -1, -1')
+                        f'{int(obj[0])},{int(obj[1])},{obj[2]:.2f},{obj[3]:.2f},{(obj[4] - obj[2]):.2f},{(obj[5] - obj[3]):.2f},{obj[6]:.6f},-1,-1,-1')
 
             if opt.display or opt.export_video:
                 show_img = plot_box(frame, ret)  # ret  [np.array([[frame_count]] * len(dets)), np.array([[-1]] * len(dets))
@@ -279,10 +279,11 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
             dets2[:, 4:6] += dets2[:, 2:4]
             success2, frame2 = cap2.read()
 
-            correspondence = kwargs['correspondence'][kwargs['correspondence'][:, 1] == vid_id]
-            for id1, id2 in correspondence[:, [2, 5]]:
-                dets[dets[:, 1] == id1, 1] = 100 - id1
-                dets2[dets2[:, 1] == id2, 1] = 100 - id1
+            if 'correspondence' in kwargs:
+                correspondence = kwargs['correspondence'][kwargs['correspondence'][:, 1] == vid_id]
+                for id1, id2 in correspondence[:, [2, 5]]:
+                    dets[dets[:, 1] == id1, 1] = 100 - id1
+                    dets2[dets2[:, 1] == id2, 1] = 100 - id1
 
             vis_img = plot_box(frame, dets)
             vis_img2 = plot_box(frame2, dets2)
@@ -292,7 +293,7 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
             writer.write(show_img)
 
         cv2.imshow(filename, show_img)
-        key = cv2.waitKey(1)
+        key = cv2.waitKey(50)
         if key == 27:
             break
         elif key == ord('e'):
@@ -332,18 +333,29 @@ def show(vid_path1, vid_path2):
 
 
 if __name__ == '__main__':
-    # opt = parse_opt()
-    # main(opt)
+    opt = parse_opt()
+    main(opt)
 
-    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
-    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
-    txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
 
-    correspondence = np.loadtxt('recordings/correspondences.txt', delimiter=',', dtype=int) # 'recordings/correspondences.txt'
 
-    for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
-        visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
+
+    # vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    # txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
+    # vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
+    # txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
+    #
+    # correspondence = np.loadtxt('recordings/correspondences.txt', delimiter=',', dtype=int) # 'recordings/correspondences.txt'
+    #
+    # for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
+    #     visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
+
+    # for vid_id in range(19, 25):
+    #     vid_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'21_000{vid_id}*.avi'))[0])
+    #     txt_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'21_000{vid_id}*.txt'))[0])
+    #     vid_path2 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'27_000{vid_id}*.avi'))[0])
+    #     txt_path2 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'27_000{vid_id}*.txt'))[0])
+    #     visualize_from_txt(vid_path1, txt_path1, vid_path2=vid_path2,txt_path2=txt_path2)
+
 
     # vid_list1 = sorted([str(path) for path in Path('../output').glob('21*.avi')])
     # vid_list2 = sorted([str(path) for path in Path('../output').glob('27*.avi')])
