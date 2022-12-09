@@ -38,7 +38,7 @@ def plot_box(img, boxes, thickness=2):
 
     return img
 
-def draw_track(img, track, color, radius=2, **kwargs):
+def draw_track(img, track, id, color, radius=2, **kwargs):
 
     if not isinstance(track, np.ndarray):
         track = np.array(track)
@@ -51,7 +51,7 @@ def draw_track(img, track, color, radius=2, **kwargs):
         cv2.circle(img, np.int32(track[i]), radius=radius, color=color, thickness=-1)
 
         if i == len(track) - 1 and 'camid' in kwargs:
-            cv2.putText(img, str(kwargs['camid']), (int(track[i, 0]), int(track[i, 1]) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, thickness=2)
+            cv2.putText(img, f"{str(kwargs['camid'])} ({id})", (int(track[i, 0]), int(track[i, 1]) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, thickness=2)
 
         if i == 0:
             continue

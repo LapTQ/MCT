@@ -5,8 +5,8 @@ import argparse
 
 HERE = Path(__file__).parent
 
-CAM1 = str(HERE / 'recordings/21_00019_2022-12-02_18-15-20-498917.avi')
-CAM2 = str(HERE / 'recordings/27_00019_2022-12-02_18-15-21-292795.avi')
+CAM1 = str(HERE / 'recordings/2d_v1/21_00019_2022-12-02_18-15-20-498917.avi')
+CAM2 = str(HERE / 'recordings/2d_v2/27_00019_2022-12-02_18-15-21-292795.avi')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -102,11 +102,14 @@ def main(opt):
 
 
     src_pts, dst_pts = select_matches(src, dst)
+    print(src_pts)
+    print(dst_pts)
     H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
 
     if opt['name'] is not None:
-        np.savetxt(opt['name'], H)
-        print('[INFO] Homography saved in', opt['name'])
+        out_path = str(Path(opt['src']).parent / opt['name'])
+        np.savetxt(out_path, H)
+        print('[INFO] Homography saved in', out_path)
     else:
         print('[INFO] Not save homography')
 
@@ -128,6 +131,9 @@ def main(opt):
 [INFO] [710, 403] matched to [753, 659]
 [INFO] [814, 635] matched to [450, 631]
 [INFO] [708, 283] matched to [963, 698]
+[[[530, 447]], [[476, 485]], [[525, 235]], [[627, 268]], [[616, 626]], [[710, 403]], [[814, 635]], [[708, 283]]]
+[[[736, 488]], [[703, 445]], [[1034, 528]], [[984, 622]], [[532, 499]], [[753, 659]], [[450, 631]], [[963, 698]]]
+
 
 
 
@@ -149,7 +155,7 @@ if __name__ == '__main__':
     opt = {
         'src': CAM1,
         'dst': CAM2,
-        'name': None, #'21_to_27.txt',
+        'name': '21_to_27.txt',
         'video': True
     }
 

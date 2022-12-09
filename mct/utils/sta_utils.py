@@ -8,7 +8,10 @@ import os
 
 HERE = Path(__file__).parent
 
-
+video_version_to_db_name = {
+    '2d_v1': '20221124143517_sct',
+    '2d_v2': '20221208170629_sct',
+}
 
 def get_box_repr(boxes, kind, **kwargs):
     """x1, y1, x2, y2"""
@@ -106,14 +109,14 @@ def bipartite_match(seq1, seq2):
 
 from mct.utils.vis_utils import draw_track
 
-def get_homo(src, dst):
+def get_homo(src, dst, video_version):
 
     # TODO any
-    return np.loadtxt(str(HERE / '../../data/21_to_27.txt'))
+    return np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/21_to_27.txt'))
 
-def map_tracks(cam1, cam2, vid_id, export_video=False):
+def map_tracks(cam1, cam2, vid_id, video_version, use_iou, vis=False, export_video=False):
 
-    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection('20221208170629_sct').get_product()
+    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection(video_version_to_db_name[video_version]).get_product()
 
     list_tracks = list(mongo.collection.find({'videoid': vid_id, 'camid': {'$in': [cam1, cam2]}}))
 
@@ -127,10 +130,10 @@ def map_tracks(cam1, cam2, vid_id, export_video=False):
     # just to get the frame height and width
     # TODO: get frame height and width from database/config
     cap1 = cv2.VideoCapture(
-        str(list(Path(HERE/'../../data/recordings').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
+        str(list(Path(HERE/f'../../data/recordings/{video_version}').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
     cap2 = cv2.VideoCapture(
-        str(list(Path(HERE/'../../data/recordings').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
-    homo = get_homo(cam1, cam2)
+        str(list(Path(HERE/f'../../data/recordings/{video_version}').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
+    homo = get_homo(cam1, cam2, video_version)
 
     distance_matrix = np.empty((len(by_camid[cam1]), len(by_camid[cam2])), dtype='float32')
     iou_matrix = np.empty((len(by_camid[cam1]), len(by_camid[cam2])), dtype='float32')
@@ -164,11 +167,15 @@ def map_tracks(cam1, cam2, vid_id, export_video=False):
             distance_matrix[idx1, idx2] = trajectory_distance(repr_points1_trans, repr_points2, kind='euclid')
             iou_matrix[idx1, idx2] = len(matched_indexes1) / (len(matched_indexes1) + len(unmatched_indexes1) + len(unmatched_indexes2))
 
-    cost_matrix = distance_matrix / iou_matrix
+    if use_iou:
+        cost_matrix = distance_matrix / iou_matrix
+    else:
+        cost_matrix = distance_matrix
 
-    # print(distance_matrix)
-    # print(iou_matrix)
-    # print(cost_matrix)
+    print(track_indexes1, track_indexes2)
+    print(distance_matrix)
+    print(iou_matrix)
+    print(cost_matrix)
 
     matched_track_indexes1, matched_track_indexes2 = linear_sum_assignment(cost_matrix)
     matched_track_ids1 = [track_indexes1[idx] for idx in matched_track_indexes1]
@@ -178,122 +185,125 @@ def map_tracks(cam1, cam2, vid_id, export_video=False):
         ret.append(f'{cam1},{vid_id},{id1},{cam2},{vid_id},{id2}')
 
     # ======================== VISUALIZATION ==========================
-    correspondence = np.stack([matched_track_ids1, matched_track_ids2], axis=1)
-    LENGTH = 15
-    n_frames = int(min(cap1.get(cv2.CAP_PROP_FRAME_COUNT), cap2.get(cv2.CAP_PROP_FRAME_COUNT)))
-    if not export_video:
-        window_name = 'show'
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    history = {cam1: {}, cam2: {}}
-    writer_created = False
-    for frame_count in tqdm(range(1, n_frames + 1)):
-        white = np.full((int(cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap2.get(cv2.CAP_PROP_FRAME_WIDTH)), 3), 0,
-                        dtype='uint8')
-        success, frame1 = cap1.read()
-        success, frame2 = cap2.read()
+    if vis or export_video:
+        correspondence = np.stack([matched_track_ids1, matched_track_ids2], axis=1)
+        LENGTH = 35
+        n_frames = int(min(cap1.get(cv2.CAP_PROP_FRAME_COUNT), cap2.get(cv2.CAP_PROP_FRAME_COUNT)))
+        if vis:
+            window_name = 'show'
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        history = {cam1: {}, cam2: {}}
+        writer_created = False
+        for frame_count in tqdm(range(1, n_frames + 1)):
+            white = np.full((int(cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap2.get(cv2.CAP_PROP_FRAME_WIDTH)), 3), 0,
+                            dtype='uint8')
+            success, frame1 = cap1.read()
+            success, frame2 = cap2.read()
 
-        dets1 = []
-        dets2 = []
-        for trackid in by_camid[cam1].keys():
-            for detection in by_camid[cam1][trackid]:
-                if detection['frameid'] == frame_count:
-                    dets1.append([frame_count, trackid] + detection['box'] + [detection['score']])
+            dets1 = []
+            dets2 = []
+            for trackid in by_camid[cam1].keys():
+                for detection in by_camid[cam1][trackid]:
+                    if detection['frameid'] == frame_count:
+                        dets1.append([frame_count, trackid] + detection['box'] + [detection['score']])
 
-        for trackid in by_camid[cam2].keys():
-            for detection in by_camid[cam2][trackid]:
-                if detection['frameid'] == frame_count:
-                    dets2.append([frame_count, trackid] + detection['box'] + [detection['score']])
+            for trackid in by_camid[cam2].keys():
+                for detection in by_camid[cam2][trackid]:
+                    if detection['frameid'] == frame_count:
+                        dets2.append([frame_count, trackid] + detection['box'] + [detection['score']])
 
-        dets1 = np.array(dets1).reshape(-1, 7)
-        dets2 = np.array(dets2).reshape(-1, 7)
+            dets1 = np.array(dets1).reshape(-1, 7)
+            dets2 = np.array(dets2).reshape(-1, 7)
 
-        coords1 = np.int32(np.stack([dets1[:, 2], dets1[:, 3], dets1[:, 2], dets1[:, 5], dets1[:, 4], dets1[:, 5], dets1[:, 4], dets1[:, 3]], axis=1).reshape(-1, 4, 1, 2))
-        coords2 = np.int32(np.stack([dets2[:, 2], dets2[:, 3], dets2[:, 2], dets2[:, 5], dets2[:, 4], dets2[:, 5], dets2[:, 4], dets2[:, 3]], axis=1).reshape(-1, 4, 1, 2))
+            coords1 = np.int32(np.stack([dets1[:, 2], dets1[:, 3], dets1[:, 2], dets1[:, 5], dets1[:, 4], dets1[:, 5], dets1[:, 4], dets1[:, 3]], axis=1).reshape(-1, 4, 1, 2))
+            coords2 = np.int32(np.stack([dets2[:, 2], dets2[:, 3], dets2[:, 2], dets2[:, 5], dets2[:, 4], dets2[:, 5], dets2[:, 4], dets2[:, 3]], axis=1).reshape(-1, 4, 1, 2))
 
-        points1 = get_box_repr(dets1[:, 2:6], kind='foot', midpoint=(frame1.shape[1] // 2, frame1.shape[0]))
-        points2 = get_box_repr(dets2[:, 2:6], kind='foot', midpoint=(frame2.shape[1] // 2, frame2.shape[0]))
+            points1 = get_box_repr(dets1[:, 2:6], kind='foot', midpoint=(frame1.shape[1] // 2, frame1.shape[0]))
+            points2 = get_box_repr(dets2[:, 2:6], kind='foot', midpoint=(frame2.shape[1] // 2, frame2.shape[0]))
 
-        points1_trans = cv2.perspectiveTransform(points1.reshape(-1, 1, 2), homo)
-        coords1_trans = cv2.perspectiveTransform(np.float32(coords1).reshape(-1, 1, 2), homo)
-        if points1_trans is None:
-            points1_trans = []
-            coords1_trans = []
-        else:
-            points1_trans = points1_trans.reshape(-1, 2)
-            coords1_trans = coords1_trans.reshape(-1, 4, 1, 2).astype('int32')
-
-        frame1_trans = cv2.warpPerspective(frame1, homo, (frame2.shape[1], frame2.shape[0]))
-
-        for id in history[cam1]:
-            if not np.any(dets1[:, 1] == id):
-                history[cam1][id] = []
-        for id in history[cam2]:
-            if not np.any(dets2[:, 1] == id):
-                history[cam2][id] = []
-
-        for pts, id, box_trans, box in zip(points1_trans, dets1[:, 1], coords1_trans, coords1):
-            id = int(id)
-            if id not in history[cam1]:
-                history[cam1][id] = []
-            history[cam1][id].append(pts)
-            if len(history[cam1][id]) > LENGTH:
-                del history[cam1][id][0]
-            color = COLORS[id % len(COLORS)]
-            cv2.polylines(frame1_trans, [box_trans], True, color, thickness=2)
-            cv2.polylines(frame1, [box], True, color, thickness=2)
-            frame1_trans = draw_track(frame1_trans, history[cam1][id], color=color, radius=5)
-            white = draw_track(white, history[cam1][id], color=color, radius=3, camid=cam1)
-
-        for pts, id, box in zip(points2, dets2[:, 1], coords2):
-            id = int(id)
-            if id not in history[cam2]:
-                history[cam2][id] = []
-            history[cam2][id].append(pts)
-            if len(history[cam2][id]) > LENGTH:
-                del history[cam2][id][0]
-            if len(correspondence[correspondence[:, 1] == id]) > 0:
-                color = COLORS[correspondence[correspondence[:, 1] == id][0, 0] % len(COLORS)]
+            points1_trans = cv2.perspectiveTransform(points1.reshape(-1, 1, 2), homo)
+            coords1_trans = cv2.perspectiveTransform(np.float32(coords1).reshape(-1, 1, 2), homo)
+            if points1_trans is None:
+                points1_trans = []
+                coords1_trans = []
             else:
-                color = COLORS[(correspondence[:, 0].max() + 2 + id - correspondence[:, 1].min()) % len(COLORS)]
-            cv2.polylines(frame2, [box], True, color, thickness=2)
-            frame2 = draw_track(frame2, history[cam2][id], color=color, radius=5)
-            white = draw_track(white, history[cam2][id], color=color, radius=3, camid=cam2)
+                points1_trans = points1_trans.reshape(-1, 2)
+                coords1_trans = coords1_trans.reshape(-1, 4, 1, 2).astype('int32')
 
-        show_img = np.concatenate([
-            np.concatenate([frame1_trans, frame2], axis=1),
-            np.concatenate([frame1, white], axis=1)
-        ], axis=0)
+            frame1_trans = cv2.warpPerspective(frame1, homo, (frame2.shape[1], frame2.shape[0]))
 
-        if export_video:
-            if not writer_created:
-                writer = cv2.VideoWriter(
-                    str(HERE/f'../../output/map_{cam1}_{cam2}_{vid_id}.avi'),
-                    cv2.VideoWriter_fourcc(*'XVID'),
-                    10.0,
-                    (show_img.shape[1], show_img.shape[0])
-                )
-                writer_created = True
-            else:
-                writer.write(show_img)
+            for id in history[cam1]:
+                if not np.any(dets1[:, 1] == id):
+                    history[cam1][id] = []
+            for id in history[cam2]:
+                if not np.any(dets2[:, 1] == id):
+                    history[cam2][id] = []
 
-        if not export_video:
-            cv2.imshow(window_name, show_img)
-            key = cv2.waitKey(1)
-            if key == 27:
-                break
-            elif key == ord('e'):
-                exit(0)
-            elif key == ord(' '):
-                cv2.waitKey(0)
+            for pts, id, box_trans, box in zip(points1_trans, dets1[:, 1], coords1_trans, coords1):
+                id = int(id)
+                if id not in history[cam1]:
+                    history[cam1][id] = []
+                history[cam1][id].append(pts)
+                if len(history[cam1][id]) > LENGTH:
+                    del history[cam1][id][0]
+                color = COLORS[id % len(COLORS)]
+                cv2.polylines(frame1_trans, [box_trans], True, color, thickness=2)
+                cv2.polylines(frame1, [box], True, color, thickness=2)
+                frame1_trans = draw_track(frame1_trans, history[cam1][id], id=id, color=color, radius=5)
+                white = draw_track(white, history[cam1][id], id=id, color=color, radius=3, camid=cam1)
+
+            for pts, id, box in zip(points2, dets2[:, 1], coords2):
+                id = int(id)
+                if id not in history[cam2]:
+                    history[cam2][id] = []
+                history[cam2][id].append(pts)
+                if len(history[cam2][id]) > LENGTH:
+                    del history[cam2][id][0]
+                if len(correspondence[correspondence[:, 1] == id]) > 0:
+                    color = COLORS[correspondence[correspondence[:, 1] == id][0, 0] % len(COLORS)]
+                else:
+                    color = COLORS[(correspondence[:, 0].max() + 2 + id - correspondence[:, 1].min()) % len(COLORS)]
+                cv2.polylines(frame2, [box], True, color, thickness=2)
+                frame2 = draw_track(frame2, history[cam2][id], id=id, color=color, radius=5)
+                white = draw_track(white, history[cam2][id], id=id, color=color, radius=3, camid=cam2)
+
+            cv2.putText(white, f"{correspondence}", (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=2)
+
+            show_img = np.concatenate([
+                np.concatenate([frame1_trans, frame2], axis=1),
+                np.concatenate([frame1, white], axis=1)
+            ], axis=0)
+
+            if export_video:
+                if not writer_created:
+                    writer = cv2.VideoWriter(
+                        str(HERE/f'../../output/map_{cam1}_{cam2}_{vid_id}.avi'),
+                        cv2.VideoWriter_fourcc(*'XVID'),
+                        10.0,
+                        (show_img.shape[1], show_img.shape[0])
+                    )
+                    writer_created = True
+                else:
+                    writer.write(show_img)
+
+            if vis:
+                cv2.imshow(window_name, show_img)
+                key = cv2.waitKey(1)
+                if key == 27:
+                    break
+                elif key == ord('e'):
+                    exit(0)
+                elif key == ord(' '):
+                    cv2.waitKey(0)
     # =====================================================================
 
     return '\n'.join(ret)
 
 
-def analyze_homo(cam1, cam2, vid_id, correspondence, vis=False, export_video=False):
+def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, export_video=False):
 
     mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection(
-        '20221208170629_sct').get_product()
+        video_version_to_db_name[video_version]).get_product()
 
     list_tracks = list(mongo.collection.find({'videoid': vid_id, 'camid': {'$in': [cam1, cam2]}}))
 
@@ -306,11 +316,11 @@ def analyze_homo(cam1, cam2, vid_id, correspondence, vis=False, export_video=Fal
 
     # just to get the frame height and width
     # TODO: get frame height and width from database/config
-    vid1_path = str(list(Path(HERE/'../../data/recordings').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
-    vid2_path = str(list(Path(HERE/'../../data/recordings').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
+    vid1_path = str(list(Path(HERE/f'../../data/recordings/{video_version}').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
+    vid2_path = str(list(Path(HERE/f'../../data/recordings/{video_version}').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
     cap1 = cv2.VideoCapture(vid1_path)
     cap2 = cv2.VideoCapture(vid2_path)
-    homo = get_homo(cam1, cam2)
+    homo = get_homo(cam1, cam2, video_version)
 
     fps = cap1.get(cv2.CAP_PROP_FPS)
     vid1_starttime = datetime.strptime('_'.join(os.path.splitext(os.path.split(vid1_path)[1])[0].split('_')[2:]), '%Y-%m-%d_%H-%M-%S-%f')
@@ -518,37 +528,38 @@ def evaluate(true_path, pred_path):
 
 if __name__ == '__main__':
 
-    # ret = []
-    # for vid_id in tqdm(range(19, 25)):
-    #     ret.append(map_tracks(21, 27, vid_id))
-    # with open('../../output/mct.txt', 'w') as f:
-    #     print('\n'.join(ret), file=f)
-    #
-    evaluate('../../data/recordings/correspondences.txt', '../../output/mct.txt')
+    video_version = '2d_v2'
+
+    ret = []
+    for vid_id in tqdm(range(19, 25)):
+        ret.append(map_tracks(21, 27, vid_id, video_version, use_iou=False, vis=False, export_video=False))
+    with open(f'../../data/recordings/{video_version}/output.txt', 'w') as f:
+        print('\n'.join(ret), file=f)
+
+    evaluate(f'../../data/recordings/{video_version}/correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
     """
+    iou
     {'21,19,4,27,19,2', '21,19,2,27,19,1', '21,19,1,27,19,4', '21,20,1,27,20,3', '21,20,3,27,20,1'}
     {'21,19,4,27,19,4', '21,19,2,27,19,2', '21,20,3,27,20,3'}
+    no iou:
+    {'21,20,1,27,20,1', '21,19,1,27,19,1'}
     """
 
+    # export video
     # from multiprocessing import Pool
     # pool = Pool(2)
-    # pool.starmap(map_tracks, [(21, 27, vid_id, True) for vid_id in range(21, 23)])
+    # pool.starmap(map_tracks, [(21, 27, vid_id, video_version, False, False, True) for vid_id in range(23, 25)])
 
     # # ANALYZE
     # cam1 = 21
     # cam2 = 27
     # for vid_id in range(16):
-    #     with open(str(HERE/'../../data/recordings/correspondences.txt'), 'r') as f:
+    #     with open(str(HERE/f'../../data/recordings/{video_version}/correspondences.txt'), 'r') as f:
     #         true = [eval(l[:-1]) for l in f.readlines()]
     #         true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
     #     print('VID', vid_id, end=': ')
-    #     analyze_homo(cam1, cam2, vid_id, correspondence=true, vis=True, export_video=False)
+    #     analyze_homo(cam1, cam2, vid_id, video_version, correspondence=true, vis=True, export_video=False)
 
-
-
-    # for each (cam1, cam2) in homo_db:
-    # vis 5 video, quan sat xem co van de khong (them cam id, them box cho cam 1)
-    # vis ket qua theo tung frame, tong chi phi, bo qua van de dong bo => danh gia vung nao tren anh homo khong tot, uu nhuoc diem cua homo
 
 
 

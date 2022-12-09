@@ -226,22 +226,19 @@ def main(opt):
         print('[INFO] DB closed')
 
     # ========== CHANGE ID ACROSS VIDEO ===========
-    # # with open(HERE/'recordings/mapper.txt', 'w') as f:
+    #
+    # # with open(Path(opt.input[0]).parent / 'mapper.txt', 'w') as f:
     # #     print(track_id_mapper, file=f)
     #
-    # with open(HERE/'recordings/correspondences.txt', 'r') as f:
+    # with open(Path(opt.input[0]).parent / 'correspondences.txt', 'r') as f:
     #     correspondences = [eval(l[:-1]) for l in f.readlines()]
     # buf = []
     # for cor in correspondences:
     #     buf.append(
     #         f'{cor[0]},{cor[1]},{track_id_mapper[cor[0]][cor[1]][cor[2]]},{cor[3]},{cor[4]},{track_id_mapper[cor[3]][cor[4]][cor[5]]}')
-    # with open(HERE/'recordings/correspondences_mapped.txt', 'w') as f:
+    # with open(Path(opt.input[0]).parent / 'correspondences_mapped.txt', 'w') as f:
     #     print('\n'.join(buf), file=f)
     # =============================================
-
-
-VID_DIR = os.path.join(HERE, 'recordings')
-TXT_DIR = os.path.join(HERE, 'recordings')
 
 
 def visualize_from_txt(vid_path, txt_path, **kwargs):
@@ -333,21 +330,21 @@ def show(vid_path1, vid_path2):
 
 
 if __name__ == '__main__':
-    opt = parse_opt()
-    main(opt)
+    # opt = parse_opt()
+    # main(opt)
 
 
+    VID_DIR = os.path.join(HERE, 'recordings/2d_v2')
+    TXT_DIR = os.path.join(HERE, 'recordings/2d_v2')
+    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
+    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
+    txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
 
+    correspondence = np.loadtxt(f'{VID_DIR}/output.txt', delimiter=',', dtype=int)   # output.txt correspondences.txt
 
-    # vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    # txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
-    # vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
-    # txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
-    #
-    # correspondence = np.loadtxt('recordings/correspondences.txt', delimiter=',', dtype=int) # 'recordings/correspondences.txt'
-    #
-    # for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
-    #     visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
+    for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
+        visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
 
     # for vid_id in range(19, 25):
     #     vid_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'21_000{vid_id}*.avi'))[0])
