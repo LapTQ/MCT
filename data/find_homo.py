@@ -5,8 +5,11 @@ import argparse
 
 HERE = Path(__file__).parent
 
-CAM1 = str(HERE / 'recordings/2d_v2/21_00019_2022-12-02_18-15-20-498917.avi')
-CAM2 = str(HERE / 'recordings/2d_v2/27_00019_2022-12-02_18-15-21-292795.avi')
+CAM1 = str(HERE / 'recordings/2d_v1/21_00000_2022-11-03_14-56-57-643967.avi')
+CAM2 = str(HERE / 'recordings/2d_v1/27_00000_2022-11-03_14-56-56-863473.avi')
+
+# CAM1 = str(HERE / 'recordings/2d_v2/21_00019_2022-12-02_18-15-20-498917.avi')
+# CAM2 = str(HERE / 'recordings/2d_v2/27_00019_2022-12-02_18-15-21-292795.avi')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -39,11 +42,9 @@ def extract_frame(cap):
 
 
 def select_matches(src, dst):
-    return (np.array([[[1124, 409]], [[1200, 543]], [[1120, 476]], [[1128, 566]], [[1044, 454]], [[1127, 667]], [[1044, 543]],
-              [[1186, 497]], [[1037, 378]]], dtype='float32'),
-            np.array([[[265, 320]], [[347, 448]], [[240, 393]], [[221, 486]], [[137, 400]], [[208, 605]], [[117, 481]],
-                      [[341, 400]],
-                      [[161, 319]]], dtype='float32'))
+
+    # return (np.array([[[530, 447]], [[476, 485]], [[525, 235]], [[627, 268]], [[616, 626]], [[710, 403]], [[814, 635]], [[708, 283]]], dtype='float32'),
+    #         np.array([[[736, 488]], [[703, 445]], [[1034, 528]], [[984, 622]], [[532, 499]], [[753, 659]], [[450, 631]], [[963, 698]]], dtype='float32'))
 
     global img
     global src_pts
@@ -133,8 +134,9 @@ def select_ROI(img):
             cv2.line(show_img, points[-1], points[0], color=(0, 255, 0), thickness=2)
             cv2.imshow(window_name, show_img)
             cv2.waitKey(500)
-            cv2.destroyAllWindows()
             break
+    
+    cv2.destroyAllWindows()
 
     points = np.array(points, dtype='float32')
     points[:, 0] /= img.shape[1]
@@ -210,18 +212,18 @@ def main(opt):
 if __name__ == '__main__':
 
     # opt = parse_opt()
-    #
-    # opt = {
-    #     'src': CAM1,
-    #     'dst': CAM2,
-    #     'name': '21_to_27.txt',
-    #     'video': True
-    # }
-    #
-    # main(opt)
+    
+    opt = {
+        'src': CAM1,
+        'dst': CAM2,
+        'name': None, # '21_to_27.txt',
+        'video': True
+    }
+    
+    main(opt)
     
     # fix distortion with openCV: search "camera distortion openCV"
-
+'''
     src_pts = np.array([[[1124, 409]], [[1200, 543]], [[1120, 476]], [[1128, 566]], [[1044, 454]], [[1127, 667]], [[1044, 543]],
      [[1186, 497]], [[1037, 378]]], dtype='float32')
     dst_pts = np.array([[[265, 320]], [[347, 448]], [[240, 393]], [[221, 486]], [[137, 400]], [[208, 605]], [[117, 481]], [[341, 400]],
@@ -250,5 +252,5 @@ if __name__ == '__main__':
     # cv2.namedWindow('show', cv2.WINDOW_NORMAL)
     # cv2.imshow('show', show_img)
     # cv2.waitKey(0)
-
+'''
 

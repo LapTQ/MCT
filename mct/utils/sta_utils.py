@@ -183,7 +183,7 @@ def map_tracks(cam1, cam2, vid_id, video_version, use_iou, vis=False, export_vid
             repr_points1_trans_roi = []
             repr_points2_roi = []
             for p1, p2 in zip(repr_points1_trans, repr_points2):
-                if cv2.pointPolygonTest(roi, p1, False) >= 0 and cv2.pointPolygonTest(roi, p2, False) >= 0:
+                if cv2.pointPolygonTest(roi, p1, True) >= -5 and cv2.pointPolygonTest(roi, p2, True) >= -5:
                     repr_points1_trans_roi.append(p1)
                     repr_points2_roi.append(p2)
 
@@ -379,10 +379,6 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
     frame_diff = int((vid2_starttime.timestamp() - vid1_starttime.timestamp()) * fps)
     n_timestamp = int((max_timestamp - min_timestamp) * fps + 1)
 
-    # n_timestamp = max([len(seq) for cam in by_camid for seq in by_camid[cam].values()])
-    # min_timestamp = min([det['time'].timestamp() for cam in by_camid for id in by_camid[cam] for det in by_camid[cam][id]])
-    # max_timestamp = max(
-    #     [det['time'].timestamp() for cam in by_camid for id in by_camid[cam] for det in by_camid[cam][id]])
     timestampsa = np.linspace(min_timestamp, max_timestamp, n_timestamp)
 
     distance_tensor = np.full((len(by_camid[cam1]), len(by_camid[cam2]), n_timestamp), 1e9, dtype='float32')
@@ -419,7 +415,7 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
                     cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
                 repr_points1_trans = cv2.perspectiveTransform(repr_points1.reshape(-1, 1, 2), homo).reshape(-1, 2)
 
-                if cv2.pointPolygonTest(roi, repr_points1_trans[0], False) >= 0 and cv2.pointPolygonTest(roi, repr_points2[0], False) >= 0:
+                if cv2.pointPolygonTest(roi, repr_points1_trans[0], True) >= -5 and cv2.pointPolygonTest(roi, repr_points2[0], True) >= -5:
                     distance_tensor[idx1, idx2, time_idxa] = trajectory_distance(repr_points1_trans, repr_points2,
                                                                                  kind='euclid')
                     roi_tensor[idx1, idx2, time_idxa] = True
@@ -470,7 +466,7 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
         if not (_ and __ and frame1 is not None and frame2 is not None):
             if vis:
                 cv2.destroyAllWindows()
-            return
+            break
 
         frame1_trans = cv2.warpPerspective(frame1, homo, (frame2.shape[1], frame2.shape[0]))
 
@@ -527,7 +523,7 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
                 key = cv2.waitKey(50)
                 if key == 27:
                     cv2.destroyAllWindows()
-                    return
+                    break
                 elif key == ord('e'):
                     exit(0)
                 elif key == ord(' '):
@@ -548,7 +544,7 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
     if vis:
         cv2.destroyAllWindows()
 
-    print(f'False: {count_false}/{count_total} =', count_false/count_total)
+    print(f'{vid_id} -> False: {count_false}/{count_total} =', count_false/count_total)
 
 
 
@@ -583,13 +579,18 @@ if __name__ == '__main__':
 
     video_version = '2d_v2'
 
-    # ret = []
-    # for vid_id in tqdm(range(19, 25)):
-    #     ret.append(map_tracks(21, 27, vid_id, video_version, use_iou=False, vis=False, export_video=False))
-    # with open(f'../../data/recordings/{video_version}/output.txt', 'w') as f:
-    #     print('\n'.join(ret), file=f)
-    #
-    # evaluate(f'../../data/recordings/{video_version}/correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
+   
+    '''
+    ret = []
+    for vid_id in tqdm(range(16)):
+        ret.append(map_tracks(21, 27, vid_id, video_version, use_iou=False, vis=False, export_video=False))
+    with open(f'../../data/recordings/{video_version}/output.txt', 'w') as f:
+        print('\n'.join(ret), file=f)
+    
+    evaluate(f'../../data/recordings/{video_version}/correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
+    '''
+    
+
 
     """
     iou
@@ -597,23 +598,28 @@ if __name__ == '__main__':
     {'21,19,4,27,19,4', '21,19,2,27,19,2', '21,20,3,27,20,3'}
     """
 
-    # map_tracks(21, 27, 19, video_version, use_iou=False, vis=False, export_video=False)
 
     # export video
+    '''
     from multiprocessing import Pool
-    pool = Pool(6)
-    pool.starmap(map_tracks, [(21, 27, vid_id, video_version, False, False, True) for vid_id in range(19, 25)])
+    pool = Pool(16)
+    pool.starmap(map_tracks, [(21, 27, vid_id, video_version, False, False, True) for vid_id in range(16)])
+    '''
 
     # ANALYZE
-    # cam1 = 21
-    # cam2 = 27
-    # for vid_id in range(19, 25):
-    #     with open(str(HERE/f'../../data/recordings/{video_version}/correspondences.txt'), 'r') as f:
-    #         true = [eval(l[:-1]) for l in f.readlines()]
-    #         true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
-    #     print('VID', vid_id, end=': ')
-    #     analyze_homo(cam1, cam2, vid_id, video_version, correspondence=true, vis=False, export_video=True)
-
+    
+    cam1 = 21
+    cam2 = 27
+    from multiprocessing import Pool
+    pool = Pool(6)
+    trues = []
+    for vid_id in range(19, 25):
+        with open(str(HERE/f'../../data/recordings/{video_version}/correspondences.txt'), 'r') as f:
+            true = [eval(l[:-1]) for l in f.readlines()]
+            true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
+            trues.append(true)
+    pool.starmap(analyze_homo, [(cam1, cam2, vid_id, video_version, true, False, False) for vid_id, true in zip(range(19, 25), trues)])  # vis, export_video
+    
 
 
 
