@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+import cv2
 
 
 def xyxy2xysr(boxes):
@@ -78,3 +79,79 @@ def iou_associate(dets, preds, thresh):
         m = a * b
 
     return np.transpose(np.where(m)), np.where(1 - m.sum(1))[0], np.where(1 - m.sum(0))[0]
+
+
+
+if __name__ == '__main__':
+
+    R, C = 10, 7
+
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+    # object points: (0,0,0), (1,0,0), ... (6,5,0)
+    objp = np.zeros((C * R, 3), 'float32')
+    objp[:, :2] = np.mgrid[0:R, 0:C].T.reshape(-1, 2)
+
+    objpoints = []
+    imgpoints = []
+
+    # For better results, we need at least 10 test patterns
+    import glob
+    images = glob.glob('../../data/recordings/2d_v2/frames/frame_27_*.png')
+    for fnames in images:
+        img = cv2.imread(fnames)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # corners are ordered: left-to-right, top-to-bottom
+        ret, corners = cv2.findChessboardCorners(gray, (R, C), None)
+
+        if not ret:
+            print('[INFO] Failed')
+            continue
+
+        objpoints.append(objp)
+        corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)    # increase accuracy
+        imgpoints.append(corners2)
+
+        '''
+        cv2.drawChessboardCorners(img, (R, C), corners2, ret)
+        cv2.imshow('img', img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        '''
+
+    # camera matrix, distortion coefficients, rotation and translation vectors
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+
+    img = cv2.imread('../../data/recordings/2d_v2/frame_27_test_0.png')
+
+    # refine the camera matrix based on a free scaling parameter
+    # alpha = 0 -> minimum unwanted pixels
+    # alpha = 1 -> retain all pixels with some extra black images
+    h, w = img.shape[:2]
+    newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (w, h), 1, (w, h))
+
+    dst = cv2.undistort(img, mtx, dist, None, newcameramtx)
+
+    # x, y, w, h = roi
+    # dst = dst[y:y + h, x:x + w]
+
+    '''
+    cv2.imshow('img', dst)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    '''
+    cv2.imwrite('../../output/undist_2.png', dst)
+    
+    # Re-projection Error
+    mean_error = 0
+    for i in range(len(objpoints)):
+        imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
+        error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2) / len(imgpoints2)
+        mean_error += error
+    print("total error: {}".format(mean_error / len(objpoints)))
+
+
+
+
+

@@ -1,0 +1,5 @@
+model: yolov5l
+weights: ../weights/yolov5l.pt  # relative to this file
+size: 640 # 640 1280 -1
+conf: 0.5
+iou: 0.55  # 0.45 -> 0.6

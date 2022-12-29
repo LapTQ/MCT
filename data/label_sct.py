@@ -2,7 +2,6 @@ import os
 import argparse
 import time
 from datetime import datetime, timedelta
-from pathlib import Path
 from tqdm import tqdm
 from threading import Thread
 from pathlib import Path
@@ -28,6 +27,7 @@ def parse_opt():
 
     ap.add_argument('--input', action='append', nargs='+', required=True, help='list of paths to videos or path to a directory of videos')
     ap.add_argument('--from_txt', action='store_true', help='get detection result from txt instead of a tracker')
+    ap.add_argument('--txt', default=None, action='append', nargs='+', help='list of paths to .txt or path to a directory of .txt')
     ap.add_argument('--save_db', action='store_true', help='save result to database')
     ap.add_argument('--db_framework', type=str, default='pymongo') # pymongo mongoengine
     ap.add_argument('--db_host', type=str, default=None, help='address of db container') # from host: 'localhost', from docker env: 'mct_mongodb'
@@ -52,8 +52,8 @@ def main(opt):
     assert not (os.path.isdir(opt.input[0]) and len(opt.input) != 1), 'Support only 1 directory of videos'
     if os.path.isdir(opt.input[0]):
         # TODO glob video extensions only
-        opt.input = [os.path.join(opt.input[0], filename) for filename in os.listdir(opt.input[0])
-                     if os.path.splitext(filename)[1] in ['.mp4', '.avi']]
+        opt.input = sorted([os.path.join(opt.input[0], filename) for filename in os.listdir(opt.input[0])
+                     if os.path.splitext(filename)[1] in ['.mp4', '.avi']])
     for i in range(len(opt.input)):
         if not os.path.exists(opt.input[i]):
             print('[ERROR] Video %s not exists' % opt.input[i])
@@ -61,6 +61,20 @@ def main(opt):
         elif opt.input[i] == '0':
             opt.input[i] = 0
     # opt.input is [path_vid1, path_vid2, path_vid3, ...]
+
+    ########## process txt path ###########
+    if opt.from_txt:
+        assert opt.txt is not None, "--txt must be specified if --from_txt is set"
+        assert len(opt.txt) == 1, 'Support <--txt txt1 txt2 txt3> or <--input txt_dir> only'
+        opt.txt = opt.txt[0]  # [[...]] to [...]
+        assert not (os.path.isdir(opt.txt[0]) and len(opt.txt) != 1), 'Support only 1 directory of .txt'
+        if os.path.isdir(opt.txt[0]):
+            opt.txt = {vid_path: os.path.join(opt.txt[0], os.path.split(vid_path)[1][:-4] + '.txt') for vid_path in opt.input}
+        for txt_path in opt.txt.values():
+            if not os.path.exists(txt_path):
+                print('[ERROR] txt %s not exists' % txt_path)
+                return
+        # opt.txt is {path_vid1: path_txt1, path_vid2: path_txt2, ...}
 
     ########### process output path ############
     if opt.output is None:
@@ -112,10 +126,15 @@ def main(opt):
 
         # currently, 2 behaviours are not the same =))
         if not opt.from_txt:
-            sct = SimpleSCT.Builder(loader).get_product()
+            sct = SimpleSCT.Builder(
+                loader,
+                yolov5_cfg_path=str(HERE / '../mct/configs/yolov5s.yaml'),
+                kalman_cfg_path=str(HERE / '../mct/configs/kalmanboxstandard.yaml'),
+                sort_cfg_path=str(HERE / '../mct/configs/sort.yaml')
+            ).get_product()
         else:
-            with open(_input[:-3] + 'txt', 'r') as f:
-                det_seq = np.array([[eval(e) for e in l.strip().split(',')[:7]] for l in f.readlines()])
+            with open(opt.txt[_input], 'r') as f:
+                det_seq = np.array([[eval(e) for e in l.strip().split(',' if ',' in l else None)[:7]] for l in f.readlines()])
 
                 for id in np.unique(det_seq[:, 1]):
                     track_id_mapper[cam_id][vid_id][int(id)] = sum(len(track_id_mapper[cam_id][vid]) for vid in track_id_mapper[cam_id]) + 1
@@ -247,12 +266,12 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
 
     cap = cv2.VideoCapture(vid_path)
     with open(txt_path, 'r') as f:
-        det_seq = np.array([[eval(e) for e in l.strip().split(',')[:7]] for l in f.readlines()])
+        det_seq = np.array([[eval(e) for e in l.strip().split(',' if ',' in l else None)[:7]] for l in f.readlines()])
 
     if 'vid_path2' in kwargs:
         cap2 = cv2.VideoCapture(kwargs['vid_path2'])
         with open(kwargs['txt_path2'], 'r') as f:
-            det_seq2 = np.array([[eval(e) for e in l.strip().split(',')[:7]] for l in f.readlines()])
+            det_seq2 = np.array([[eval(e) for e in l.strip().split(',' if ',' in l else None)[:7]] for l in f.readlines()])
 
     if kwargs.get('save_video', False):
         writer = cv2.VideoWriter(os.path.join(parent, 'vis_' + (filename if 'vid_path2' not in kwargs else filename[3:])),
@@ -334,23 +353,24 @@ if __name__ == '__main__':
     # main(opt)
 
 
-    VID_DIR = os.path.join(HERE, 'recordings/2d_v2')
-    TXT_DIR = os.path.join(HERE, 'recordings/2d_v2')
+    ROOT_DIR = os.path.join(HERE, 'recordings/2d_v2')
+    VID_DIR = os.path.join(HERE, 'recordings/2d_v2/videos')
+    TXT_DIR = os.path.join(HERE, 'recordings/2d_v2/tracker')
     vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
     txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
     vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
     txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
 
-    correspondence = np.loadtxt(f'{VID_DIR}/output.txt', delimiter=',', dtype=int)   # output.txt correspondences.txt
+    correspondence = np.loadtxt(f'{ROOT_DIR}/output.txt', delimiter=',', dtype=int)   # output.txt correspondences.txt
 
     for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
-        visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence)
+        visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2) # , correspondence=correspondence
 
     # for vid_id in range(19, 25):
-    #     vid_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'21_000{vid_id}*.avi'))[0])
-    #     txt_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'21_000{vid_id}*.txt'))[0])
-    #     vid_path2 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'27_000{vid_id}*.avi'))[0])
-    #     txt_path2 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings').glob(f'27_000{vid_id}*.txt'))[0])
+    #     vid_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/videos').glob(f'21_000{vid_id}*.avi'))[0])
+    #     txt_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/gt').glob(f'21_000{vid_id}*.txt'))[0])
+    #     vid_path2 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/videos').glob(f'27_000{vid_id}*.avi'))[0])
+    #     txt_path2 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/gt').glob(f'27_000{vid_id}*.txt'))[0])
     #     visualize_from_txt(vid_path1, txt_path1, vid_path2=vid_path2,txt_path2=txt_path2)
 
 

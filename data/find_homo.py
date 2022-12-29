@@ -5,11 +5,11 @@ import argparse
 
 HERE = Path(__file__).parent
 
-CAM1 = str(HERE / 'recordings/2d_v1/21_00000_2022-11-03_14-56-57-643967.avi')
-CAM2 = str(HERE / 'recordings/2d_v1/27_00000_2022-11-03_14-56-56-863473.avi')
+CAM1 = str(HERE / 'recordings/2d_v1/videos/21_00000_2022-11-03_14-56-57-643967.avi')
+CAM2 = str(HERE / 'recordings/2d_v1/videos/27_00000_2022-11-03_14-56-56-863473.avi')
 
-# CAM1 = str(HERE / 'recordings/2d_v2/21_00019_2022-12-02_18-15-20-498917.avi')
-# CAM2 = str(HERE / 'recordings/2d_v2/27_00019_2022-12-02_18-15-21-292795.avi')
+# CAM1 = str(HERE / 'recordings/2d_v2/videos/21_00019_2022-12-02_18-15-20-498917.avi')
+# CAM2 = str(HERE / 'recordings/2d_v2/videos/27_00019_2022-12-02_18-15-21-292795.avi')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -25,7 +25,8 @@ def parse_opt():
 
     ap.add_argument('--src', type=str, required=True)
     ap.add_argument('--dst', type=str, required=True)
-    ap.add_argument('--name', type=str, default=None)
+    ap.add_argument('--homo_out_path', type=str, default=None)
+    ap.add_argument('--roi_out_path', type=str, default=None)
     ap.add_argument('--video', action='store_true')
 
     opt = vars(ap.parse_args())
@@ -186,16 +187,16 @@ def main(opt):
     contour = select_ROI(show_img)
     print(contour)
 
-    if opt['name'] is not None:
-        out_homo_path = str(Path(opt['src']).parent / opt['name'])
-        np.savetxt(out_homo_path, H)
-        print('[INFO] Homography saved in', out_homo_path)
-
-        out_contour_path = str(Path(opt['src']).parent / ('roi_' + opt['name']))
-        np.savetxt(out_contour_path, contour.reshape(-1, 2))
-        print('[INFO] Contour saved in', out_contour_path)
+    if opt['homo_out_path'] is not None:
+        np.savetxt(opt['homo_out_path'], H)
+        print('[INFO] Homography saved in', opt['homo_out_path'])
     else:
         print('[INFO] Not save homography')
+
+    if opt['roi_out_path'] is not None:
+        np.savetxt(opt['roi_out_path'], contour.reshape(-1, 2))
+        print('[INFO] Contour saved in', opt['roi_out_path'])
+    else:
         print('[INFO] Not save contour')
 
 
@@ -216,7 +217,8 @@ if __name__ == '__main__':
     opt = {
         'src': CAM1,
         'dst': CAM2,
-        'name': None, # '21_to_27.txt',
+        'homo_out_path': None, # str(Path(CAM1).parent.parent / 'homo_21_to_27.txt')
+        'roi_out_path': None, # str(Path(CAM1).parent.parent / 'roi_27.txt')
         'video': True
     }
     
@@ -238,7 +240,7 @@ if __name__ == '__main__':
     # show_img = np.concatenate([src_transformed, dst], axis=1)
     show_img = np.uint8(src_transformed * 0.75 + dst * 0.25)
 
-    roi = np.loadtxt('recordings/2d_v2/roi_21_to_27.txt', dtype='float32')
+    roi = np.loadtxt('recordings/2d_v2/roi_27.txt', dtype='float32')
     roi[:, 0] *= dst.shape[1]
     roi[:, 1] *= dst.shape[0]
     roi = roi.reshape(-1, 1, 2).astype('int32')

@@ -9,8 +9,8 @@ import os
 HERE = Path(__file__).parent
 
 video_version_to_db_name = {
-    '2d_v1': '20221124143517_sct',
-    '2d_v2': '20221208170629_sct',
+    '2d_v1': '20221124143517_sct',  # 20221118235019_sct (ban dau), 20221124143517_sct (sau khi bo non-object, refine cam 1)
+    '2d_v2': '20221208170629_sct', # 20221208170629_sct (gt, gan bay tay)
 }
 
 def get_box_repr(boxes, kind, **kwargs):
@@ -113,21 +113,21 @@ from mct.utils.vis_utils import draw_track
 def get_homo(src, dst, video_version):
 
     # TODO any
-    return np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/{src}_to_{dst}.txt'))
+    return np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/homo_{src}_to_{dst}.txt'))
 
 
-def get_roi(src, dst, video_version):
+def get_roi(dst, video_version):
 
     # TODO any
-    roi = np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/roi_{src}_to_{dst}.txt'), dtype='float32')
-    H, W = cv2.VideoCapture(str(list(Path(HERE / f'../../data/recordings/{video_version}').glob(f'{dst}*.avi'))[0])).read()[1].shape[:2]
+    roi = np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/roi_{dst}.txt'), dtype='float32')
+    H, W = cv2.VideoCapture(str(list(Path(HERE / f'../../data/recordings/{video_version}/videos').glob(f'{dst}*.avi'))[0])).read()[1].shape[:2]
     roi[:, 0] *= W
     roi[:, 1] *= H
     roi = roi.reshape(-1, 1, 2).astype('int32')
 
     return roi
 
-def map_tracks(cam1, cam2, vid_id, video_version, use_iou, vis=False, export_video=False):
+def map_tracks(cam1, cam2, vid_id, video_version, sample_roi, use_iou, vis=False, export_video=False):
 
     mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection(video_version_to_db_name[video_version]).get_product()
 
@@ -138,11 +138,11 @@ def map_tracks(cam1, cam2, vid_id, video_version, use_iou, vis=False, export_vid
     # just to get the frame height and width
     # TODO: get frame height and width from database/config
     cap1 = cv2.VideoCapture(
-        str(list(Path(HERE/f'../../data/recordings/{video_version}').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
+        str(list(Path(HERE/f'../../data/recordings/{video_version}/videos').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
     cap2 = cv2.VideoCapture(
-        str(list(Path(HERE/f'../../data/recordings/{video_version}').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
+        str(list(Path(HERE/f'../../data/recordings/{video_version}/videos').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
     homo = get_homo(cam1, cam2, video_version)
-    roi = get_roi(cam1, cam2, video_version)
+    roi = get_roi(cam2, video_version)
 
     # categorize tracks by camid, and sample detections in ROI
     by_camid = {cam1: {}, cam2: {}}
@@ -180,15 +180,15 @@ def map_tracks(cam1, cam2, vid_id, video_version, use_iou, vis=False, export_vid
                 repr_points1_trans = repr_points1_trans.reshape(-1, 2)
 
             # filter 2: sample points in ROI
-            repr_points1_trans_roi = []
-            repr_points2_roi = []
-            for p1, p2 in zip(repr_points1_trans, repr_points2):
-                if cv2.pointPolygonTest(roi, p1, True) >= -5 and cv2.pointPolygonTest(roi, p2, True) >= -5:
-                    repr_points1_trans_roi.append(p1)
-                    repr_points2_roi.append(p2)
-
-            repr_points1_trans = np.array(repr_points1_trans_roi).reshape(-1, 2)
-            repr_points2 = np.array(repr_points2_roi).reshape(-1, 2)
+            if sample_roi:
+                repr_points1_trans_roi = []
+                repr_points2_roi = []
+                for p1, p2 in zip(repr_points1_trans, repr_points2):
+                    if cv2.pointPolygonTest(roi, p1, True) >= -5 and cv2.pointPolygonTest(roi, p2, True) >= -5:
+                        repr_points1_trans_roi.append(p1)
+                        repr_points2_roi.append(p2)
+                repr_points1_trans = np.array(repr_points1_trans_roi).reshape(-1, 2)
+                repr_points2 = np.array(repr_points2_roi).reshape(-1, 2)
 
             # TODO nghien cuu so luong match (VD iou), threshold
             distance_matrix[idx1, idx2] = trajectory_distance(repr_points1_trans, repr_points2, kind='euclid')
@@ -354,12 +354,12 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
 
     # just to get the frame height and width
     # TODO: get frame height and width from database/config
-    vid1_path = str(list(Path(HERE/f'../../data/recordings/{video_version}').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
-    vid2_path = str(list(Path(HERE/f'../../data/recordings/{video_version}').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
+    vid1_path = str(list(Path(HERE/f'../../data/recordings/{video_version}/videos').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
+    vid2_path = str(list(Path(HERE/f'../../data/recordings/{video_version}/videos').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
     cap1 = cv2.VideoCapture(vid1_path)
     cap2 = cv2.VideoCapture(vid2_path)
     homo = get_homo(cam1, cam2, video_version)
-    roi = get_roi(cam1, cam2, video_version)
+    roi = get_roi(cam2, video_version)
 
     # categorize tracks by camid
     by_camid = {cam1: {}, cam2: {}}
@@ -580,15 +580,15 @@ if __name__ == '__main__':
     video_version = '2d_v2'
 
    
-    '''
+    
     ret = []
-    for vid_id in tqdm(range(16)):
-        ret.append(map_tracks(21, 27, vid_id, video_version, use_iou=False, vis=False, export_video=False))
+    for vid_id in tqdm(range(19, 25)):
+        ret.append(map_tracks(21, 27, vid_id, video_version, sample_roi=True, use_iou=False, vis=False, export_video=False))
     with open(f'../../data/recordings/{video_version}/output.txt', 'w') as f:
         print('\n'.join(ret), file=f)
     
     evaluate(f'../../data/recordings/{video_version}/correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
-    '''
+    
     
 
 
@@ -603,11 +603,11 @@ if __name__ == '__main__':
     '''
     from multiprocessing import Pool
     pool = Pool(16)
-    pool.starmap(map_tracks, [(21, 27, vid_id, video_version, False, False, True) for vid_id in range(16)])
+    pool.starmap(map_tracks, [(21, 27, vid_id, video_version, True, False, False, True) for vid_id in range(16)])
     '''
 
     # ANALYZE
-    
+    '''
     cam1 = 21
     cam2 = 27
     from multiprocessing import Pool
@@ -619,7 +619,7 @@ if __name__ == '__main__':
             true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
             trues.append(true)
     pool.starmap(analyze_homo, [(cam1, cam2, vid_id, video_version, true, False, False) for vid_id, true in zip(range(19, 25), trues)])  # vis, export_video
-    
+    '''
 
 
 

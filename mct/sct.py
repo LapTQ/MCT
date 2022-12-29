@@ -24,14 +24,17 @@ class SimpleSCT(SCTBase):
 
     class Builder:
 
-        def __init__(self, loader: LoaderBase) -> None:
+        def __init__(self, loader: LoaderBase, yolov5_cfg_path, kalman_cfg_path, sort_cfg_path) -> None:
             self._reset()
 
-            self._product.detector = YOLOv5.Builder(str(HERE / './configs/yolov5s.yaml')).get_product()
+            self._product.detector = YOLOv5.Builder(yolov5_cfg_path).get_product()
 
-            kalmanbox_builder = KalmanBox.Builder(str(HERE / './configs/kalmanboxstandard.yaml'))
-            self._product.tracker = SORT.Builder(str(HERE / './configs/sort.yaml'), loader,
-                                                 kalmanbox_builder).get_product()
+            kalmanbox_builder = KalmanBox.Builder(kalman_cfg_path)
+            self._product.tracker = SORT.Builder(
+                sort_cfg_path,
+                loader,
+                kalmanbox_builder
+            ).get_product()
 
             self._product.frame_count = 0
 

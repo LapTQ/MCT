@@ -1,5 +1,5 @@
 model: yolov5s
 weights: ../weights/yolov5s.pt  # relative to this file
-size: 1280 # 640 1280 -1
+size: 640 # 640 1280 -1
 conf: 0.5
 iou: 0.55  # 0.45 -> 0.6
