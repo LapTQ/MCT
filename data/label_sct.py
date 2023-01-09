@@ -249,7 +249,7 @@ def main(opt):
     # # with open(Path(opt.input[0]).parent / 'mapper.txt', 'w') as f:
     # #     print(track_id_mapper, file=f)
     #
-    # with open(Path(opt.input[0]).parent / 'correspondences.txt', 'r') as f:
+    # with open(Path(opt.input[0]).parent / 'mct_gt_correspondences.txt', 'r') as f:
     #     correspondences = [eval(l[:-1]) for l in f.readlines()]
     # buf = []
     # for cor in correspondences:
@@ -262,7 +262,8 @@ def main(opt):
 
 def visualize_from_txt(vid_path, txt_path, **kwargs):
 
-    parent, filename = os.path.split(vid_path)
+    out_dir = str(HERE / '../output')
+    filename = os.path.split(vid_path)[1]
 
     cap = cv2.VideoCapture(vid_path)
     with open(txt_path, 'r') as f:
@@ -274,14 +275,16 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
             det_seq2 = np.array([[eval(e) for e in l.strip().split(',' if ',' in l else None)[:7]] for l in f.readlines()])
 
     if kwargs.get('save_video', False):
-        writer = cv2.VideoWriter(os.path.join(parent, 'vis_' + (filename if 'vid_path2' not in kwargs else filename[3:])),
+        if 'vid_path2' in kwargs:
+            filename2 = os.path.split(kwargs['vid_path2'])[1]
+        writer = cv2.VideoWriter(os.path.join(out_dir, 'vis_' + (filename if 'vid_path2' not in kwargs else filename + '_' + filename2)),
                              cv2.VideoWriter_fourcc(*'XVID'),
                              cap.get(cv2.CAP_PROP_FPS),
-                             (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+                             (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) + (0 if 'vid_path2' not in kwargs else cap2.get(cv2.CAP_PROP_FRAME_WIDTH)) ), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         )
 
-    cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
-    for frame_count in range(int(cap.get(cv2.CAP_PROP_FRAME_COUNT))):
+
+    for frame_count in tqdm(range(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))):
         dets = det_seq[det_seq[:, 0] == frame_count]
         dets[:, 4:6] += dets[:, 2:4]
         success, frame = cap.read()
@@ -308,14 +311,16 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
         if kwargs.get('save_video', False):
             writer.write(show_img)
 
-        cv2.imshow(filename, show_img)
-        key = cv2.waitKey(50)
-        if key == 27:
-            break
-        elif key == ord('e'):
-            exit(0)
-        elif key == ord(' '):
-            cv2.waitKey(0)
+        if kwargs.get('display', False):
+            cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
+            cv2.imshow(filename, show_img)
+            key = cv2.waitKey(50)
+            if key == 27:
+                break
+            elif key == ord('e'):
+                exit(0)
+            elif key == ord(' '):
+                cv2.waitKey(0)
 
 
     cap.release()
@@ -355,15 +360,17 @@ if __name__ == '__main__':
 
     ROOT_DIR = os.path.join(HERE, 'recordings/2d_v2')
     VID_DIR = os.path.join(HERE, 'recordings/2d_v2/videos')
-    TXT_DIR = os.path.join(HERE, 'recordings/2d_v2/tracker')
-    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(TXT_DIR).glob('21*.txt')])
-    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
-    txt_list2 = sorted([str(path) for path in Path(TXT_DIR).glob('27*.txt')])
+    TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v2/tracker')
+    GT_DIR = os.path.join(HERE, 'recordings/2d_v2/gt')
 
-    correspondence = np.loadtxt(f'{ROOT_DIR}/output.txt', delimiter=',', dtype=int)   # output.txt correspondences.txt
-
-    for vid_path1, txt_path1, vid_path2, txt_path2 in tqdm(zip(vid_list1, txt_list1, vid_list2, txt_list2)):
+    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('2*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    txt_list1 = sorted([str(path) for path in Path(TRACKER_DIR).glob('2*.txt')])
+    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('2*.avi')])
+    txt_list2 = sorted([str(path) for path in Path(GT_DIR).glob('2*.txt')])
+    #
+    # correspondence = np.loadtxt(f'{ROOT_DIR}/output.txt', delimiter=',', dtype=int)   # output.txt mct_gt_correspondences.txt
+    #
+    for vid_path1, txt_path1, vid_path2, txt_path2 in zip(vid_list1, txt_list1, vid_list2, txt_list2):
         visualize_from_txt(vid_path1, txt_path1, save_video=False, vid_path2=vid_path2, txt_path2=txt_path2) # , correspondence=correspondence
 
     # for vid_id in range(19, 25):

@@ -14,7 +14,7 @@ video_version_to_db_name = {
 }
 
 def get_box_repr(boxes, kind, **kwargs):
-    """x1, y1, x2, y2"""
+    """x1, y1, x2, y2. Return shape (N, 2)"""
     if not isinstance(boxes, np.ndarray):
         boxes = np.array(boxes)
     if len(boxes.shape) == 1:
@@ -547,6 +547,199 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
     print(f'{vid_id} -> False: {count_false}/{count_total} =', count_false/count_total)
 
 
+def input_from(txt_path, delimeter, midpoint):
+    # print(gt_txt)
+    # print(tracker_txt)
+
+    seq = np.loadtxt(txt_path, delimiter=delimeter)
+
+    ls_id = np.int32(np.unique(seq[:, 1]))
+
+    N = np.max(ls_id)
+    T = np.int32(np.max(seq[:, 0]))
+
+    # mark temporal visibility
+    OT = np.zeros((N, T), dtype='int32')
+
+    # spatio position
+    OX = np.zeros((N, T), dtype='float32')  # cannot use np.empty due to nan value in later computation.
+    OY = np.zeros((N, T), dtype='float32')
+
+    for i, det in enumerate(seq):
+        frame = np.int32(det[0])
+        id = np.int32(det[1])
+        OT[id - 1, frame - 1] = 1   # id and frame start from 1
+
+        det[4:6] += det[2:4]
+        [[repr_x, repr_y]] = get_box_repr(det[2:6], kind='foot', midpoint=midpoint)
+        OX[id - 1, frame - 1] = repr_x
+        OY[id - 1, frame - 1] = repr_y
+
+    return OT, OX, OY
+
+
+def scip(gt_txt_path, tracker_txt_path, midpoint):
+
+    OT, OX, OY = input_from(gt_txt_path, delimeter=',', midpoint=midpoint)
+    HT, HX, HY = input_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
+
+    N = OT.shape[0]
+    M = HT.shape[0]
+    T = max(OT.shape[1], HT.shape[1])
+
+    # pad 0 to equalize temporal dimension
+    OT = np.pad(OT, ((0, 0), (0, T - OT.shape[1])), mode='constant', constant_values=0)
+    OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=0)
+    OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=0)
+    HT = np.pad(HT, ((0, 0), (0, T - HT.shape[1])), mode='constant', constant_values=0)
+    HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=0)
+    HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=0)
+
+    OH_overlap = np.zeros((N, M), dtype='bool')
+    for i in range(N):
+        for j in range(M):
+            if np.any(OT[i] * HT[j]):
+                OH_overlap[i, j] = True
+
+    # compute cost when map Oi to Hj
+    cost = np.empty((N, M), dtype='float32')
+    for i in range(N):
+        for j in range(M):
+            # TODO xem lai cho cost va weight nay
+            # if Oi and Hj have overlap
+            if OH_overlap[i, j]:
+                idx = np.where(OT[i] * HT[j])
+                iou = sum(np.logical_and(OT[i], HT[j])) / sum(np.logical_or(OT[i], HT[j]))   # IoU is better
+                cost[i, j] = np.mean(np.square(OX[i, idx] - HX[j, idx]) + np.square(OY[i, idx] - HY[j, idx])) / iou
+            # if Oi and Hj have no overlap
+            else:
+                cost[i, j] = 1e9
+
+    from ortools.linear_solver import pywraplp
+
+    solver = pywraplp.Solver.CreateSolver('SCIP')
+
+    X = np.array([[solver.IntVar(0, 1, f'X[{i}, {j}]') for j in range(M)] for i in range(N)])
+
+    # constraint 1: each Oi is mapped to >= 0 Hj
+    # for i in range(N):
+    #     solver.Add(sum(X[i, j] for j in range(M)) >= 0)
+
+    # constraint 2: each Hj is mapped to <= 1 Oi
+    for j in range(M):
+        solver.Add(sum(X[i, j] for i in range(N)) <= 1)
+
+    # # constraint 3: every Hj1 and Hj2 mapped to a same Oi must not overlap (????????)
+    # for i in range(N):
+    #     for k in range(M - 1):
+    #         for q in range(k + 1, M):
+    #             for t in range(T):
+    #                     solver.Add(X[i, k] * HT[k, t] + X[i, q] * HT[q, t] <= 1)
+
+    # constraint 4: force minimum independent Hj
+    for t in range(T):
+        n_O_present = np.sum(OT[:, t])
+        n_H_present = np.sum(HT[:, t])
+        O_present = np.where(OT[:, t])[0].tolist()
+        H_present = np.where(HT[:, t])[0].tolist()
+        for j in H_present:
+            for i in range(N):
+                if i not in O_present and OH_overlap[i, j]:
+                    O_present.append(i)
+                    n_O_present += 1
+        if n_H_present > 0:
+            solver.Add(sum(X[i, j] for i in range(N) for j in H_present) == min(n_O_present, n_H_present))
+
+    # objective function
+    # chỉ xét những cặp được map với nhau (X[i, j])
+    Y = sum(X[i, j] * cost[i, j] for i in range(N) for j in range(M))
+    # - 1e4 * sum(X[i, j] for i in range(N) for j in range(M)) #
+
+    solver.Minimize(Y)
+
+    print('Solving')
+    status = solver.Solve()
+    print('Done')
+
+    if status == pywraplp.Solver.OPTIMAL:
+        objective_value = solver.Objective().Value()
+        optimal_solution = {i + 1: [j + 1 for j in range(M) if X[i, j].solution_value() == 1] for i in range(N)} # track_id starts from 1
+        print(optimal_solution)
+        print(objective_value)
+
+        for k in optimal_solution:
+            for v in optimal_solution[k]:
+                print(f'{k},{v}')
+    else:
+        print("INFEASIBLE")
+
+
+# def heuristic(gt_txt_path, tracker_txt_path, midpoint):
+#
+#     OT, OX, OY = input_from(gt_txt_path, delimeter=',', midpoint=midpoint)
+#     HT, HX, HY = input_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
+#
+#     N = OT.shape[0]
+#     M = HT.shape[0]
+#     T = max(OT.shape[1], HT.shape[1])
+#
+#     # pad 0 to equalize temporal dimension
+#     OT = np.pad(OT, ((0, 0), (0, T - OT.shape[1])), mode='constant', constant_values=0)
+#     OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=0)
+#     OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=0)
+#     HT = np.pad(HT, ((0, 0), (0, T - HT.shape[1])), mode='constant', constant_values=0)
+#     HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=0)
+#     HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=0)
+#
+#     H_overlap = np.zeros((M, M), dtype='bool')
+#     for j1 in range(M):
+#         for j2 in range(M):
+#             if np.any(HT[j1] * HT[j2]):
+#                 H_overlap[j1, j2] = True
+#
+#     cost = np.empty((N, M), dtype='float32')
+#     for i in range(N):
+#         for j in range(M):
+#             # TODO xem lai cho cost va weight nay
+#             weights = OT[i] * HT[j]
+#             if np.any(weights):
+#                 idx = np.where(weights)
+#                 cost[i, j] = np.mean(np.square(OX[i, idx] - HX[j, idx]) + np.square(OY[i, idx] - HY[j, idx]))
+#             else:
+#                 cost[i, j] = 1e9
+#
+#     X = np.zeros((N, M), dtype='bool')
+#
+#     print(cost) # TODO dang bi nan
+#
+#     running_total_cost = 0
+#     for j in range(M):
+#         # sap xep cac O theo thu tu: neu gan Hj cho Oi thi tong cost be nhat
+#         rank = []
+#         for i in range(N):
+#             rank.append((running_total_cost + cost[i, j], i))
+#
+#         rank = sorted(rank)
+#         for _ in range(N):
+#             i_poss = rank[_][1]
+#
+#             # neu khi gan Hj cho Oi khong bi overlap thi luu lai
+#             overlapped = False
+#             for j_prev in range(j):
+#                 if X[i_poss, j_prev] and H_overlap[j, j_prev]:
+#                     overlapped = True
+#
+#             if overlapped:
+#                 continue
+#             X[i_poss, j] = True
+#             running_total_cost += cost[i_poss, j]
+#             break
+#
+#     solution = {i + 1: [j + 1 for j in range(M) if X[i, j]] for i in range(N)} # track_id starts from 1
+#
+#     return solution
+
+
 
 def evaluate(true_path, pred_path):
     with open(true_path, 'r') as f:
@@ -580,15 +773,15 @@ if __name__ == '__main__':
     video_version = '2d_v2'
 
    
-    
+    '''
     ret = []
     for vid_id in tqdm(range(19, 25)):
         ret.append(map_tracks(21, 27, vid_id, video_version, sample_roi=True, use_iou=False, vis=False, export_video=False))
     with open(f'../../data/recordings/{video_version}/output.txt', 'w') as f:
         print('\n'.join(ret), file=f)
     
-    evaluate(f'../../data/recordings/{video_version}/correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
-    
+    evaluate(f'../../data/recordings/{video_version}/mct_gt_correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
+    '''
     
 
 
@@ -614,12 +807,25 @@ if __name__ == '__main__':
     pool = Pool(6)
     trues = []
     for vid_id in range(19, 25):
-        with open(str(HERE/f'../../data/recordings/{video_version}/correspondences.txt'), 'r') as f:
+        with open(str(HERE/f'../../data/recordings/{video_version}/mct_gt_correspondences.txt'), 'r') as f:
             true = [eval(l[:-1]) for l in f.readlines()]
             true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
             trues.append(true)
     pool.starmap(analyze_homo, [(cam1, cam2, vid_id, video_version, true, False, False) for vid_id, true in zip(range(19, 25), trues)])  # vis, export_video
     '''
+
+    cam_id = 27
+    video_id = 24
+
+    gt_txt = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam_id}_*{video_id}_*_*.txt'))[0])
+    tracker_txt = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam_id}_*{video_id}_*_*.txt'))[0])
+
+    cap = cv2.VideoCapture(
+        str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam_id}_*{video_id}*.avi'))[0])
+    )
+    midpoint = cap.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+
+    scip(gt_txt, tracker_txt, midpoint=midpoint)
 
 
 

@@ -4,6 +4,7 @@ numpy==1.21.6 # 1.23.2
 opencv-python==4.5.4.60
 opencv-contrib-python==4.5.4.60
 opencv-python-headless==4.5.4.60
+ortools==9.5.2237
 matplotlib==3.5.3
 qtconsole
 PyYAML==5.3.1
