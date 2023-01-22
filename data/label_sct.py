@@ -364,9 +364,9 @@ if __name__ == '__main__':
     GT_DIR = os.path.join(HERE, 'recordings/2d_v2/gt')
 
     vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(GT_DIR).glob('21*.txt')])
+    txt_list1 = sorted([str(path) for path in Path(TRACKER_DIR).glob('21*.txt')])
     vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
-    txt_list2 = sorted([str(path) for path in Path(GT_DIR).glob('27*.txt')])
+    txt_list2 = sorted([str(path) for path in Path(TRACKER_DIR).glob('27*.txt')])
     #
     # correspondence = np.loadtxt(f'{ROOT_DIR}/output.txt', delimiter=',', dtype=int)   # output.txt mct_gt_correspondences.txt
     #

@@ -554,8 +554,8 @@ def input_sct_from(txt_path, delimeter, midpoint):
 
     ls_id = np.int32(np.unique(seq[:, 1]))
 
-    N = np.max(ls_id)
-    T = np.int32(np.max(seq[:, 0]))
+    N = np.max(ls_id) + 1           # this will work for both track_id starts from 0 or 1
+    T = np.int32(np.max(seq[:, 0]) + 1)     # this will work for both frame_id starts from 0 or 1
 
     # mark temporal visibility
     OT = np.zeros((N, T), dtype='int32')
@@ -567,17 +567,18 @@ def input_sct_from(txt_path, delimeter, midpoint):
     for i, det in enumerate(seq):
         frame = np.int32(det[0])
         id = np.int32(det[1])
-        OT[id - 1, frame - 1] = 1   # id and frame start from 1
+        OT[id, frame] = 1
 
         det[4:6] += det[2:4]
         [[repr_x, repr_y]] = get_box_repr(det[2:6], kind='foot', midpoint=midpoint)
-        OX[id - 1, frame - 1] = repr_x
-        OY[id - 1, frame - 1] = repr_y
+        OX[id, frame] = repr_x
+        OY[id, frame] = repr_y
 
     return OT, OX, OY
 
 
 def sct_mapping_scip(gt_txt_path, tracker_txt_path, midpoint):
+    # output of this function is saved in sct_gt-tracker_correspondences.txt
 
     OT, OX, OY = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint)
     HT, HX, HY = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
@@ -660,7 +661,7 @@ def sct_mapping_scip(gt_txt_path, tracker_txt_path, midpoint):
 
     if status == pywraplp.Solver.OPTIMAL:
         objective_value = solver.Objective().Value()
-        optimal_solution = {i + 1: [j + 1 for j in range(M) if X[i, j].solution_value() == 1] for i in range(N)} # track_id starts from 1
+        optimal_solution = {i: [j for j in range(M) if X[i, j].solution_value() == 1] for i in range(N)}
         print(optimal_solution)
         print(objective_value)
 
@@ -669,72 +670,6 @@ def sct_mapping_scip(gt_txt_path, tracker_txt_path, midpoint):
                 print(f'{k},{v}')
     else:
         print("INFEASIBLE")
-
-
-# def stc_mapping_heuristic(gt_txt_path, tracker_txt_path, midpoint):
-#
-#     OT, OX, OY = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint)
-#     HT, HX, HY = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
-#
-#     N = OT.shape[0]
-#     M = HT.shape[0]
-#     T = max(OT.shape[1], HT.shape[1])
-#
-#     # pad 0 to equalize temporal dimension
-#     OT = np.pad(OT, ((0, 0), (0, T - OT.shape[1])), mode='constant', constant_values=0)
-#     OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=0)
-#     OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=0)
-#     HT = np.pad(HT, ((0, 0), (0, T - HT.shape[1])), mode='constant', constant_values=0)
-#     HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=0)
-#     HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=0)
-#
-#     H_overlap = np.zeros((M, M), dtype='bool')
-#     for j1 in range(M):
-#         for j2 in range(M):
-#             if np.any(HT[j1] * HT[j2]):
-#                 H_overlap[j1, j2] = True
-#
-#     cost = np.empty((N, M), dtype='float32')
-#     for i in range(N):
-#         for j in range(M):
-#             # TODO xem lai cho cost va weight nay
-#             weights = OT[i] * HT[j]
-#             if np.any(weights):
-#                 idx = np.where(weights)
-#                 cost[i, j] = np.mean(np.square(OX[i, idx] - HX[j, idx]) + np.square(OY[i, idx] - HY[j, idx]))
-#             else:
-#                 cost[i, j] = 1e9
-#
-#     X = np.zeros((N, M), dtype='bool')
-#
-#     print(cost) # TODO dang bi nan
-#
-#     running_total_cost = 0
-#     for j in range(M):
-#         # sap xep cac O theo thu tu: neu gan Hj cho Oi thi tong cost be nhat
-#         rank = []
-#         for i in range(N):
-#             rank.append((running_total_cost + cost[i, j], i))
-#
-#         rank = sorted(rank)
-#         for _ in range(N):
-#             i_poss = rank[_][1]
-#
-#             # neu khi gan Hj cho Oi khong bi overlap thi luu lai
-#             overlapped = False
-#             for j_prev in range(j):
-#                 if X[i_poss, j_prev] and H_overlap[j, j_prev]:
-#                     overlapped = True
-#
-#             if overlapped:
-#                 continue
-#             X[i_poss, j] = True
-#             running_total_cost += cost[i_poss, j]
-#             break
-#
-#     solution = {i + 1: [j + 1 for j in range(M) if X[i, j]] for i in range(N)} # track_id starts from 1
-#
-#     return solution
 
 
 def input_mct_from(txt_path, delimeter, fps, midpoint):
@@ -746,8 +681,8 @@ def input_mct_from(txt_path, delimeter, fps, midpoint):
 
     ls_id = np.int32(np.unique(seq[:, 1]))
 
-    N = np.max(ls_id)
-    T = np.int32(np.max(seq[:, 0]))
+    N = np.max(ls_id) + 1   # this will work for both track_id starts from 0 or 1
+    T = np.int32(np.max(seq[:, 0]) + 1)  # this will work for both frame_id starts from 0 or 1
 
     # mark temporal visibility
     OT = np.zeros((N, T), dtype='int32')
@@ -760,15 +695,15 @@ def input_mct_from(txt_path, delimeter, fps, midpoint):
     for i, det in enumerate(seq):
         frame = np.int32(det[0])
         id = np.int32(det[1])
-        OT[id - 1, frame - 1] = 1   # id and frame start from 1
+        OT[id, frame] = 1
 
         det[4:6] += det[2:4]
         [[repr_x, repr_y]] = get_box_repr(det[2:6], kind='foot', midpoint=midpoint)
-        OX[id - 1, frame - 1] = repr_x
-        OY[id - 1, frame - 1] = repr_y
+        OX[id, frame] = repr_x
+        OY[id, frame] = repr_y
 
     for i in range(T):
-        OTT[i] = (record_time + timedelta(seconds=i / fps)).timestamp()
+        OTT[i] = (record_time + timedelta(seconds=(i - 1) / fps)).timestamp() # frame id starts from 1
 
     return OT, OX, OY, OTT
 
@@ -812,13 +747,44 @@ def mct_time_mapping(ATT, BTT, diff_thresh=None):
     return X
 
 
-def mct_mapping(cam1_txt_path, cam2_txt_path, fps1, fps2, midpoint1, midpoint2):
+def make_mct_tracker_correspondences(cam1_tracker_path, cam2_tracker_path, fps1, fps2, midpoint1, midpoint2, mct_gt_correspondences, sct_gttracker_correspondences):
 
-    AT, AX, AY, ATT = input_mct_from(cam1_txt_path, delimeter=None, fps=fps1, midpoint=midpoint1)
-    BT, BX, BY, BTT = input_mct_from(cam2_txt_path, delimeter=None, fps=fps2, midpoint=midpoint2)
+    C1T, C1X, C1Y, C1TT = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1)
+    C2T, C2X, C2Y, C2TT = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2)
 
-    N1 = AT.shape[0]
-    N2 = BT.shape[0]
+    T1 = C1T.shape[1]
+    T2 = C2T.shape[1]
+
+    time_correspondences = mct_time_mapping(C1TT, C2TT, diff_thresh=1)
+
+    ret = []
+
+    for o_c1, o_c2 in mct_gt_correspondences:
+        o_c1_h_list = [pair[1] for pair in sct_gttracker_correspondences[0] if pair[0] == o_c1]
+        o_c2_h_list = [pair[1] for pair in sct_gttracker_correspondences[1] if pair[0] == o_c2]
+
+        for h_c1 in o_c1_h_list:
+            for h_c2 in o_c2_h_list:
+
+                h_c1_present = C1T[h_c1].reshape(-1, 1) @ np.ones((1, T2), dtype='int32')
+                h_c2_present = np.ones((T1, 1), dtype='int32') @ C2T[h_c2].reshape(1, -1)
+                h_c1_and_h_c2_present = h_c1_present * h_c2_present * time_correspondences
+                if np.any(h_c1_and_h_c2_present):
+                    ret.append((h_c1, h_c2))
+
+    return ret
+
+
+
+
+
+
+
+
+def mct_mapping(cam1_tracker_path, cam2_tracker_path, fps1, fps2, midpoint1, midpoint2):
+
+    AT, AX, AY, ATT = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1)
+    BT, BX, BY, BTT = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2)
 
     # mct_time_mapping_scip(ATT, BTT)
     temporal_correspondences = mct_time_mapping(ATT, BTT, diff_thresh=2)
@@ -928,7 +894,31 @@ if __name__ == '__main__':
     midpoint2 = cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
     fps2 = cap2.get(cv2.CAP_PROP_FPS)
 
-    mct_mapping(tracker_txt1, tracker_txt2, fps1=fps1, fps2=fps2, midpoint1=midpoint1, midpoint2=midpoint2)
+    with open(f'../../data/recordings/{video_version}/mct_gt_correspondences.txt', 'r') as f:
+        mct_gt_correspondences = f.read().strip().split('\n')
+        mct_gt_correspondences = [eval(l) for l in mct_gt_correspondences]
+        mct_gt_correspondences = [(l[2], l[5]) for l in mct_gt_correspondences if l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
+        print(mct_gt_correspondences)
+
+    with open(f'../../data/recordings/{video_version}/sct_gt-tracker_correspondences.txt', 'r') as f:
+        sct_gttracker_correspondences = f.read().strip().split('\n')
+        sct_gttracker_correspondences = [eval(l) for l in sct_gttracker_correspondences]
+        sct_gttracker_correspondences = [
+            [(l[2], l[3]) for l in sct_gttracker_correspondences if l[0] == cam1_id and l[1] == video_id],
+            [(l[2], l[3]) for l in sct_gttracker_correspondences if l[0] == cam2_id and l[1] == video_id]
+        ]
+        print(sct_gttracker_correspondences)
+
+    mct_trackers_correspondences = make_mct_tracker_correspondences(
+        tracker_txt1, tracker_txt2,
+        fps1=fps1, fps2=fps2,
+        midpoint1=midpoint1, midpoint2=midpoint2,
+        mct_gt_correspondences=mct_gt_correspondences,
+        sct_gttracker_correspondences=sct_gttracker_correspondences
+    )
+
+    for id1, id2 in mct_trackers_correspondences:
+        print(f'{cam1_id},{video_id},{id1},{cam2_id},{video_id},{id2}')
 
 
 
