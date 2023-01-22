@@ -5,6 +5,7 @@ from vis_utils import COLORS
 from tqdm import tqdm
 from datetime import datetime, timedelta
 import os
+from ortools.linear_solver import pywraplp
 
 HERE = Path(__file__).parent
 
@@ -547,9 +548,7 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
     print(f'{vid_id} -> False: {count_false}/{count_total} =', count_false/count_total)
 
 
-def input_from(txt_path, delimeter, midpoint):
-    # print(gt_txt)
-    # print(tracker_txt)
+def input_sct_from(txt_path, delimeter, midpoint):
 
     seq = np.loadtxt(txt_path, delimiter=delimeter)
 
@@ -578,10 +577,10 @@ def input_from(txt_path, delimeter, midpoint):
     return OT, OX, OY
 
 
-def scip(gt_txt_path, tracker_txt_path, midpoint):
+def sct_mapping_scip(gt_txt_path, tracker_txt_path, midpoint):
 
-    OT, OX, OY = input_from(gt_txt_path, delimeter=',', midpoint=midpoint)
-    HT, HX, HY = input_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
+    OT, OX, OY = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint)
+    HT, HX, HY = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
 
     N = OT.shape[0]
     M = HT.shape[0]
@@ -614,8 +613,6 @@ def scip(gt_txt_path, tracker_txt_path, midpoint):
             # if Oi and Hj have no overlap
             else:
                 cost[i, j] = 1e9
-
-    from ortools.linear_solver import pywraplp
 
     solver = pywraplp.Solver.CreateSolver('SCIP')
 
@@ -674,10 +671,10 @@ def scip(gt_txt_path, tracker_txt_path, midpoint):
         print("INFEASIBLE")
 
 
-# def heuristic(gt_txt_path, tracker_txt_path, midpoint):
+# def stc_mapping_heuristic(gt_txt_path, tracker_txt_path, midpoint):
 #
-#     OT, OX, OY = input_from(gt_txt_path, delimeter=',', midpoint=midpoint)
-#     HT, HX, HY = input_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
+#     OT, OX, OY = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint)
+#     HT, HX, HY = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
 #
 #     N = OT.shape[0]
 #     M = HT.shape[0]
@@ -738,6 +735,101 @@ def scip(gt_txt_path, tracker_txt_path, midpoint):
 #     solution = {i + 1: [j + 1 for j in range(M) if X[i, j]] for i in range(N)} # track_id starts from 1
 #
 #     return solution
+
+
+def input_mct_from(txt_path, delimeter, fps, midpoint):
+
+    _, _, *record_time = os.path.splitext(os.path.split(txt_path)[-1])[0].split('_')
+    record_time = datetime.strptime('_'.join(record_time), '%Y-%m-%d_%H-%M-%S-%f')
+
+    seq = np.loadtxt(txt_path, delimiter=delimeter)
+
+    ls_id = np.int32(np.unique(seq[:, 1]))
+
+    N = np.max(ls_id)
+    T = np.int32(np.max(seq[:, 0]))
+
+    # mark temporal visibility
+    OT = np.zeros((N, T), dtype='int32')
+    OTT = np.zeros((T,), dtype='float64')    # timestamp
+
+    # spatio position
+    OX = np.zeros((N, T), dtype='float32')  # cannot use np.empty due to nan value in later computation.
+    OY = np.zeros((N, T), dtype='float32')
+
+    for i, det in enumerate(seq):
+        frame = np.int32(det[0])
+        id = np.int32(det[1])
+        OT[id - 1, frame - 1] = 1   # id and frame start from 1
+
+        det[4:6] += det[2:4]
+        [[repr_x, repr_y]] = get_box_repr(det[2:6], kind='foot', midpoint=midpoint)
+        OX[id - 1, frame - 1] = repr_x
+        OY[id - 1, frame - 1] = repr_y
+
+    for i in range(T):
+        OTT[i] = (record_time + timedelta(seconds=i / fps)).timestamp()
+
+    return OT, OX, OY, OTT
+
+
+def mct_time_mapping(ATT, BTT, diff_thresh=None):
+    # all params must be in seconds (not milliseconds or anything else)
+
+    T1 = len(ATT)
+    T2 = len(BTT)
+
+    if diff_thresh is None:
+        diff_thresh = float('inf')
+
+    if not isinstance(ATT, np.ndarray):
+        ATT = np.array(ATT)
+    if not isinstance(BTT, np.ndarray):
+        BTT = np.array(BTT)
+
+    assert len(ATT.shape) == len(BTT.shape) == 1, 'Invalid seq dimension, must be (N,)'
+
+    X = np.zeros((T1, T2), dtype='int32')
+
+    valid_pairs = [(abs(ATT[i] - BTT[j]), i, j)
+                   for i in range(T1)
+                   for j in range(T2)
+                   if abs(ATT[i] - BTT[j]) <= diff_thresh]
+    valid_pairs = sorted(valid_pairs)
+
+    def _is_crossing(i, j):
+
+        for i_optimal, j_optimal in zip(*np.where(X)):
+            if (ATT[i] - ATT[i_optimal])*(BTT[j] - BTT[j_optimal]) <= 0:
+                return True
+
+        return False
+
+    for _, i, j in valid_pairs:
+        if not np.any(X[i, :]) and not np.any(X[:, j]) and not _is_crossing(i, j):
+            X[i, j] = 1
+
+    return X
+
+
+def mct_mapping(cam1_txt_path, cam2_txt_path, fps1, fps2, midpoint1, midpoint2):
+
+    AT, AX, AY, ATT = input_mct_from(cam1_txt_path, delimeter=None, fps=fps1, midpoint=midpoint1)
+    BT, BX, BY, BTT = input_mct_from(cam2_txt_path, delimeter=None, fps=fps2, midpoint=midpoint2)
+
+    N1 = AT.shape[0]
+    N2 = BT.shape[0]
+
+    # mct_time_mapping_scip(ATT, BTT)
+    temporal_correspondences = mct_time_mapping(ATT, BTT, diff_thresh=2)
+
+    for i, j in zip(*np.where(temporal_correspondences)):
+        print(ATT[i], BTT[j])
+
+
+
+
+
 
 
 
@@ -814,18 +906,29 @@ if __name__ == '__main__':
     pool.starmap(analyze_homo, [(cam1, cam2, vid_id, video_version, true, False, False) for vid_id, true in zip(range(19, 25), trues)])  # vis, export_video
     '''
 
-    cam_id = 27
-    video_id = 24
+    cam1_id = 21
+    cam2_id = 27
+    video_id = 19
 
-    gt_txt = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam_id}_*{video_id}_*_*.txt'))[0])
-    tracker_txt = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam_id}_*{video_id}_*_*.txt'))[0])
+    gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
+    tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
+    gt_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
+    tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
 
-    cap = cv2.VideoCapture(
-        str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam_id}_*{video_id}*.avi'))[0])
+
+    cap1 = cv2.VideoCapture(
+        str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam1_id}_*{video_id}*.avi'))[0])
     )
-    midpoint = cap.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    midpoint1 = cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    fps1 = cap1.get(cv2.CAP_PROP_FPS)
 
-    scip(gt_txt, tracker_txt, midpoint=midpoint)
+    cap2 = cv2.VideoCapture(
+        str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam2_id}_*{video_id}*.avi'))[0])
+    )
+    midpoint2 = cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    fps2 = cap2.get(cv2.CAP_PROP_FPS)
+
+    mct_mapping(tracker_txt1, tracker_txt2, fps1=fps1, fps2=fps2, midpoint1=midpoint1, midpoint2=midpoint2)
 
 
 
