@@ -584,8 +584,8 @@ def input_sct_from(txt_path, delimeter, midpoint):
     return OT, OX, OY
 
 
-def sct_mapping_scip(gt_txt_path, tracker_txt_path, midpoint):
-    # output of this function is saved in sct_gt-tracker_correspondences.txt
+def sct_gttracker_mapping_scip(gt_txt_path, tracker_txt_path, midpoint):
+    # output of this function is saved in true_sct_gttracker_correspondences.txt
 
     OT, OX, OY = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint)
     HT, HX, HY = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint)
@@ -722,7 +722,7 @@ def input_mct_from(txt_path, delimeter, fps, midpoint, **kwargs):
     return OT, OX, OY, OTT
 
 
-def mct_time_mapping(ATT, BTT, diff_thresh=None):
+def map_timestamp(ATT, BTT, diff_thresh=None):
     # all params must be in seconds (not milliseconds or anything else)
 
     T1 = len(ATT)
@@ -761,19 +761,27 @@ def mct_time_mapping(ATT, BTT, diff_thresh=None):
     return X
 
 
-def make_mct_tracker_correspondences(cam1_tracker_path, cam2_tracker_path, fps1, fps2, midpoint1, midpoint2, mct_gt_correspondences, sct_gttracker_correspondences):
+def make_true_mct_trackertracker_correspondences(
+        cam1_tracker_path, cam2_tracker_path,
+        fps1, fps2,
+        midpoint1, midpoint2,
+        mct_gtgt_correspondences,
+        sct_gttracker_correspondences,
+        homo,
+        roi
+):
 
-    C1T, C1X, C1Y, C1TT = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1)
-    C2T, C2X, C2Y, C2TT = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2)
+    C1T, C1X, C1Y, C1TT = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, homo=homo, roi=roi)
+    C2T, C2X, C2Y, C2TT = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, roi=roi)
 
     T1 = C1T.shape[1]
     T2 = C2T.shape[1]
 
-    time_correspondences = mct_time_mapping(C1TT, C2TT, diff_thresh=1)
+    time_correspondences = map_timestamp(C1TT, C2TT, diff_thresh=1)
 
     ret = []
 
-    for o_c1, o_c2 in mct_gt_correspondences:
+    for o_c1, o_c2 in mct_gtgt_correspondences:
         o_c1_h_list = [pair[1] for pair in sct_gttracker_correspondences[0] if pair[0] == o_c1]
         o_c2_h_list = [pair[1] for pair in sct_gttracker_correspondences[1] if pair[0] == o_c2]
 
@@ -789,7 +797,13 @@ def make_mct_tracker_correspondences(cam1_tracker_path, cam2_tracker_path, fps1,
     return ret
 
 
-def mct_mapping(cam1_tracker_path, cam2_tracker_path, fps1, fps2, midpoint1, midpoint2, homo, roi):
+def mct_mapping(
+        cam1_tracker_path, cam2_tracker_path,
+        fps1, fps2,
+        midpoint1, midpoint2,
+        homo,
+        roi
+):
     # TODO: smoothen?
     C1T, C1X, C1Y, C1TT = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, homo=homo, roi=roi)
     C2T, C2X, C2Y, C2TT = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, roi=roi)
@@ -797,7 +811,7 @@ def mct_mapping(cam1_tracker_path, cam2_tracker_path, fps1, fps2, midpoint1, mid
     N1, T1 = C1T.shape
     N2, T2 = C2T.shape
 
-    time_correspondences = mct_time_mapping(C1TT, C2TT, diff_thresh=2)
+    time_correspondences = map_timestamp(C1TT, C2TT, diff_thresh=2)
 
     X = np.zeros((N1, N2, T1), dtype='int32')   # T1 or T2 is either the same =)
     distances = np.empty((N1, N2, T1), dtype='float32')
@@ -844,17 +858,6 @@ def mct_mapping(cam1_tracker_path, cam2_tracker_path, fps1, fps2, midpoint1, mid
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 def evaluate(true_path, pred_path):
     with open(true_path, 'r') as f:
         true = set(l[:-1] for l in f.readlines())
@@ -892,10 +895,10 @@ if __name__ == '__main__':
     ret = []
     for vid_id in tqdm(range(19, 25)):
         ret.append(map_tracks(21, 27, vid_id, video_version, sample_roi=True, use_iou=False, vis=False, export_video=False))
-    with open(f'../../data/recordings/{video_version}/output.txt', 'w') as f:
+    with open(f'../../data/recordings/{video_version}/pred_mct_gtgt_correspondences.txt', 'w') as f:
         print('\n'.join(ret), file=f)
     '''
-    # evaluate(f'../../data/recordings/{video_version}/mct_gt_correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
+    # evaluate(f'../../data/recordings/{video_version}/true_mct_gtgt_correspondences.txt', f'../../data/recordings/{video_version}/pred_mct_gtgt_correspondences.txt')
 
     
 
@@ -922,7 +925,7 @@ if __name__ == '__main__':
     pool = Pool(6)
     trues = []
     for vid_id in range(16):
-        with open(str(HERE/f'../../data/recordings/{video_version}/mct_gt_correspondences.txt'), 'r') as f:
+        with open(str(HERE/f'../../data/recordings/{video_version}/true_mct_gtgt_correspondences.txt'), 'r') as f:
             true = [eval(l[:-1]) for l in f.readlines()]
             true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
             trues.append(true)
@@ -933,9 +936,9 @@ if __name__ == '__main__':
     cam1_id = 21
     cam2_id = 27
     video_id = 19
-    f = open(f'../../data/recordings/{video_version}/output.txt', 'w')
+    f = open(f'../../data/recordings/{video_version}/pred_mct_trackertracker_correspondences.txt', 'w')
 
-    for video_id in range(19, 25):
+    for video_id in tqdm(range(19, 25)):
 
         gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
         tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
@@ -960,12 +963,34 @@ if __name__ == '__main__':
 
         ret = mct_mapping(tracker_txt1, tracker_txt2, fps1, fps2, midpoint1, midpoint2, homo, roi)
 
-        for h1, h2 in tqdm(ret):
+        # with open(f'../../data/recordings/{video_version}/true_mct_gtgt_correspondences.txt', 'r') as f:
+        #     mct_gtgt_correspondences = f.read().strip().split('\n')
+        #     mct_gtgt_correspondences = [eval(l) for l in mct_gtgt_correspondences]
+        #     mct_gtgt_correspondences = [(l[2], l[5]) for l in mct_gtgt_correspondences if
+        #                               l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
+        # with open(f'../../data/recordings/{video_version}/true_sct_gttracker_correspondences.txt', 'r') as f:
+        #     sct_gttracker_correspondences = f.read().strip().split('\n')
+        #     sct_gttracker_correspondences = [eval(l) for l in sct_gttracker_correspondences]
+        #     sct_gttracker_correspondences = [
+        #         [(l[2], l[3]) for l in sct_gttracker_correspondences if l[0] == cam1_id and l[1] == video_id],
+        #         [(l[2], l[3]) for l in sct_gttracker_correspondences if l[0] == cam2_id and l[1] == video_id]
+        #     ]
+        # ret = make_true_mct_trackertracker_correspondences(
+        #     tracker_txt1, tracker_txt2,
+        #     fps1, fps2,
+        #     midpoint1, midpoint2,
+        #     mct_gtgt_correspondences,
+        #     sct_gttracker_correspondences,
+        #     homo,
+        #     roi
+        # )
+
+        for h1, h2 in ret:
             print(f'{cam1_id},{video_id},{h1},{cam2_id},{video_id},{h2}', file=f)
     f.close()
     #'''
-    evaluate(f'../../data/recordings/{video_version}/mct_tracker_correspondences.txt',
-             f'../../data/recordings/{video_version}/output.txt')
+    evaluate(f'../../data/recordings/{video_version}/true_mct_trackertracker_correspondences.txt',
+             f'../../data/recordings/{video_version}/pred_mct_trackertracker_correspondences.txt')
 
 
 

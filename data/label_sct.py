@@ -249,7 +249,7 @@ def main(opt):
     # # with open(Path(opt.input[0]).parent / 'mapper.txt', 'w') as f:
     # #     print(track_id_mapper, file=f)
     #
-    # with open(Path(opt.input[0]).parent / 'mct_gt_correspondences.txt', 'r') as f:
+    # with open(Path(opt.input[0]).parent / 'true_mct_gtgt_correspondences.txt', 'r') as f:
     #     correspondences = [eval(l[:-1]) for l in f.readlines()]
     # buf = []
     # for cor in correspondences:
@@ -368,7 +368,7 @@ if __name__ == '__main__':
     vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
     txt_list2 = sorted([str(path) for path in Path(TRACKER_DIR).glob('27*.txt')])
     #
-    # correspondence = np.loadtxt(f'{ROOT_DIR}/output.txt', delimiter=',', dtype=int)   # output.txt mct_gt_correspondences.txt
+    # correspondence = np.loadtxt(f'{ROOT_DIR}/pred_mct_gtgt_correspondences.txt', delimiter=',', dtype=int)   # pred_mct_gtgt_correspondences.txt true_mct_gtgt_correspondences.txt
     #
     for vid_path1, txt_path1, vid_path2, txt_path2 in zip(vid_list1, txt_list1, vid_list2, txt_list2):
         visualize_from_txt(vid_path1, txt_path1, save_video=True, vid_path2=vid_path2, txt_path2=txt_path2) # , correspondence=correspondence
