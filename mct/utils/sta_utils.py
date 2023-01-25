@@ -11,7 +11,7 @@ HERE = Path(__file__).parent
 
 video_version_to_db_name = {
     '2d_v1': '20221124143517_sct',  # 20221118235019_sct (ban dau), 20221124143517_sct (sau khi bo non-object, refine cam 1)
-    '2d_v2': '20221208170629_sct', # 20221208170629_sct (gt, gan bay tay)
+    '2d_v2': '20230123154857_sct', # 20221208170629_sct (gt, gan bay tay), 20230123154857_sct (gt, cai thien them tu 20221208170629_sct)
 }
 
 def get_box_repr(boxes, kind, **kwargs):
@@ -442,6 +442,8 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
 
     count_total = 0
     count_false = 0
+    false_distances = []
+    true_distances = []
     frame_skipped = False
     distance_tensor = distance_tensor[:, :, abs(frame_diff):]
     mask_tensor = mask_tensor[:, :, abs(frame_diff):]
@@ -484,12 +486,15 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
                 count_total += 1
 
                 c1, c1_trans, c2, p1, p1_trans, p2 = points_records[(frame_count + abs(frame_diff), id1, id2)]
+                distance = np.sqrt(np.sum(np.square(p1_trans - p2)))
 
                 if (id1, id2) not in correspondence:
                     count_false += 1
                     tf_color = (0, 0, 255)
+                    false_distances.append(distance)
                 else:
                     tf_color = (0, 255, 0)
+                    true_distances.append(distance)
 
 
                 if roi_tensor[idx1, idx2, frame_count]:
@@ -546,6 +551,8 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
         cv2.destroyAllWindows()
 
     print(f'{vid_id} -> False: {count_false}/{count_total} =', count_false/count_total)
+    print(f'true distances: {true_distances}')
+    print(f'false distances: {false_distances}')
 
 
 def input_sct_from(txt_path, delimeter, midpoint):
@@ -672,7 +679,7 @@ def sct_mapping_scip(gt_txt_path, tracker_txt_path, midpoint):
         print("INFEASIBLE")
 
 
-def input_mct_from(txt_path, delimeter, fps, midpoint):
+def input_mct_from(txt_path, delimeter, fps, midpoint, **kwargs):
 
     _, _, *record_time = os.path.splitext(os.path.split(txt_path)[-1])[0].split('_')
     record_time = datetime.strptime('_'.join(record_time), '%Y-%m-%d_%H-%M-%S-%f')
@@ -695,10 +702,17 @@ def input_mct_from(txt_path, delimeter, fps, midpoint):
     for i, det in enumerate(seq):
         frame = np.int32(det[0])
         id = np.int32(det[1])
-        OT[id, frame] = 1
 
         det[4:6] += det[2:4]
         [[repr_x, repr_y]] = get_box_repr(det[2:6], kind='foot', midpoint=midpoint)
+
+        if 'homo' in kwargs:
+            [[[repr_x, repr_y]]] = cv2.perspectiveTransform(np.array([[[repr_x, repr_y]]]), kwargs['homo'])
+
+        if 'roi' in kwargs and not cv2.pointPolygonTest(kwargs['roi'], (repr_x, repr_y), True) >= -5:
+            continue
+
+        OT[id, frame] = 1
         OX[id, frame] = repr_x
         OY[id, frame] = repr_y
 
@@ -775,22 +789,64 @@ def make_mct_tracker_correspondences(cam1_tracker_path, cam2_tracker_path, fps1,
     return ret
 
 
+def mct_mapping(cam1_tracker_path, cam2_tracker_path, fps1, fps2, midpoint1, midpoint2, homo, roi):
+    # TODO: smoothen?
+    C1T, C1X, C1Y, C1TT = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, homo=homo, roi=roi)
+    C2T, C2X, C2Y, C2TT = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, roi=roi)
+
+    N1, T1 = C1T.shape
+    N2, T2 = C2T.shape
+
+    time_correspondences = mct_time_mapping(C1TT, C2TT, diff_thresh=2)
+
+    X = np.zeros((N1, N2, T1), dtype='int32')   # T1 or T2 is either the same =)
+    distances = np.empty((N1, N2, T1), dtype='float32')
+
+    for t1 in range(T1):     # because I chose T1 as a dim of X
+        if not np.any(time_correspondences[t1]):
+            continue
+
+        t2 = np.where(time_correspondences[t1])[0].item()
+
+        H1_present_list = np.where(C1T[:, t1])[0]
+        H2_present_list = np.where(C2T[:, t2])[0]
+
+        cost = np.empty((len(H1_present_list), len(H2_present_list)), dtype='float32')
+        for i1, h1 in enumerate(H1_present_list):
+            for i2, h2 in enumerate(H2_present_list):
+                cost[i1, i2] = np.sqrt((C1X[h1, t1] - C2X[h2, t2])**2 + (C1Y[h1, t1] - C2Y[h2, t2])**2)
+
+        i1_matched_list, i2_matched_list = linear_sum_assignment(cost)
+        for i1, i2 in zip(i1_matched_list, i2_matched_list):
+            h1 = H1_present_list[i1]
+            h2 = H2_present_list[i2]
+            X[h1, h2, t1] = 1
+            distances[h1, h2, t1] = cost[i1, i2]
+
+    # filter out false matches due to missing detection boxes
+    # import seaborn as sns
+    # import matplotlib.pyplot as plt
+    # sns.kdeplot(distances[X == 1].flatten())
+    # plt.show()
+    from sklearn.mixture import GaussianMixture
+    gm = GaussianMixture(n_components=2, covariance_type='diag').fit(distances[X == 1].reshape(-1, 1))
+    smaller_component = np.argmin(gm.means_)
+    boundary = gm.means_[smaller_component] + 3*np.sqrt(gm.covariances_[smaller_component])
+    X = np.where(distances > boundary, 0, X)
+
+    # just to show without timestamp details
+    X_notime = np.any(X, axis=2)
+    X_notime = list(zip(*np.where(X_notime == 1)))
+
+    return X_notime     # TODO return X
 
 
 
 
 
 
-def mct_mapping(cam1_tracker_path, cam2_tracker_path, fps1, fps2, midpoint1, midpoint2):
 
-    AT, AX, AY, ATT = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1)
-    BT, BX, BY, BTT = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2)
 
-    # mct_time_mapping_scip(ATT, BTT)
-    temporal_correspondences = mct_time_mapping(ATT, BTT, diff_thresh=2)
-
-    for i, j in zip(*np.where(temporal_correspondences)):
-        print(ATT[i], BTT[j])
 
 
 
@@ -815,6 +871,7 @@ def evaluate(true_path, pred_path):
     recall = len(TP) / (len(TP) + len(FN))
     print('Precision', precision)
     print('Recall', recall)
+    print('F1', 2*precision*recall/(precision + recall))
     print(FP)
     print(FN)
 
@@ -837,9 +894,9 @@ if __name__ == '__main__':
         ret.append(map_tracks(21, 27, vid_id, video_version, sample_roi=True, use_iou=False, vis=False, export_video=False))
     with open(f'../../data/recordings/{video_version}/output.txt', 'w') as f:
         print('\n'.join(ret), file=f)
-    
-    evaluate(f'../../data/recordings/{video_version}/mct_gt_correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
     '''
+    # evaluate(f'../../data/recordings/{video_version}/mct_gt_correspondences.txt', f'../../data/recordings/{video_version}/output.txt')
+
     
 
 
@@ -864,61 +921,51 @@ if __name__ == '__main__':
     from multiprocessing import Pool
     pool = Pool(6)
     trues = []
-    for vid_id in range(19, 25):
+    for vid_id in range(16):
         with open(str(HERE/f'../../data/recordings/{video_version}/mct_gt_correspondences.txt'), 'r') as f:
             true = [eval(l[:-1]) for l in f.readlines()]
             true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
             trues.append(true)
-    pool.starmap(analyze_homo, [(cam1, cam2, vid_id, video_version, true, False, False) for vid_id, true in zip(range(19, 25), trues)])  # vis, export_video
+    pool.starmap(analyze_homo, [(cam1, cam2, vid_id, video_version, true, False, False) for vid_id, true in zip(range(16), trues)])  # vis, export_video
     '''
 
+    #'''
     cam1_id = 21
     cam2_id = 27
     video_id = 19
+    f = open(f'../../data/recordings/{video_version}/output.txt', 'w')
 
-    gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
-    tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
-    gt_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
-    tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
+    for video_id in range(19, 25):
+
+        gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
+        tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
+        gt_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
+        tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
 
 
-    cap1 = cv2.VideoCapture(
-        str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam1_id}_*{video_id}*.avi'))[0])
-    )
-    midpoint1 = cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    fps1 = cap1.get(cv2.CAP_PROP_FPS)
+        cap1 = cv2.VideoCapture(
+            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam1_id}_*{video_id}*.avi'))[0])
+        )
+        midpoint1 = cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        fps1 = cap1.get(cv2.CAP_PROP_FPS)
 
-    cap2 = cv2.VideoCapture(
-        str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam2_id}_*{video_id}*.avi'))[0])
-    )
-    midpoint2 = cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    fps2 = cap2.get(cv2.CAP_PROP_FPS)
+        cap2 = cv2.VideoCapture(
+            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam2_id}_*{video_id}*.avi'))[0])
+        )
+        midpoint2 = cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        fps2 = cap2.get(cv2.CAP_PROP_FPS)
 
-    with open(f'../../data/recordings/{video_version}/mct_gt_correspondences.txt', 'r') as f:
-        mct_gt_correspondences = f.read().strip().split('\n')
-        mct_gt_correspondences = [eval(l) for l in mct_gt_correspondences]
-        mct_gt_correspondences = [(l[2], l[5]) for l in mct_gt_correspondences if l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
-        print(mct_gt_correspondences)
+        homo = get_homo(cam1_id, cam2_id, video_version)
+        roi = get_roi(cam2_id, video_version)
 
-    with open(f'../../data/recordings/{video_version}/sct_gt-tracker_correspondences.txt', 'r') as f:
-        sct_gttracker_correspondences = f.read().strip().split('\n')
-        sct_gttracker_correspondences = [eval(l) for l in sct_gttracker_correspondences]
-        sct_gttracker_correspondences = [
-            [(l[2], l[3]) for l in sct_gttracker_correspondences if l[0] == cam1_id and l[1] == video_id],
-            [(l[2], l[3]) for l in sct_gttracker_correspondences if l[0] == cam2_id and l[1] == video_id]
-        ]
-        print(sct_gttracker_correspondences)
+        ret = mct_mapping(tracker_txt1, tracker_txt2, fps1, fps2, midpoint1, midpoint2, homo, roi)
 
-    mct_trackers_correspondences = make_mct_tracker_correspondences(
-        tracker_txt1, tracker_txt2,
-        fps1=fps1, fps2=fps2,
-        midpoint1=midpoint1, midpoint2=midpoint2,
-        mct_gt_correspondences=mct_gt_correspondences,
-        sct_gttracker_correspondences=sct_gttracker_correspondences
-    )
-
-    for id1, id2 in mct_trackers_correspondences:
-        print(f'{cam1_id},{video_id},{id1},{cam2_id},{video_id},{id2}')
+        for h1, h2 in tqdm(ret):
+            print(f'{cam1_id},{video_id},{h1},{cam2_id},{video_id},{h2}', file=f)
+    f.close()
+    #'''
+    evaluate(f'../../data/recordings/{video_version}/mct_tracker_correspondences.txt',
+             f'../../data/recordings/{video_version}/output.txt')
 
 
 
