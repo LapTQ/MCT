@@ -1272,13 +1272,13 @@ if __name__ == '__main__':
 
 
         cap1 = cv2.VideoCapture(
-            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam1_id}_*{video_id}*.avi'))[0])
+            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam1_id}_*{video_id}*_*_*.avi'))[0])
         )
         midpoint1 = cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)
         fps1 = cap1.get(cv2.CAP_PROP_FPS)
 
         cap2 = cv2.VideoCapture(
-            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam2_id}_*{video_id}*.avi'))[0])
+            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam2_id}_*{video_id}*_*_*.avi'))[0])
         )
         midpoint2 = cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
         fps2 = cap2.get(cv2.CAP_PROP_FPS)
