@@ -360,13 +360,13 @@ if __name__ == '__main__':
 
     ROOT_DIR = os.path.join(HERE, 'recordings/2d_v2')
     VID_DIR = os.path.join(HERE, 'recordings/2d_v2/videos')
-    TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v2/tracker')
+    TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v2/YOLOv5l_pretrained-640-ByteTrack/sct')
     GT_DIR = os.path.join(HERE, 'recordings/2d_v2/gt')
 
-    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('2*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(GT_DIR).glob('2*.txt')])
-    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('2*.avi')])
-    txt_list2 = sorted([str(path) for path in Path(TRACKER_DIR).glob('2*.txt')])
+    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('21*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    txt_list1 = sorted([str(path) for path in Path(GT_DIR).glob('21*.txt')])
+    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('27*.avi')])
+    txt_list2 = sorted([str(path) for path in Path(GT_DIR).glob('27*.txt')])
     #
     # correspondence = np.loadtxt(f'{ROOT_DIR}/pred_mct_gtgt_correspondences.txt', delimiter=',', dtype=int)   # pred_mct_gtgt_correspondences.txt true_mct_gtgt_correspondences.txt
     #

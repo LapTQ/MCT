@@ -884,7 +884,7 @@ def make_true_sct_gttracker_correspondences_v2(gt_txt_path, tracker_txt_path, mi
     boundary = gm.means_[smaller_component] + 3 * np.sqrt(gm.covariances_[smaller_component])
     X = np.where(distances > boundary, 0, X)
 
-    return OT, HT, OX, HX, OY, HY, OS, HS, np.eye(T, T, dtype='int32'), X
+    return OT, HT, OX, HX, OY, HY, OS, HS, np.eye(T, T, dtype='int32'), X, X
 
     return X
 
@@ -929,7 +929,7 @@ def make_true_mct_trackertracker_correspondences_v2(
                 if (o1, o2) in mct_gtgt_correspondences:
                     X[h1, h2, t1] = 1
 
-    return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, time_correspondences, X
+    return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, time_correspondences, X, X
 
     return X
 
@@ -1021,10 +1021,10 @@ def mct_mapping(
                     elif X[h1, h2, t1] == 0 and X_true[h1, h2, t1] == 1: # false negative
                         X_eval[h1, h2, t1] = 3
 
-        return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, time_correspondences, X_eval
+        return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, time_correspondences, X, X_eval
 
 
-    return X_notime     # TODO return X
+    return X
 
 
 def error_analysis_mct_mapping(
@@ -1036,6 +1036,7 @@ def error_analysis_mct_mapping(
     C1Y, C2Y,
     C1S, C2S,
     time_correspondences,
+    X_pred,
     X_eval,
     display,
     export_video,
@@ -1173,10 +1174,74 @@ def error_analysis_mct_mapping(
     print('F1:', F1)
 
 
+def detect_IDSW(
+    C1T, C2T,
+    C1X, C2X,
+    C1Y, C2Y,
+    C1S, C2S,
+    time_correspondences,
+    X_pred,
+    X_eval,
+):
+    X_pred = X_pred.copy()
+    N1, T1 = C1T.shape
+    N2, T2 = C2T.shape
 
+    pairs = np.transpose(np.where(np.any(X_pred, axis=2))) # [[h1, h2], ...]
 
+    def _process_track(label, h1, maps_of_h1, X_pred, C2T, time_correspondences):
+        fragments = {}
+        for h2a in maps_of_h1:
+            for h2b in maps_of_h1:
+                if h2a <= h2b:
+                    continue
 
+                h1_map_h2a = X_pred[h1, h2a]
+                h1_map_h2b = X_pred[h1, h2b]
+                both_h2_present = ((C2T[h2a] * C2T[h2b]).reshape(1, -1) \
+                                   @ time_correspondences) \
+                    .reshape(-1)
 
+                # if h2_a, h2_b co-occur when one of them is mapped to h1
+                # then there is an object swap
+                h1_h2a_h2b_present_and_map = np.logical_or(h1_map_h2a, h1_map_h2b) * both_h2_present
+                object_swap_found = np.any(h1_h2a_h2b_present_and_map)
+
+                if not object_swap_found:
+                    continue
+
+                print(f'SPLIT {label} {h1}: {h2a} and {h2b} overlap at {np.where(h1_h2a_h2b_present_and_map)[0][0] / 10}')
+
+                fragments = {h2a: [], h2b: []}
+                time_ascending_maps = sorted(list(
+                    zip(*np.where(np.stack(
+                        [h1_map_h2a, h1_map_h2b],
+                        axis=0
+                    )))
+                ), key=lambda x: x[1])
+                for i in range(0, len(time_ascending_maps)):
+
+                        # current_map and previous_map are now 0, 1
+                        current_map, current_time = time_ascending_maps[i]
+                        current_map = h2a if current_map == 0 else h2b
+                        fragments[current_map].append(current_time)
+                        if i == 0:
+                            continue
+
+                        previous_map, previous_time = time_ascending_maps[i - 1]
+                        previous_map = h2a if previous_map == 0 else h2b
+                        if current_map != previous_map:
+                            print(
+                                f'\t switched from {previous_map} (before {previous_time / 10}) to {current_map} (after {current_time / 10})')
+
+        print(fragments)
+
+    for h1 in range(N1):
+        maps_of_h1 = pairs[pairs[:, 0] == h1][:, 1]
+        _process_track('CAM_1', h1, maps_of_h1, X_pred, C2T, time_correspondences.T)
+    for h2 in range(N2):
+        maps_of_h2 = pairs[pairs[:, 1] == h2][:, 0]
+        _process_track('CAM_2', h2, maps_of_h2, np.swapaxes(X_pred, 0, 1), C1T, time_correspondences)
 
 
 
@@ -1214,6 +1279,7 @@ def evaluate(true_path, pred_path):
 if __name__ == '__main__':
 
     video_version = '2d_v2'
+    TRACKER_NAME = 'YOLOv5l_pretrained-640-ByteTrack'
 
    
     '''
@@ -1261,14 +1327,14 @@ if __name__ == '__main__':
     cam1_id = 21
     cam2_id = 27
     video_id = 19
-    # f = open(f'../../data/recordings/{video_version}/pred_mct_trackertracker_correspondences.txt', 'w')
+    # f = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences.txt', 'w')
 
     for video_id in tqdm(range(19, 25)):
 
         gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
-        tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
+        tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
         gt_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
-        tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/tracker').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
+        tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
 
 
         cap1 = cv2.VideoCapture(
@@ -1344,7 +1410,7 @@ if __name__ == '__main__':
         #     mct_gtgt_correspondences = [eval(l) for l in mct_gtgt_correspondences]
         #     mct_gtgt_correspondences = [(l[2], l[5]) for l in mct_gtgt_correspondences if
         #                               l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
-        # with open(f'../../data/recordings/{video_version}/true_sct_gttracker_correspondences.txt', 'r') as f:
+        # with open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/true_sct_gttracker_correspondences.txt', 'r') as f:
         #     sct_gttracker_correspondences = f.read().strip().split('\n')
         #     sct_gttracker_correspondences = [eval(l) for l in sct_gttracker_correspondences]
         #     sct_gttracker_correspondences = [
@@ -1390,9 +1456,9 @@ if __name__ == '__main__':
         # )
         ######################################################################################################
 
-        ######################## PREDICT MCT TRACKER TRACKER CORRESPONDENCES ########################################
+        ######################## PREDICT MCT TRACKER TRACKER CORRESPONDENCES V1 ########################################
         # # for error analysis
-        # with open(f'../../data/recordings/{video_version}/true_mct_trackertracker_correspondences.txt', 'r') as ff:
+        # with open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/true_mct_trackertracker_correspondences.txt', 'r') as ff:
         #     true_mct_trackertracker_correspondences = ff.read().strip().split('\n')
         #     true_mct_trackertracker_correspondences = [eval(l) for l in true_mct_trackertracker_correspondences]
         #     true_mct_trackertracker_correspondences = [(l[2], l[5]) for l in true_mct_trackertracker_correspondences if
@@ -1416,9 +1482,6 @@ if __name__ == '__main__':
         #     display=False,
         #     export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi'
         # )
-        #
-        # # for h1, h2 in ret:
-        # #     print(f'{cam1_id},{video_id},{h1},{cam2_id},{video_id},{h2}', file=f)
         ##############################################################################################################
 
         ######################## PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2 ########################################
@@ -1428,26 +1491,28 @@ if __name__ == '__main__':
             midpoint1, midpoint2,
             homo,
             roi,
-            true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS
+            true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
         )
-        # COMMENT OUT IF NOT ERROR ANALYSIS
+        # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
         error_analysis_mct_mapping(
             cap1, cap2,
             homo,
             roi,
             *ret,
             display=False,
-            export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi'
+            export_video=None,#f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi'
         )
 
-        # # for h1, h2 in ret:
-        # #     print(f'{cam1_id},{video_id},{h1},{cam2_id},{video_id},{h2}', file=f)
+        # for t in range(ret.shape[2]):
+        #     print(list(zip(*np.where(ret[:, :, t]))))
+        detect_IDSW(*ret)
+        exit(0)
         ##############################################################################################################
 
     # f.close()
     # '''
-    # evaluate(f'../../data/recordings/{video_version}/true_mct_trackertracker_correspondences.txt',
-    #          f'../../data/recordings/{video_version}/pred_mct_trackertracker_correspondences.txt')
+    # evaluate(f'../../data/recordings/{video_version}/{TRACKER_NAME}/true_mct_trackertracker_correspondences.txt',
+    #          f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences.txt')
 
 
 
