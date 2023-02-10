@@ -6,6 +6,7 @@ from tqdm import tqdm
 from datetime import datetime, timedelta
 import os
 from ortools.linear_solver import pywraplp
+from img_utils import iou_batch
 
 HERE = Path(__file__).parent
 
@@ -606,12 +607,12 @@ def input_sct_from(txt_path, delimeter, midpoint, **kwargs):
 
 
 def make_true_sct_gttracker_correspondences(gt_txt_path, tracker_txt_path, midpoint, **kwargs):
-    # options for kwargs: homo, roi
+    # options for kwargs: homo, roi, use_iou
     # output of this function is saved in true_sct_gttracker_correspondences.txt
 
     # CONCERN ON OVERLAPPING REGION ONLY
-    OT, OX, OY, _ = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint, **kwargs)
-    HT, HX, HY, _ = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint, **kwargs)
+    OT, OX, OY, OS = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint, **kwargs)
+    HT, HX, HY, HS = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint, **kwargs)
 
     N = OT.shape[0]
     M = HT.shape[0]
@@ -621,9 +622,11 @@ def make_true_sct_gttracker_correspondences(gt_txt_path, tracker_txt_path, midpo
     OT = np.pad(OT, ((0, 0), (0, T - OT.shape[1])), mode='constant', constant_values=0)
     OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=0)
     OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=0)
+    OS = np.pad(OS, ((0, 0), (0, T - OS.shape[1]), (0, 0)), mode='constant', constant_values=0)
     HT = np.pad(HT, ((0, 0), (0, T - HT.shape[1])), mode='constant', constant_values=0)
     HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=0)
     HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=0)
+    HS = np.pad(HS, ((0, 0), (0, T - HS.shape[1]), (0, 0)), mode='constant', constant_values=0)
 
     OH_overlap = np.zeros((N, M), dtype='bool')
     for i in range(N):
@@ -640,7 +643,17 @@ def make_true_sct_gttracker_correspondences(gt_txt_path, tracker_txt_path, midpo
             if OH_overlap[i, j]:
                 idx = np.where(OT[i] * HT[j])
                 iou = sum(np.logical_and(OT[i], HT[j])) / sum(np.logical_or(OT[i], HT[j]))   # IoU is better
-                cost[i, j] = np.mean(np.square(OX[i, idx] - HX[j, idx]) + np.square(OY[i, idx] - HY[j, idx])) / iou
+
+                if 'use_iou' not in kwargs or not kwargs['use_iou']:
+                    np.mean(np.square(OX[i, idx] - HX[j, idx]) + np.square(OY[i, idx] - HY[j, idx]))
+                else:
+                    cost[i, j] = - np.mean(
+                        [iou_batch(
+                            OS[i, t, [0, 1, 4, 5]].reshape(1, 4),
+                            HS[j, t, [0, 1, 4, 5]].reshape(1, 4))
+                        for t in idx[0]])
+
+                cost[i, j] /= iou
             # if Oi and Hj have no overlap
             else:
                 cost[i, j] = 1e9
@@ -834,8 +847,7 @@ def make_true_mct_trackertracker_correspondences(
 
 
 def make_true_sct_gttracker_correspondences_v2(gt_txt_path, tracker_txt_path, midpoint, **kwargs):
-    # options for kwargs: homo, roi
-    # output of this function is saved in true_sct_gttracker_correspondences.txt
+    # options for kwargs: homo, roi, use_iou
 
     # CONCERN ON OVERLAPPING REGION ONLY
     OT, OX, OY, OS = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint, **kwargs)
@@ -864,7 +876,20 @@ def make_true_sct_gttracker_correspondences_v2(gt_txt_path, tracker_txt_path, mi
         cost = np.empty((len(O_present_list), len(H_present_list)), dtype='float32')
         for i, o in enumerate(O_present_list):
             for j, h in enumerate(H_present_list):
-                cost[i, j] = np.sqrt((OX[o, t] - HX[h, t])**2 + (OY[o, t] - HY[h, t])**2)
+                if 'use_iou' not in kwargs or not kwargs['use_iou']:
+                    cost[i, j] = np.sqrt((OX[o, t] - HX[h, t])**2 + (OY[o, t] - HY[h, t])**2)
+                else:
+                    ox1, oy1, ox2, oy2 = OS[o, t, [0, 1, 4, 5]]
+                    hx1, hy1, hx2, hy2 = HS[h, t, [0, 1, 4, 5]]
+                    if 'homo' in kwargs:
+                        homo_inv = np.linalg.inv(kwargs['homo'])
+                        [[[ox1, oy1]], [[ox2, oy2]]] = cv2.perspectiveTransform(
+                            np.array([ox1, oy1, ox2, oy2]).reshape(-1, 1, 2),
+                            homo_inv)
+                        [[[hx1, hy1]], [[hx2, hy2]]] = cv2.perspectiveTransform(
+                            np.array([hx1, hy1, hx2, hy2]).reshape(-1, 1, 2),
+                            homo_inv)
+                    cost[i, j] = - iou_batch([[ox1, oy1, ox2, oy2]], [[hx1, hy1, hx2, hy2]])
 
         i_matched_list, j_matched_list = linear_sum_assignment(cost)
         for i, j in zip(i_matched_list, j_matched_list):
@@ -1028,19 +1053,20 @@ def mct_mapping(
 
 
 def error_analysis_mct_mapping(
-    cap1, cap2,
-    homo,
-    roi,
-    C1T, C2T,
-    C1X, C2X,
-    C1Y, C2Y,
-    C1S, C2S,
-    time_correspondences,
-    X_pred,
-    X_eval,
-    display,
-    export_video,
-    checking_true_gttracker=False
+        cap1, cap2,
+        homo,
+        roi,
+        C1T, C2T,
+        C1X, C2X,
+        C1Y, C2Y,
+        C1S, C2S,
+        time_correspondences,
+        X_pred,
+        X_eval,
+        display,
+        export_video,
+        checking_true_gttracker=False,
+        log_file=None
 ):
 
     # read predecessed frames of cam 2 because X chose T1 as the z-dim
@@ -1087,6 +1113,7 @@ def error_analysis_mct_mapping(
         cv2.drawContours(black, [roi], -1, (255, 255, 255), 2)
         cv2.drawContours(frame1, [roi], -1, (255, 255, 255), 2)
         cv2.drawContours(frame2, [roi], -1, (255, 255, 255), 2)
+        cv2.putText(black, f'frame {t1}', (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=2)
 
         for h1 in range(N1):
             if C1T[h1, t1] == 0:
@@ -1163,15 +1190,15 @@ def error_analysis_mct_mapping(
     if display:
         cv2.destroyAllWindows()
 
-    print('TP:', TP)
-    print('FP:', FP)
-    print('FN:', FN)
+    print('TP:', TP, file=log_file)
+    print('FP:', FP, file=log_file)
+    print('FN:', FN, file=log_file)
     precision = TP / (TP + FP)
     recall = TP / (TP + FN)
-    print('Pre:', precision)
-    print('Rec:', recall)
+    print('Pre:', precision, file=log_file)
+    print('Rec:', recall, file=log_file)
     F1 = 2 * precision * recall / (precision + recall)
-    print('F1:', F1)
+    print('F1:', F1, file=log_file)
 
 
 def detect_IDSW(
@@ -1183,14 +1210,12 @@ def detect_IDSW(
     X_pred,
     X_eval,
 ):
-    X_pred = X_pred.copy()
     N1, T1 = C1T.shape
     N2, T2 = C2T.shape
 
     pairs = np.transpose(np.where(np.any(X_pred, axis=2))) # [[h1, h2], ...]
 
     def _process_track(label, h1, maps_of_h1, X_pred, C2T, time_correspondences):
-        fragments = {}
         for h2a in maps_of_h1:
             for h2b in maps_of_h1:
                 if h2a <= h2b:
@@ -1210,9 +1235,8 @@ def detect_IDSW(
                 if not object_swap_found:
                     continue
 
-                print(f'SPLIT {label} {h1}: {h2a} and {h2b} overlap at {np.where(h1_h2a_h2b_present_and_map)[0][0] / 10}')
+                print(f'{label} ID {h1} maps to {h2a} and {h2b} while they co-occur at {np.where(h1_h2a_h2b_present_and_map)[0][0] / 10}')
 
-                fragments = {h2a: [], h2b: []}
                 time_ascending_maps = sorted(list(
                     zip(*np.where(np.stack(
                         [h1_map_h2a, h1_map_h2b],
@@ -1224,17 +1248,16 @@ def detect_IDSW(
                         # current_map and previous_map are now 0, 1
                         current_map, current_time = time_ascending_maps[i]
                         current_map = h2a if current_map == 0 else h2b
-                        fragments[current_map].append(current_time)
                         if i == 0:
+                            start_time_of_previous_map = current_time
                             continue
 
                         previous_map, previous_time = time_ascending_maps[i - 1]
                         previous_map = h2a if previous_map == 0 else h2b
                         if current_map != previous_map:
                             print(
-                                f'\t switched from {previous_map} (before {previous_time / 10}) to {current_map} (after {current_time / 10})')
-
-        print(fragments)
+                                f'\t switched from {previous_map} (at {start_time_of_previous_map / 10}) to {current_map} (at {current_time / 10})')
+                            start_time_of_previous_map = current_time
 
     for h1 in range(N1):
         maps_of_h1 = pairs[pairs[:, 0] == h1][:, 1]
@@ -1327,7 +1350,8 @@ if __name__ == '__main__':
     cam1_id = 21
     cam2_id = 27
     video_id = 19
-    # f = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences.txt', 'w')
+    # f = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences_v1.txt', 'w')
+    log_file = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2.txt', 'w')
 
     for video_id in tqdm(range(19, 25)):
 
@@ -1353,17 +1377,19 @@ if __name__ == '__main__':
         roi = get_roi(cam2_id, video_version)
 
 
-        ################### MAKE TRUE GT TRACKER CORRESPONDENCES V1 #############################################
+        ################## MAKE TRUE GT TRACKER CORRESPONDENCES V1 #############################################
         # ret1 = make_true_sct_gttracker_correspondences(
         #     gt_txt1, tracker_txt1,
         #     midpoint1,
         #     homo=homo,
-        #     roi=roi
+        #     roi=roi,
+        #     use_iou=True
         # )
         # ret2 = make_true_sct_gttracker_correspondences(
         #     gt_txt2, tracker_txt2,
         #     midpoint2,
-        #     roi=roi
+        #     roi=roi,
+        #     use_iou=True
         # )
         # for i, j in ret1:
         #     print(f'{cam1_id},{video_id},{i},{j}')
@@ -1376,12 +1402,14 @@ if __name__ == '__main__':
             gt_txt1, tracker_txt1,
             midpoint1,
             homo=homo,
-            roi=roi
+            roi=roi,
+            use_iou=True
         )
         ret2 = make_true_sct_gttracker_correspondences_v2(
             gt_txt2, tracker_txt2,
             midpoint2,
-            roi=roi
+            roi=roi,
+            use_iou=True
         )
         # error_analysis_mct_mapping(
         #     cap1, cap1,
@@ -1401,6 +1429,12 @@ if __name__ == '__main__':
         #     export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}.avi',
         #     checking_true_gttracker=True
         # )
+        # for t in range(ret1[-2].shape[-1]):
+        #     if np.any(ret1[-2][:, :, t]):
+        #         print(t, list(zip(*np.where(ret1[-2][:, :, t]))))
+        # for t in range(ret2[-2].shape[-1]):
+        #     if np.any(ret2[-2][:, :, t]):
+        #         print(t, list(zip(*np.where(ret2[-2][:, :, t]))))
         ######################################################################################################
 
 
@@ -1410,7 +1444,7 @@ if __name__ == '__main__':
         #     mct_gtgt_correspondences = [eval(l) for l in mct_gtgt_correspondences]
         #     mct_gtgt_correspondences = [(l[2], l[5]) for l in mct_gtgt_correspondences if
         #                               l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
-        # with open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/true_sct_gttracker_correspondences.txt', 'r') as f:
+        # with open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/true_sct_gttracker_correspondences_v1.txt', 'r') as f:
         #     sct_gttracker_correspondences = f.read().strip().split('\n')
         #     sct_gttracker_correspondences = [eval(l) for l in sct_gttracker_correspondences]
         #     sct_gttracker_correspondences = [
@@ -1452,8 +1486,11 @@ if __name__ == '__main__':
         #     roi,
         #     *ret,
         #     display=False,
-        #     export_video=None, #f'true_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi',
+        #     export_video=f'true_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi',
         # )
+        # for t in range(ret[-2].shape[-1]):
+        #     if np.any(ret[-2][:, :, t]):
+        #         print(t, list(zip(*np.where(ret[-2][:, :, t]))))
         ######################################################################################################
 
         ######################## PREDICT MCT TRACKER TRACKER CORRESPONDENCES V1 ########################################
@@ -1485,6 +1522,7 @@ if __name__ == '__main__':
         ##############################################################################################################
 
         ######################## PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2 ########################################
+        print(f'[INFO]\t VIDEO {video_id} PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2', file=log_file)
         ret = mct_mapping(
             tracker_txt1, tracker_txt2,
             fps1, fps2,
@@ -1493,20 +1531,22 @@ if __name__ == '__main__':
             roi,
             true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
         )
-        # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
+        # COMMENT OUT IF NOT ERROR ANALYSIS
         error_analysis_mct_mapping(
             cap1, cap2,
             homo,
             roi,
             *ret,
             display=False,
-            export_video=None,#f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi'
+            export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi',
+            log_file=log_file
         )
 
         # for t in range(ret.shape[2]):
         #     print(list(zip(*np.where(ret[:, :, t]))))
-        detect_IDSW(*ret)
-        exit(0)
+
+        # detect_IDSW(*ret)
+
         ##############################################################################################################
 
     # f.close()
