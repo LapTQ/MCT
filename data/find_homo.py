@@ -57,7 +57,7 @@ def select_matches(src, dst):
 
     H1, W1 = src.shape[:2]
 
-    window_name = '<ESC>'
+    window_name = 'SELECT MATCHES (>= 4 matches): <ESC> to reset. <y> to see preview. <q> to abort.'
 
     def on_mouse(event, x, y, flag, param):
 
@@ -78,20 +78,29 @@ def select_matches(src, dst):
 
             cv2.imshow(window_name, img)
 
-    confirm = False
     is_src = True
 
-    while not confirm:
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
+    while True:
         img = np.concatenate([src, dst], axis=1)
         cv2.imshow(window_name, img)
         src_pts = []
         dst_pts = []
         cv2.setMouseCallback(window_name, on_mouse)
 
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        confirm = not bool(input('[QUERY] Confirm? [<ENTER> for yes] ').strip())
+        key = cv2.waitKey(0)
+        if key == 27:
+            continue
+        elif key == ord('y'):
+            if len(src_pts) <= 3:
+                print('[WARNING] Need at least 4 points')
+                continue
+            break
+        elif key == ord('q'):
+            exit(0)
+
+    cv2.destroyAllWindows()
 
     return (np.array(src_pts).reshape(-1, 1, 2).astype('float32'),
             np.array(dst_pts).reshape(-1, 1, 2).astype('float32'))
@@ -165,7 +174,7 @@ def main(opt):
 
 
     while True:
-        window_name = 'Select matches: <y> to confirm. <ESC> to reset'
+        window_name = 'PREVIEW RESULT OF SELECTING MATCHES: <y> to submit. <ESC> to reset'
         src_pts, dst_pts = select_matches(src, dst)
         print(src_pts)
         print(dst_pts)
@@ -195,13 +204,13 @@ def main(opt):
         np.savetxt(opt['homo_out_path'], H)
         print('[INFO] Homography saved in', opt['homo_out_path'])
     else:
-        print('[INFO] Not save homography')
+        print('[INFO] Not save homography\n...Printing copy-paste result to stdout\nH =', H)
 
     if opt['roi_out_path'] is not None:
         np.savetxt(opt['roi_out_path'], contour.reshape(-1, 2))
         print('[INFO] Contour saved in', opt['roi_out_path'])
     else:
-        print('[INFO] Not save contour')
+        print('[INFO] Not save contour\n...Printing copy-paste result to stdout\ncontour =', contour.reshape(-1, 2))
 
 
 
@@ -221,8 +230,8 @@ if __name__ == '__main__':
     opt = {
         'src': CAM1,
         'dst': CAM2,
-        'homo_out_path': str(Path(CAM1).parent / 'homo_121_to_127.txt'), # None
-        'roi_out_path': str(Path(CAM1).parent / 'roi_127.txt'),  # None
+        'homo_out_path': None, #str(Path(CAM1).parent / 'homo_121_to_127.txt'), # None
+        'roi_out_path': None, #str(Path(CAM1).parent / 'roi_127.txt'),  # None
         'video': False
     }
     
