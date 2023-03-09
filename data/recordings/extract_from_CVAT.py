@@ -4,10 +4,10 @@ from pathlib import Path
 DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/gt'
 EXTENSION = '.zip'
 
-paths = [name for name in os.listdir(DIR) if name.endswith(EXTENSION)]
+filenames = [name for name in os.listdir(DIR) if name.endswith(EXTENSION)]
 
-for path in paths:
-    filename = os.path.split(path)[1]
+for filename in filenames:
+    path = os.path.join(DIR, filename)
     basename = os.path.splitext(filename)[0]
 
     print(f'[INFO]\t Archiving {DIR}/{filename} to directory {DIR}')
