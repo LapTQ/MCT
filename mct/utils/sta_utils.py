@@ -129,7 +129,7 @@ def get_roi(dst, video_version):
 
     return roi
 
-def map_tracks(cam1, cam2, vid_id, video_version, sample_roi, use_iou, vis=False, export_video=False):
+def map_tracks(cam1, cam2, vid_id, video_version, sample_roi, use_iou, box_repr_kind, vis=False, export_video=False):
 
     mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection(video_version_to_db_name[video_version]).get_product()
 
@@ -171,8 +171,8 @@ def map_tracks(cam1, cam2, vid_id, video_version, sample_roi, use_iou, vis=False
             sampled_boxes1 = [by_camid[cam1][id1][idx]['box'] for idx in matched_indexes1]
             sampled_boxes2 = [by_camid[cam2][id2][idx]['box'] for idx in matched_indexes2]
 
-            repr_points1 = get_box_repr(sampled_boxes1, kind='foot', midpoint=(cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-            repr_points2 = get_box_repr(sampled_boxes2, kind='foot', midpoint=(cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+            repr_points1 = get_box_repr(sampled_boxes1, kind=box_repr_kind, midpoint=(cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+            repr_points2 = get_box_repr(sampled_boxes2, kind=box_repr_kind, midpoint=(cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
             repr_points1_trans = cv2.perspectiveTransform(repr_points1.reshape(-1, 1, 2), homo)
 
@@ -257,8 +257,8 @@ def map_tracks(cam1, cam2, vid_id, video_version, sample_roi, use_iou, vis=False
             coords1 = np.int32(np.stack([dets1[:, 2], dets1[:, 3], dets1[:, 2], dets1[:, 5], dets1[:, 4], dets1[:, 5], dets1[:, 4], dets1[:, 3]], axis=1).reshape(-1, 4, 1, 2))
             coords2 = np.int32(np.stack([dets2[:, 2], dets2[:, 3], dets2[:, 2], dets2[:, 5], dets2[:, 4], dets2[:, 5], dets2[:, 4], dets2[:, 3]], axis=1).reshape(-1, 4, 1, 2))
 
-            points1 = get_box_repr(dets1[:, 2:6], kind='foot', midpoint=(frame1.shape[1] // 2, frame1.shape[0]))
-            points2 = get_box_repr(dets2[:, 2:6], kind='foot', midpoint=(frame2.shape[1] // 2, frame2.shape[0]))
+            points1 = get_box_repr(dets1[:, 2:6], kind=box_repr_kind, midpoint=(frame1.shape[1] // 2, frame1.shape[0]))
+            points2 = get_box_repr(dets2[:, 2:6], kind=box_repr_kind, midpoint=(frame2.shape[1] // 2, frame2.shape[0]))
 
             points1_trans = cv2.perspectiveTransform(points1.reshape(-1, 1, 2), homo)
             coords1_trans = cv2.perspectiveTransform(np.float32(coords1).reshape(-1, 1, 2), homo)
@@ -345,7 +345,7 @@ def map_tracks(cam1, cam2, vid_id, video_version, sample_roi, use_iou, vis=False
     return '\n'.join(ret)
 
 
-def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, export_video=False):
+def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, box_repr_kind, vis=False, export_video=False):
 
     mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection(
         video_version_to_db_name[video_version]).get_product()
@@ -411,9 +411,9 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
                 box1 = by_camid[cam1][id1][time_idx1]['box']
                 box2 = by_camid[cam2][id2][time_idx2]['box']
 
-                repr_points1 = get_box_repr([box1], kind='foot', midpoint=(
+                repr_points1 = get_box_repr([box1], kind=box_repr_kind, midpoint=(
                     cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-                repr_points2 = get_box_repr([box2], kind='foot', midpoint=(
+                repr_points2 = get_box_repr([box2], kind=box_repr_kind, midpoint=(
                     cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
                 repr_points1_trans = cv2.perspectiveTransform(repr_points1.reshape(-1, 1, 2), homo).reshape(-1, 2)
 
@@ -556,7 +556,7 @@ def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, vis=False, e
     print(f'false distances: {false_distances}')
 
 
-def input_sct_from(txt_path, delimeter, midpoint, **kwargs):
+def input_sct_from(txt_path, delimeter, midpoint, box_repr_kind, **kwargs):
 
     seq = np.loadtxt(txt_path, delimiter=delimeter)
 
@@ -571,15 +571,22 @@ def input_sct_from(txt_path, delimeter, midpoint, **kwargs):
     # spatio position
     OX = np.zeros((N, T), dtype='float32')  # cannot use np.empty due to nan value in later computation.
     OY = np.zeros((N, T), dtype='float32')
+    OX_no_trans = np.zeros((N, T), dtype='float32')
+    OY_no_trans = np.zeros((N, T), dtype='float32')
     OS = np.zeros((N, T, 8), dtype='float32')
+    OS_no_trans = np.zeros((N, T, 8), dtype='float32')
 
     for i, det in enumerate(seq):
         frame = np.int32(det[0])
         id = np.int32(det[1])
 
         det[4:6] += det[2:4]
-        [[repr_x, repr_y]] = get_box_repr(det[2:6], kind='foot', midpoint=midpoint)
+        [[repr_x, repr_y]] = get_box_repr(det[2:6], kind=box_repr_kind, midpoint=midpoint)
         x1, y1, x2, y2, x3, y3, x4, y4 = det[2], det[3], det[2], det[5], det[4], det[5], det[4], det[3]
+
+        OX_no_trans[id, frame] = repr_x
+        OY_no_trans[id, frame] = repr_y
+        OS_no_trans[id, frame] = [x1, y1, x2, y2, x3, y3, x4, y4]
 
         if 'homo' in kwargs:
             [[[repr_x, repr_y]],
@@ -603,16 +610,16 @@ def input_sct_from(txt_path, delimeter, midpoint, **kwargs):
         OY[id, frame] = repr_y
         OS[id, frame] = [x1, y1, x2, y2, x3, y3, x4, y4]
 
-    return OT, OX, OY, OS
+    return OT, OX, OY, OS, OX_no_trans, OY_no_trans, OS_no_trans
 
 
-def make_true_sct_gttracker_correspondences(gt_txt_path, tracker_txt_path, midpoint, **kwargs):
+def make_true_sct_gttracker_correspondences_v1(gt_txt_path, tracker_txt_path, midpoint, box_repr_kind, **kwargs):
     # options for kwargs: homo, roi, use_iou
     # output of this function is saved in true_sct_gttracker_correspondences.txt
 
     # CONCERN ON OVERLAPPING REGION ONLY
-    OT, OX, OY, OS = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint, **kwargs)
-    HT, HX, HY, HS = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint, **kwargs)
+    OT, OX, OY, OS, OX_no_trans, OY_no_trans, OS_no_trans = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint, box_repr_kind=box_repr_kind, **kwargs)
+    HT, HX, HY, HS, HX_no_trans, HY_no_trans, HS_no_trans = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint, box_repr_kind=box_repr_kind, **kwargs)
 
     N = OT.shape[0]
     M = HT.shape[0]
@@ -623,10 +630,18 @@ def make_true_sct_gttracker_correspondences(gt_txt_path, tracker_txt_path, midpo
     OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=0)
     OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=0)
     OS = np.pad(OS, ((0, 0), (0, T - OS.shape[1]), (0, 0)), mode='constant', constant_values=0)
+    OX_no_trans = np.pad(OX_no_trans, ((0, 0), (0, T - OX_no_trans.shape[1])), mode='constant', constant_values=0)
+    OY_no_trans = np.pad(OY_no_trans, ((0, 0), (0, T - OY_no_trans.shape[1])), mode='constant', constant_values=0)
+    OS_no_trans = np.pad(OS_no_trans, ((0, 0), (0, T - OS_no_trans.shape[1]), (0, 0)), mode='constant',
+                         constant_values=0)
     HT = np.pad(HT, ((0, 0), (0, T - HT.shape[1])), mode='constant', constant_values=0)
     HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=0)
     HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=0)
     HS = np.pad(HS, ((0, 0), (0, T - HS.shape[1]), (0, 0)), mode='constant', constant_values=0)
+    HX_no_trans = np.pad(HX_no_trans, ((0, 0), (0, T - HX_no_trans.shape[1])), mode='constant', constant_values=0)
+    HY_no_trans = np.pad(HY_no_trans, ((0, 0), (0, T - HY_no_trans.shape[1])), mode='constant', constant_values=0)
+    HS_no_trans = np.pad(HS_no_trans, ((0, 0), (0, T - HS_no_trans.shape[1]), (0, 0)), mode='constant',
+                         constant_values=0)
 
     OH_overlap = np.zeros((N, M), dtype='bool')
     for i in range(N):
@@ -714,7 +729,7 @@ def make_true_sct_gttracker_correspondences(gt_txt_path, tracker_txt_path, midpo
     return optimal_solution
 
 
-def input_mct_from(txt_path, delimeter, fps, midpoint, **kwargs):
+def input_mct_from(txt_path, delimeter, fps, midpoint, box_repr_kind, **kwargs):
 
     _, _, *record_time = os.path.splitext(os.path.split(txt_path)[-1])[0].split('_')
     record_time = datetime.strptime('_'.join(record_time), '%Y-%m-%d_%H-%M-%S-%f')
@@ -734,14 +749,21 @@ def input_mct_from(txt_path, delimeter, fps, midpoint, **kwargs):
     OX = np.zeros((N, T), dtype='float32')  # cannot use np.empty due to nan value in later computation.
     OY = np.zeros((N, T), dtype='float32')
     OS = np.zeros((N, T, 8), dtype='float32')
+    OX_no_trans = np.zeros((N, T), dtype='float32')
+    OY_no_trans = np.zeros((N, T), dtype='float32')
+    OS_no_trans = np.zeros((N, T, 8), dtype='float32')
 
     for i, det in enumerate(seq):
         frame = np.int32(det[0])
         id = np.int32(det[1])
 
         det[4:6] += det[2:4]
-        [[repr_x, repr_y]] = get_box_repr(det[2:6], kind='foot', midpoint=midpoint)
+        [[repr_x, repr_y]] = get_box_repr(det[2:6], kind=box_repr_kind, midpoint=midpoint)
         x1, y1, x2, y2, x3, y3, x4, y4 = det[2], det[3], det[2], det[5], det[4], det[5], det[4], det[3]
+
+        OX_no_trans[id, frame] = repr_x
+        OY_no_trans[id, frame] = repr_y
+        OS_no_trans[id, frame] = [x1, y1, x2, y2, x3, y3, x4, y4]
 
         if 'homo' in kwargs:
             [[[repr_x, repr_y]],
@@ -768,7 +790,7 @@ def input_mct_from(txt_path, delimeter, fps, midpoint, **kwargs):
     for i in range(T):
         OTT[i] = (record_time + timedelta(seconds=(i - 1) / fps)).timestamp() # frame id starts from 1
 
-    return OT, OX, OY, OTT, OS
+    return OT, OX, OY, OTT, OS, OX_no_trans, OY_no_trans, OS_no_trans
 
 
 def map_timestamp(ATT, BTT, diff_thresh=None):
@@ -810,18 +832,19 @@ def map_timestamp(ATT, BTT, diff_thresh=None):
     return X
 
 
-def make_true_mct_trackertracker_correspondences(
+def make_true_mct_trackertracker_correspondences_v1(
         cam1_tracker_path, cam2_tracker_path,
         fps1, fps2,
         midpoint1, midpoint2,
         mct_gtgt_correspondences,
         sct_gttracker_correspondences,
         homo,
-        roi
+        roi,
+        box_repr_kind
 ):
 
-    C1T, C1X, C1Y, C1TT, _ = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, homo=homo, roi=roi)
-    C2T, C2X, C2Y, C2TT, _ = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, roi=roi)
+    C1T, C1X, C1Y, C1TT, _, _, _, _ = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, box_repr_kind=box_repr_kind, homo=homo, roi=roi)
+    C2T, C2X, C2Y, C2TT, _, _, _, _ = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, box_repr_kind=box_repr_kind, roi=roi)
 
     T1 = C1T.shape[1]
     T2 = C2T.shape[1]
@@ -846,12 +869,19 @@ def make_true_mct_trackertracker_correspondences(
     return ret
 
 
-def make_true_sct_gttracker_correspondences_v2(gt_txt_path, tracker_txt_path, midpoint, **kwargs):
+def make_true_sct_gttracker_correspondences_v2(
+        gt_txt_path,
+        tracker_txt_path,
+        midpoint,
+        n_gmm_components,
+        box_repr_kind,
+        **kwargs):
     # options for kwargs: homo, roi, use_iou
+    """n_gmm_components can be None or 1, 2, 3,... In this function, it should be 1."""
 
     # CONCERN ON OVERLAPPING REGION ONLY
-    OT, OX, OY, OS = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint, **kwargs)
-    HT, HX, HY, HS = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint, **kwargs)
+    OT, OX, OY, OS, OX_no_trans, OY_no_trans, OS_no_trans = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint, box_repr_kind=box_repr_kind, **kwargs)
+    HT, HX, HY, HS, HX_no_trans, HY_no_trans, HS_no_trans = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint, box_repr_kind=box_repr_kind, **kwargs)
 
     N = OT.shape[0]
     M = HT.shape[0]
@@ -903,15 +933,14 @@ def make_true_sct_gttracker_correspondences_v2(gt_txt_path, tracker_txt_path, mi
     # import matplotlib.pyplot as plt
     # sns.kdeplot(distances[X == 1].flatten())
     # plt.show()
-    from sklearn.mixture import GaussianMixture
-    gm = GaussianMixture(n_components=1, covariance_type='diag').fit(distances[X == 1].reshape(-1, 1))
-    smaller_component = np.argmin(gm.means_)
-    boundary = gm.means_[smaller_component] + 3 * np.sqrt(gm.covariances_[smaller_component])
-    X = np.where(distances > boundary, 0, X)
+    if n_gmm_components is not None and n_gmm_components > 0:
+        from sklearn.mixture import GaussianMixture
+        gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag').fit(distances[X == 1].reshape(-1, 1))
+        smaller_component = np.argmin(gm.means_)
+        boundary = gm.means_[smaller_component] + 3 * np.sqrt(gm.covariances_[smaller_component])
+        X = np.where(distances > boundary, 0, X)
 
-    return OT, HT, OX, HX, OY, HY, OS, HS, np.eye(T, T, dtype='int32'), X, X
-
-    return X
+    return OT, HT, OX, HX, OY, HY, OS, HS, OX_no_trans, HX_no_trans, OY_no_trans, HY_no_trans, OS_no_trans, HS_no_trans, np.eye(T, T, dtype='int32'), X, X
 
 
 def make_true_mct_trackertracker_correspondences_v2(
@@ -922,11 +951,12 @@ def make_true_mct_trackertracker_correspondences_v2(
         cam1_sct_gttracker_correspondences,
         cam2_sct_gttracker_correspondences,
         homo,
-        roi
+        roi,
+        box_repr_kind
 ):
 
-    C1T, C1X, C1Y, C1TT, C1S = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, homo=homo, roi=roi)
-    C2T, C2X, C2Y, C2TT, C2S = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, roi=roi)
+    C1T, C1X, C1Y, C1TT, C1S, C1X_no_trans, C1Y_no_trans, C1S_no_trans = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, box_repr_kind=box_repr_kind, homo=homo, roi=roi)
+    C2T, C2X, C2Y, C2TT, C2S, C2X_no_trans, C2Y_no_trans, C2S_no_trans = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, box_repr_kind=box_repr_kind, roi=roi)
 
     N1, T1 = C1T.shape
     N2, T2 = C2T.shape
@@ -954,9 +984,7 @@ def make_true_mct_trackertracker_correspondences_v2(
                 if (o1, o2) in mct_gtgt_correspondences:
                     X[h1, h2, t1] = 1
 
-    return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, time_correspondences, X, X
-
-    return X
+    return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, C1X_no_trans, C2X_no_trans, C1Y_no_trans, C2Y_no_trans, C1S_no_trans, C2S_no_trans, time_correspondences, X, X
 
 
 def mct_mapping(
@@ -965,10 +993,13 @@ def mct_mapping(
         midpoint1, midpoint2,
         homo,
         roi,
+        n_gmm_components,
+        box_repr_kind,
         **kwargs
 ):
-    C1T, C1X, C1Y, C1TT, C1S = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, homo=homo, roi=roi)
-    C2T, C2X, C2Y, C2TT, C2S = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, roi=roi)
+    """n_gmm_components can be None or 1, 2, 3,... In this function, it should be 2."""
+    C1T, C1X, C1Y, C1TT, C1S, C1X_no_trans, C1Y_no_trans, C1S_no_trans = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, box_repr_kind=box_repr_kind, homo=homo, roi=roi)
+    C2T, C2X, C2Y, C2TT, C2S, C2X_no_trans, C2Y_no_trans, C2S_no_trans = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, box_repr_kind=box_repr_kind, roi=roi)
 
     N1, T1 = C1T.shape
     N2, T2 = C2T.shape
@@ -1004,11 +1035,12 @@ def mct_mapping(
     # import matplotlib.pyplot as plt
     # sns.kdeplot(distances[X == 1].flatten())
     # plt.show()
-    from sklearn.mixture import GaussianMixture
-    gm = GaussianMixture(n_components=2, covariance_type='diag').fit(distances[X == 1].reshape(-1, 1))
-    smaller_component = np.argmin(gm.means_)
-    boundary = gm.means_[smaller_component] + 3*np.sqrt(gm.covariances_[smaller_component])
-    X = np.where(distances > boundary, 0, X)
+    if n_gmm_components is not None and n_gmm_components > 0:
+        from sklearn.mixture import GaussianMixture
+        gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag').fit(distances[X == 1].reshape(-1, 1))
+        smaller_component = np.argmin(gm.means_)
+        boundary = gm.means_[smaller_component] + 3*np.sqrt(gm.covariances_[smaller_component])
+        X = np.where(distances > boundary, 0, X)
 
     # just to show without timestamp details
     X_notime = np.any(X, axis=2)
@@ -1046,10 +1078,9 @@ def mct_mapping(
                     elif X[h1, h2, t1] == 0 and X_true[h1, h2, t1] == 1: # false negative
                         X_eval[h1, h2, t1] = 3
 
-        return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, time_correspondences, X, X_eval
-
-
-    return X
+        return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, C1X_no_trans, C2X_no_trans, C1Y_no_trans, C2Y_no_trans, C1S_no_trans, C2S_no_trans, time_correspondences, X, X_eval
+    else:
+        return C1T, C2T, C1X, C2X, C1Y, C2Y, C1S, C2S, C1X_no_trans, C2X_no_trans, C1Y_no_trans, C2Y_no_trans, C1S_no_trans, C2S_no_trans, time_correspondences, X, X
 
 
 def error_analysis_mct_mapping(
@@ -1060,6 +1091,9 @@ def error_analysis_mct_mapping(
         C1X, C2X,
         C1Y, C2Y,
         C1S, C2S,
+        C1X_no_trans, C2X_no_trans,
+        C1Y_no_trans, C2Y_no_trans,
+        C1S_no_trans, C2S_no_trans,
         time_correspondences,
         X_pred,
         X_eval,
@@ -1105,14 +1139,21 @@ def error_analysis_mct_mapping(
                 cv2.destroyAllWindows()
             break
 
+        H, W = frame2.shape[:2]
+        frame1_no_trans = frame1.copy()
         if homo is not None:
-            frame1 = cv2.warpPerspective(frame1, homo, (frame2.shape[1], frame2.shape[0]))
+
+            homo_inv = np.linalg.inv(homo)
+            roi_inv_trans = cv2.perspectiveTransform(
+                np.float32(roi),
+                homo_inv).astype('int32')
+
         if checking_true_gttracker:
             frame2 = frame1.copy()
         black = np.full_like(frame2, 0)
         cv2.drawContours(black, [roi], -1, (255, 255, 255), 2)
-        cv2.drawContours(frame1, [roi], -1, (255, 255, 255), 2)
         cv2.drawContours(frame2, [roi], -1, (255, 255, 255), 2)
+        cv2.drawContours(frame1_no_trans, [roi_inv_trans], -1, (255, 255, 255), 2)
         cv2.putText(black, f'frame {t1}', (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=2)
 
         for h1 in range(N1):
@@ -1120,12 +1161,13 @@ def error_analysis_mct_mapping(
                 continue
 
             color1 = COLORS[h1 % len(COLORS)]
-            cv2.polylines(frame1, [np.int32(C1S[h1, t1]).reshape(-1, 1, 2)], True, color=color1, thickness=2)
-            cv2.circle(frame1, (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1])), radius=6, color=color1, thickness=-1)
             cv2.circle(black, (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1])), radius=6, color=color1, thickness=-1)
-            cv2.putText(frame1, f'1-{h1}', (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1]) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
             cv2.putText(black, f'1-{h1}', (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1]) - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
+
+            cv2.polylines(frame1_no_trans, [np.int32(C1S_no_trans[h1, t1]).reshape(-1, 1, 2)], True, color=color1, thickness=2)
+            cv2.circle(frame1_no_trans, (np.int32(C1X_no_trans[h1, t1]), np.int32(C1Y_no_trans[h1, t1])), radius=6, color=color1, thickness=-1)
+            cv2.putText(frame1_no_trans, f'1-{h1}', (np.int32(C1X_no_trans[h1, t1]), np.int32(C1Y_no_trans[h1, t1]) - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
 
         for h2 in range(N2):
@@ -1160,9 +1202,11 @@ def error_analysis_mct_mapping(
                              (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])),
                              color=connection_color, thickness=3)
 
+        frame1 = cv2.warpPerspective(frame1_no_trans, homo, (W, H))
+
         show_img = np.concatenate(
             [np.concatenate([frame1, frame2], axis=1),
-             np.concatenate([np.zeros_like(frame1), black], axis=1)],
+             np.concatenate([frame1_no_trans, black], axis=1)],
             axis=0
         )
 
@@ -1202,13 +1246,14 @@ def error_analysis_mct_mapping(
 
 
 def detect_IDSW(
-    C1T, C2T,
-    C1X, C2X,
-    C1Y, C2Y,
-    C1S, C2S,
-    time_correspondences,
-    X_pred,
-    X_eval,
+        C1T, C2T,
+        C1X, C2X,
+        C1Y, C2Y,
+        C1S, C2S,
+        C1S_no_trans, C2S_no_trans,
+        time_correspondences,
+        X_pred,
+        X_eval,
 ):
     N1, T1 = C1T.shape
     N2, T2 = C2T.shape
@@ -1301,14 +1346,15 @@ def evaluate(true_path, pred_path):
 
 if __name__ == '__main__':
 
-    video_version = '2d_v2'
-    TRACKER_NAME = 'YOLOv5l_pretrained-640-ByteTrack'
+    video_version = '2d_v3'
+    TRACKER_NAME = 'YOLOv8l_pretrained-1280-StrongSORT'
+    box_repr_kind = 'bottom'
 
    
     '''
     ret = []
     for vid_id in tqdm(range(19, 25)):
-        ret.append(map_tracks(21, 27, vid_id, video_version, sample_roi=True, use_iou=False, vis=False, export_video=False))
+        ret.append(map_tracks(21, 27, vid_id, video_version, sample_roi=True, use_iou=False, box_repr_kind=box_repr_kind, vis=False, export_video=False))
     with open(f'../../data/recordings/{video_version}/pred_mct_gtgt_correspondences.txt', 'w') as f:
         print('\n'.join(ret), file=f)
     '''
@@ -1328,7 +1374,7 @@ if __name__ == '__main__':
     '''
     from multiprocessing import Pool
     pool = Pool(16)
-    pool.starmap(map_tracks, [(21, 27, vid_id, video_version, True, False, False, True) for vid_id in range(16)])
+    pool.starmap(map_tracks, [(21, 27, vid_id, video_version, True, False, box_repr_kind, False, True) for vid_id in range(16)])
     '''
 
     # ANALYZE
@@ -1343,32 +1389,40 @@ if __name__ == '__main__':
             true = [eval(l[:-1]) for l in f.readlines()]
             true = [(p[2], p[5]) for p in true if p[0] == cam1 and p[3] == cam2 and p[1] == vid_id]
             trues.append(true)
-    pool.starmap(analyze_homo, [(cam1, cam2, vid_id, video_version, true, False, False) for vid_id, true in zip(range(16), trues)])  # vis, export_video
+    pool.starmap(analyze_homo, [(cam1, cam2, vid_id, video_version, true, box_repr_kind, False, False) for vid_id, true in zip(range(16), trues)])  # vis, export_video
     '''
 
     #'''
-    cam1_id = 21
-    cam2_id = 27
-    video_id = 19
+    cam1_id = 121
+    cam2_id = 127
+    n_0 = 3
+    # video_id = 19
     # f = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences_v1.txt', 'w')
-    log_file = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2.txt', 'w')
+    # log_file is set to None if stdout
+    GMM = True
+    log_file = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{"GMM" if GMM else "noGMM"}.txt', 'w')
+    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{"" if GMM else "OUT"} GMM ================', file=log_file)
 
-    for video_id in tqdm(range(19, 25)):
+    for video_id in tqdm(range(1, 20)):
 
-        gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
-        tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f'{cam1_id}_*{video_id}_*_*.txt'))[0])
-        gt_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
-        tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f'{cam2_id}_*{video_id}_*_*.txt'))[0])
+        #gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
+        #print(gt_txt1)
+        tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
+        print(tracker_txt1)
+        #gt_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
+        #print(gt_txt2)
+        tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
+        print(tracker_txt2)
 
 
         cap1 = cv2.VideoCapture(
-            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam1_id}_*{video_id}*_*_*.avi'))[0])
+            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.avi"))[0])
         )
         midpoint1 = cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)
         fps1 = cap1.get(cv2.CAP_PROP_FPS)
 
         cap2 = cv2.VideoCapture(
-            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f'{cam2_id}_*{video_id}*_*_*.avi'))[0])
+            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.avi"))[0])
         )
         midpoint2 = cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
         fps2 = cap2.get(cv2.CAP_PROP_FPS)
@@ -1378,29 +1432,36 @@ if __name__ == '__main__':
 
 
         ################## MAKE TRUE GT TRACKER CORRESPONDENCES V1 #############################################
-        # ret1 = make_true_sct_gttracker_correspondences(
-        #     gt_txt1, tracker_txt1,
-        #     midpoint1,
-        #     homo=homo,
-        #     roi=roi,
-        #     use_iou=True
-        # )
-        # ret2 = make_true_sct_gttracker_correspondences(
-        #     gt_txt2, tracker_txt2,
-        #     midpoint2,
-        #     roi=roi,
-        #     use_iou=True
-        # )
-        # for i, j in ret1:
-        #     print(f'{cam1_id},{video_id},{i},{j}')
-        # for i, j in ret2:
-        #     print(f'{cam2_id},{video_id},{i},{j}')
+        """
+        ret1 = make_true_sct_gttracker_correspondences_v1(
+            gt_txt1, tracker_txt1,
+            midpoint1,
+            box_repr_kind=box_repr_kind,
+            homo=homo,
+            roi=roi,
+            use_iou=True
+        )
+        ret2 = make_true_sct_gttracker_correspondences_v1(
+            gt_txt2, tracker_txt2,
+            midpoint2,
+            box_repr_kind=box_repr_kind,
+            roi=roi,
+            use_iou=True
+        )
+        for i, j in ret1:
+            print(f'{cam1_id},{video_id},{i},{j}')
+        for i, j in ret2:
+            print(f'{cam2_id},{video_id},{i},{j}')
+        """
         ######################################################################################################
 
         ################### MAKE TRUE GT TRACKER CORRESPONDENCES V2 #############################################
+        """
         ret1 = make_true_sct_gttracker_correspondences_v2(
             gt_txt1, tracker_txt1,
             midpoint1,
+            n_gmm_components=1,
+            box_repr_kind=box_repr_kind,
             homo=homo,
             roi=roi,
             use_iou=True
@@ -1408,33 +1469,38 @@ if __name__ == '__main__':
         ret2 = make_true_sct_gttracker_correspondences_v2(
             gt_txt2, tracker_txt2,
             midpoint2,
+            n_gmm_components=1,
+            box_repr_kind=box_repr_kind,
             roi=roi,
             use_iou=True
         )
-        # error_analysis_mct_mapping(
-        #     cap1, cap1,
-        #     homo,
-        #     roi,
-        #     *ret1,
-        #     display=False,
-        #     export_video=f'true_mct_gttracker_correspondences_{cam1_id}_{video_id}.avi',
-        #     checking_true_gttracker=True
-        # )
-        # error_analysis_mct_mapping(
-        #     cap2, cap2,
-        #     None,
-        #     roi,
-        #     *ret2,
-        #     display=False,
-        #     export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}.avi',
-        #     checking_true_gttracker=True
-        # )
-        # for t in range(ret1[-2].shape[-1]):
-        #     if np.any(ret1[-2][:, :, t]):
-        #         print(t, list(zip(*np.where(ret1[-2][:, :, t]))))
-        # for t in range(ret2[-2].shape[-1]):
-        #     if np.any(ret2[-2][:, :, t]):
-        #         print(t, list(zip(*np.where(ret2[-2][:, :, t]))))
+        """
+        """
+        error_analysis_mct_mapping(
+            cap1, cap1,
+            homo,
+            roi,
+            *ret1,
+            display=False,
+            export_video=f'true_mct_gttracker_correspondences_{cam1_id}_{video_id}.avi',
+            checking_true_gttracker=True
+        )
+        error_analysis_mct_mapping(
+            cap2, cap2,
+            None,
+            roi,
+            *ret2,
+            display=False,
+            export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}.avi',
+            checking_true_gttracker=True
+        )
+        for t in range(ret1[-2].shape[-1]):
+            if np.any(ret1[-2][:, :, t]):
+                print(t, list(zip(*np.where(ret1[-2][:, :, t]))))
+        for t in range(ret2[-2].shape[-1]):
+            if np.any(ret2[-2][:, :, t]):
+                print(t, list(zip(*np.where(ret2[-2][:, :, t]))))
+        """
         ######################################################################################################
 
 
@@ -1451,35 +1517,39 @@ if __name__ == '__main__':
         #         [(l[2], l[3]) for l in sct_gttracker_correspondences if l[0] == cam1_id and l[1] == video_id],
         #         [(l[2], l[3]) for l in sct_gttracker_correspondences if l[0] == cam2_id and l[1] == video_id]
         #     ]
-        # ret = make_true_mct_trackertracker_correspondences(
+        # ret = make_true_mct_trackertracker_correspondences_v1(
         #     tracker_txt1, tracker_txt2,
         #     fps1, fps2,
         #     midpoint1, midpoint2,
         #     mct_gtgt_correspondences,
         #     sct_gttracker_correspondences,
         #     homo,
-        #     roi
+        #     roi,
+        #     box_repr_kind=box_repr_kind,
         # )
         # for h1, h2 in ret:
         #     print(f'{cam1_id},{video_id},{h1},{cam2_id},{video_id},{h2}')
+
         ######################################################################################################
 
         #################### MAKE TRUE MCT TRACKER TRACKER CORRESPONDENCES V2 ###################################
-        with open(f'../../data/recordings/{video_version}/true_mct_gtgt_correspondences.txt', 'r') as f:
-            mct_gtgt_correspondences = f.read().strip().split('\n')
-            mct_gtgt_correspondences = [eval(l) for l in mct_gtgt_correspondences]
-            mct_gtgt_correspondences = [(l[2], l[5]) for l in mct_gtgt_correspondences if
-                                      l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
-        ret = make_true_mct_trackertracker_correspondences_v2(
-            tracker_txt1, tracker_txt2,
-            fps1, fps2,
-            midpoint1, midpoint2,
-            mct_gtgt_correspondences,
-            ret1[-1],
-            ret2[-1],
-            homo,
-            roi
-        )
+        # with open(f'../../data/recordings/{video_version}/true_mct_gtgt_correspondences.txt', 'r') as f:
+        #     mct_gtgt_correspondences = f.read().strip().split('\n')
+        #     mct_gtgt_correspondences = [eval(l) for l in mct_gtgt_correspondences]
+        #     mct_gtgt_correspondences = [(l[2], l[5]) for l in mct_gtgt_correspondences if
+        #                               l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
+        # ret = make_true_mct_trackertracker_correspondences_v2(
+        #     tracker_txt1, tracker_txt2,
+        #     fps1, fps2,
+        #     midpoint1, midpoint2,
+        #     mct_gtgt_correspondences,
+        #     ret1[-1],
+        #     ret2[-1],
+        #     homo,
+        #     roi,
+        #     box_repr_kind=box_repr_kind
+        # )
+
         # error_analysis_mct_mapping(
         #     cap1, cap2,
         #     homo,
@@ -1507,6 +1577,7 @@ if __name__ == '__main__':
         #     midpoint1, midpoint2,
         #     homo,
         #     roi,
+        #     box_repr_kind=box_repr_kind,
         #     true_mct_trackertracker_correspondences=true_mct_trackertracker_correspondences, # COMMENT OUT IF NOT ERROR ANALYSIS
         # )
         #
@@ -1522,14 +1593,16 @@ if __name__ == '__main__':
         ##############################################################################################################
 
         ######################## PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2 ########################################
-        print(f'[INFO]\t VIDEO {video_id} PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2', file=log_file)
+        print(f'\n\n[INFO]\t VIDEO {video_id} PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2', file=log_file)
         ret = mct_mapping(
             tracker_txt1, tracker_txt2,
             fps1, fps2,
             midpoint1, midpoint2,
             homo,
             roi,
-            true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
+            n_gmm_components=2 if GMM else None,
+            box_repr_kind=box_repr_kind,
+            # true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
         )
         # COMMENT OUT IF NOT ERROR ANALYSIS
         error_analysis_mct_mapping(
@@ -1538,7 +1611,7 @@ if __name__ == '__main__':
             roi,
             *ret,
             display=False,
-            export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi',
+            export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi', # None
             log_file=log_file
         )
 

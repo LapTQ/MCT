@@ -5,11 +5,14 @@ import argparse
 
 HERE = Path(__file__).parent
 
-CAM1 = str(HERE / 'recordings/2d_v1/videos/21_00000_2022-11-03_14-56-57-643967.avi')
-CAM2 = str(HERE / 'recordings/2d_v1/videos/27_00000_2022-11-03_14-56-56-863473.avi')
+# CAM1 = str(HERE / 'recordings/2d_v1/videos/21_00000_2022-11-03_14-56-57-643967.avi')
+# CAM2 = str(HERE / 'recordings/2d_v1/videos/27_00000_2022-11-03_14-56-56-863473.avi')
 
 # CAM1 = str(HERE / 'recordings/2d_v2/videos/21_00019_2022-12-02_18-15-20-498917.avi')
 # CAM2 = str(HERE / 'recordings/2d_v2/videos/27_00019_2022-12-02_18-15-21-292795.avi')
+
+CAM1 = str(HERE / 'recordings/2d_v3/frame_cam121.png')
+CAM2 = str(HERE / 'recordings/2d_v3/frame_cam127.png')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -176,6 +179,7 @@ def main(opt):
         while True:
             key = cv2.waitKey(0)
             if key == 27 or key == ord('y'):
+                cv2.destroyAllWindows()
                 break
         if key == 27:
             continue
@@ -217,14 +221,14 @@ if __name__ == '__main__':
     opt = {
         'src': CAM1,
         'dst': CAM2,
-        'homo_out_path': None, # str(Path(CAM1).parent.parent / 'homo_21_to_27.txt')
-        'roi_out_path': None, # str(Path(CAM1).parent.parent / 'roi_27.txt')
-        'video': True
+        'homo_out_path': str(Path(CAM1).parent / 'homo_121_to_127.txt'), # None
+        'roi_out_path': str(Path(CAM1).parent / 'roi_127.txt'),  # None
+        'video': False
     }
     
-    main(opt)
+    main(opt)	
     
-    # fix distortion with openCV: search "camera distortion openCV"
+
 '''
     src_pts = np.array([[[1124, 409]], [[1200, 543]], [[1120, 476]], [[1128, 566]], [[1044, 454]], [[1127, 667]], [[1044, 543]],
      [[1186, 497]], [[1037, 378]]], dtype='float32')

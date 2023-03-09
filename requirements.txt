@@ -1,4 +1,5 @@
 # pip install -r requirements.txt
+# python 3.9.12
 
 numpy==1.21.6 # 1.23.2
 opencv-python==4.5.4.60
@@ -20,4 +21,11 @@ tqdm~=4.64.0
 pymongo[srv]==4.2.0
 mongoengine==0.24.2
 easydict
-
+loguru
+thop
+ninja
+tabulate
+psutil
+pycocotools
+#protobuf==3.19.6
+#tensorboard-data-board==0.6.1

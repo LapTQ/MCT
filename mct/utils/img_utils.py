@@ -81,8 +81,9 @@ def iou_associate(dets, preds, thresh):
     return np.transpose(np.where(m)), np.where(1 - m.sum(1))[0], np.where(1 - m.sum(0))[0]
 
 
-
 if __name__ == '__main__':
+
+    ############################## CALIB ##########################################
 
     R, C = 10, 7
 
@@ -123,25 +124,25 @@ if __name__ == '__main__':
     # camera matrix, distortion coefficients, rotation and translation vectors
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
 
-    img = cv2.imread('../../data/recordings/2d_v2/frame_27_test_0.png')
+    test_img_path = '../../data/recordings/2d_v2/frame_27_test_0.png'
+    img = cv2.imread(test_img_path)
 
     # refine the camera matrix based on a free scaling parameter
     # alpha = 0 -> minimum unwanted pixels
     # alpha = 1 -> retain all pixels with some extra black images
     h, w = img.shape[:2]
     newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (w, h), 1, (w, h))
-
     dst = cv2.undistort(img, mtx, dist, None, newcameramtx)
 
-    # x, y, w, h = roi
-    # dst = dst[y:y + h, x:x + w]
+    x, y, w, h = roi
+    dst = dst[y:y + h, x:x + w]
 
     '''
     cv2.imshow('img', dst)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     '''
-    cv2.imwrite('../../output/undist_2.png', dst)
+    cv2.imwrite(test_img_path[:-4] + '_undistort.png', dst)
     
     # Re-projection Error
     mean_error = 0
@@ -150,6 +151,8 @@ if __name__ == '__main__':
         error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2) / len(imgpoints2)
         mean_error += error
     print("total error: {}".format(mean_error / len(objpoints)))
+
+    #######################################################################################
 
 
 

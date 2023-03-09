@@ -3,8 +3,8 @@ from pathlib import Path
 
 DATASET_NAME = '2d_v2'
 GT_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/gt'
-TRACKER_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/YOLOv5l_pretrained-640-ByteTrack/sct'
-TRACKERS_TO_EVAL = 'YOLOv5l_pretrained-640-ByteTrack'
+TRACKER_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/YOLOXl_pretrained-640-StrongSORT/sct'
+TRACKERS_TO_EVAL = 'YOLOXl_pretrained-640-StrongSORT'
 
 
 EXTENSION = '.txt'
