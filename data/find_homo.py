@@ -11,8 +11,8 @@ HERE = Path(__file__).parent
 # CAM1 = str(HERE / 'recordings/2d_v2/videos/21_00019_2022-12-02_18-15-20-498917.avi')
 # CAM2 = str(HERE / 'recordings/2d_v2/videos/27_00019_2022-12-02_18-15-21-292795.avi')
 
-CAM1 = str(HERE / 'recordings/2d_v3/frame_cam121.png')
-CAM2 = str(HERE / 'recordings/2d_v3/frame_cam127.png')
+CAM1 = str(HERE / 'recordings/2d_v3/frames/frame_cam121.png')
+CAM2 = str(HERE / 'recordings/2d_v3/frames/frame_cam127.png')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -106,14 +106,13 @@ def select_matches(src, dst):
             np.array(dst_pts).reshape(-1, 1, 2).astype('float32'))
 
 
-def select_ROI(img):
+def select_ROI(src, dst, homo):
 
     global show_img
     global points
+    
 
-    show_img = img.copy()
-    points = []
-
+    src_transformed = cv2.warpPerspective(src, homo, (dst.shape[1], dst.shape[0]))
     window_name = 'Select ROI: <y> to submit. <ESC> to reset'
 
     def on_mouse(event, x, y, flag, param):
@@ -128,18 +127,55 @@ def select_ROI(img):
             cv2.circle(show_img, (x, y), radius=10, color=(0, 0, 255), thickness=2)
 
             if len(points) >= 2:
+                # draw on the added image
                 cv2.line(show_img, points[-2], points[-1], color=(0, 255, 0), thickness=2)
+
+                # draw in the destination image
+                cv2.line(
+                    show_img,
+                    (int(W1 + points[-2][0] * W2 / W), int(H + points[-2][1] * H2 / H)),
+                    (int(W1 + points[-1][0] * W2 / W), int(H + points[-1][1] * H2 / H)),
+                    color=(0, 255, 0),
+                    thickness=1
+                )
+
+                # draw in the source image
+                homo_inv = np.linalg.inv(homo)
+                [[[p1_x, p1_y]], [[p2_x, p2_y]]] = cv2.perspectiveTransform(
+                    np.array([points[-2], points[-1]], dtype='float32').reshape(-1, 1, 2),
+                    homo_inv
+                )
+                cv2.line(
+                    show_img,
+                    (int(p1_x * W1 / W), int(H + p1_y * H1 / H)),
+                    (int(p2_x * W1 / W), int(H + p2_y * H1 / H)),
+                    color=(0, 255, 0),
+                    thickness=1
+                )
 
             cv2.imshow(window_name, show_img)
 
     while True:
+        points = []
+        added = np.uint8(src_transformed * 0.5 + dst * 0.5)
+        H, W = added.shape[:2]
+        H1, W1 = H // 2, W // 2
+        H2, W2 = H1, W - W1
+        src_scaled = cv2.resize(src, (W1, H1))
+        dst_scaled = cv2.resize(dst, (W2, H2))
+
+        show_img = np.concatenate(
+            [added,
+             np.concatenate([src_scaled, dst_scaled], axis=1)],
+            axis=0
+        )
+    
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.imshow(window_name, show_img)
         cv2.setMouseCallback(window_name, on_mouse)
         key = cv2.waitKey(0)
         if key == 27:
-            show_img = img.copy()
-            points = []
+            continue
         elif key == ord('y'):
             if len(points) <= 2:
                 print('[WARNING] Need at least 3 points')
@@ -152,8 +188,8 @@ def select_ROI(img):
     cv2.destroyAllWindows()
 
     points = np.array(points, dtype='float32')
-    points[:, 0] /= img.shape[1]
-    points[:, 1] /= img.shape[0]
+    points[:, 0] /= dst.shape[1]
+    points[:, 1] /= dst.shape[0]
     points = points.reshape(-1, 1, 2)
 
     return points
@@ -179,6 +215,7 @@ def main(opt):
         print(src_pts)
         print(dst_pts)
         H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
+        # H = np.loadtxt('recordings/2d_v3/homo_121_to_127.txt')
 
         src_transformed = cv2.warpPerspective(src, H, (dst.shape[1], dst.shape[0]))
 
@@ -196,21 +233,28 @@ def main(opt):
             cv2.destroyAllWindows()
             break
 
-    show_img = np.uint8(src_transformed * 0.75 + dst * 0.25)
-    contour = select_ROI(show_img)
-    print(contour)
+    contour = select_ROI(src, dst, H)
+    # contour = np.loadtxt('recordings/2d_v3/roi_127.txt')
+    # contour[:, 0] = contour[:, 0] * dst.shape[1]
+    # contour[:, 1] = contour[:, 1] * dst.shape[0]
+    # H_inv = np.linalg.inv(H)
+    # roi_inv = cv2.perspectiveTransform(
+    #     np.float32(contour).reshape(-1, 1, 2),
+    #     H_inv
+    # )
+    # print(roi_inv)
 
     if opt['homo_out_path'] is not None:
         np.savetxt(opt['homo_out_path'], H)
         print('[INFO] Homography saved in', opt['homo_out_path'])
     else:
-        print('[INFO] Not save homography\n...Printing copy-paste result to stdout\nH =', H)
+        print('[INFO] Not save homography\n...Printing result to stdout\nH =', H)
 
     if opt['roi_out_path'] is not None:
         np.savetxt(opt['roi_out_path'], contour.reshape(-1, 2))
         print('[INFO] Contour saved in', opt['roi_out_path'])
     else:
-        print('[INFO] Not save contour\n...Printing copy-paste result to stdout\ncontour =', contour.reshape(-1, 2))
+        print('[INFO] Not save contour\n...Printing result to stdout\ncontour =', contour.reshape(-1, 2))
 
 
 
@@ -230,8 +274,8 @@ if __name__ == '__main__':
     opt = {
         'src': CAM1,
         'dst': CAM2,
-        'homo_out_path': None, #str(Path(CAM1).parent / 'homo_121_to_127.txt'), # None
-        'roi_out_path': None, #str(Path(CAM1).parent / 'roi_127.txt'),  # None
+        'homo_out_path': None, #str(Path(CAM1).parent.parent / 'homo_121_to_127.txt'), # None
+        'roi_out_path': None, #str(Path(CAM1).parent.parent / 'roi_127.txt'),  # None
         'video': False
     }
     
