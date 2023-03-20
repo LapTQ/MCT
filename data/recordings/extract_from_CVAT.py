@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/gt'
+DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/gt'
 EXTENSION = '.zip'
 
 filenames = [name for name in os.listdir(DIR) if name.endswith(EXTENSION)]
