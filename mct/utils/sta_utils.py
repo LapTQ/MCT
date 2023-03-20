@@ -1610,8 +1610,8 @@ if __name__ == '__main__':
             homo,
             roi,
             *ret,
-            display=True,
-            export_video=None, #f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi', # None
+            display=False,
+            export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi', # None
             log_file=log_file
         )
 
