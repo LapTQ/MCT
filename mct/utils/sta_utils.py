@@ -1403,7 +1403,7 @@ if __name__ == '__main__':
     log_file = open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{"GMM" if GMM else "noGMM"}.txt'), 'w')
     print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{"" if GMM else "OUT"} GMM ================', file=log_file)
 
-    for video_id in tqdm(range(1, 12)):
+    for video_id in tqdm(range(1, 13)):
 
         gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
         print(gt_txt1)
