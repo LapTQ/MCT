@@ -215,7 +215,6 @@ def main(opt):
         print(src_pts)
         print(dst_pts)
         H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
-        # H = np.loadtxt('recordings/2d_v3/homo_121_to_127.txt')
 
         src_transformed = cv2.warpPerspective(src, H, (dst.shape[1], dst.shape[0]))
 
@@ -234,15 +233,6 @@ def main(opt):
             break
 
     contour = select_ROI(src, dst, H)
-    # contour = np.loadtxt('recordings/2d_v3/roi_127.txt')
-    # contour[:, 0] = contour[:, 0] * dst.shape[1]
-    # contour[:, 1] = contour[:, 1] * dst.shape[0]
-    # H_inv = np.linalg.inv(H)
-    # roi_inv = cv2.perspectiveTransform(
-    #     np.float32(contour).reshape(-1, 1, 2),
-    #     H_inv
-    # )
-    # print(roi_inv)
 
     if opt['homo_out_path'] is not None:
         np.savetxt(opt['homo_out_path'], H)
@@ -257,16 +247,6 @@ def main(opt):
         print('[INFO] Not save contour\n...Printing result to stdout\ncontour =', contour.reshape(-1, 2))
 
 
-
-'''
-[[[530, 447]], [[476, 485]], [[525, 235]], [[627, 268]], [[616, 626]], [[710, 403]], [[814, 635]], [[708, 283]]]
-[[[736, 488]], [[703, 445]], [[1034, 528]], [[984, 622]], [[532, 499]], [[753, 659]], [[450, 631]], [[963, 698]]]
-
-[[[1124, 409]], [[1200, 543]], [[1120, 476]], [[1128, 566]], [[1044, 454]], [[1127, 667]], [[1044, 543]], [[1186, 497]], [[1037, 378]]]
-[[[265, 320]], [[347, 448]], [[240, 393]], [[221, 486]], [[137, 400]], [[208, 605]], [[117, 481]], [[341, 400]], [[161, 319]]]
-'''
-
-
 if __name__ == '__main__':
 
     # opt = parse_opt()
@@ -276,40 +256,8 @@ if __name__ == '__main__':
         'dst': CAM2,
         'homo_out_path': None, #str(Path(CAM1).parent.parent / 'homo_121_to_127.txt'), # None
         'roi_out_path': None, #str(Path(CAM1).parent.parent / 'roi_127.txt'),  # None
-        'video': False
+        'video': True
     }
     
-    main(opt)	
-    
-
-'''
-    src_pts = np.array([[[1124, 409]], [[1200, 543]], [[1120, 476]], [[1128, 566]], [[1044, 454]], [[1127, 667]], [[1044, 543]],
-     [[1186, 497]], [[1037, 378]]], dtype='float32')
-    dst_pts = np.array([[[265, 320]], [[347, 448]], [[240, 393]], [[221, 486]], [[137, 400]], [[208, 605]], [[117, 481]], [[341, 400]],
-     [[161, 319]]], dtype='float32')
-
-    src = cv2.VideoCapture(CAM1).read()[1]
-    dst = cv2.VideoCapture(CAM2).read()[1]
-
-    H, mask = cv2.findHomography(src_pts, dst_pts)  # cv2.RANSAC
-    src_transformed = cv2.warpPerspective(src, H, (dst.shape[1], dst.shape[0]))
-
-    # show_img = np.concatenate([src_transformed, dst], axis=1)
-    show_img = np.uint8(src_transformed * 0.75 + dst * 0.25)
-
-    roi = np.loadtxt('recordings/2d_v2/roi_27.txt', dtype='float32')
-    roi[:, 0] *= dst.shape[1]
-    roi[:, 1] *= dst.shape[0]
-    roi = roi.reshape(-1, 1, 2).astype('int32')
-    print(roi)
-
-    cv2.drawContours(show_img, [roi], -1, (0, 255, 0), 3)
-
-    point = [118.0, 483.0]
-    print(cv2.pointPolygonTest(roi, point, False))
-
-    # cv2.namedWindow('show', cv2.WINDOW_NORMAL)
-    # cv2.imshow('show', show_img)
-    # cv2.waitKey(0)
-'''
+    main(opt)
 

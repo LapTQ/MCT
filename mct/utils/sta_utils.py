@@ -938,7 +938,17 @@ def make_true_sct_gttracker_correspondences_v2(
     # plt.show()
     if n_gmm_components is not None and n_gmm_components > 0:
         from sklearn.mixture import GaussianMixture
-        gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag').fit(distances[X == 1].reshape(-1, 1))
+        gmm_error_handled = False
+        reg_covar = 1e-6
+        while not gmm_error_handled:
+            try:
+                print(f'[DEBUG] Trying GMM reg_covar = {reg_covar}')
+                gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag', reg_covar=reg_covar).fit(
+                    distances[X == 1].reshape(-1, 1))
+                gmm_error_handled = True
+            except:
+                print(f'[DEBUG] Failed!')
+                reg_covar *= 10
         smaller_component = np.argmin(gm.means_)
         boundary = gm.means_[smaller_component] + 3 * np.sqrt(gm.covariances_[smaller_component])
         X = np.where(distances > boundary, 0, X)
@@ -1106,9 +1116,17 @@ def mct_mapping(
     start_gmm_time = time.time()
     np.random.seed(24)
     if n_gmm_components is not None and n_gmm_components > 0:
-
         from sklearn.mixture import GaussianMixture
-        gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag').fit(distances[X == 1].reshape(-1, 1))
+        gmm_error_handled = False
+        reg_covar = 1e-6
+        while not gmm_error_handled:
+            try:
+                print(f'[DEBUG] Trying GMM reg_covar = {reg_covar}')
+                gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag', reg_covar=reg_covar).fit(distances[X == 1].reshape(-1, 1))
+                gmm_error_handled = True
+            except:
+                print(f'[DEBUG] Failed!')
+                reg_covar *= 10
         smaller_component = np.argmin(gm.means_)
         boundary = gm.means_[smaller_component] + 3*np.sqrt(gm.covariances_[smaller_component])
         X = np.where(distances > boundary, 0, X)
@@ -1474,13 +1492,13 @@ if __name__ == '__main__':
     # video_id = 19
     # f = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences_v1.txt', 'w')
     # log_file is set to None if stdout
-    GMM = True
+    GMM = False
     window_size = 11
     window_boundary = 5
-    log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{"GMM" if GMM else "noGMM"}.txt'), 'w')
-    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{"" if GMM else "OUT"} GMM ================', file=log_file)
+    log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{"GMM" if GMM else "noGMM"}_windowsize{window_size}_windowboundary(window_boundary).txt'), 'w')
+    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{"" if GMM else "OUT"} GMM, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
 
-    for video_id in tqdm(range(1, 4)):
+    for video_id in tqdm(range(10, 11)):
 
         gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
         print(gt_txt1)

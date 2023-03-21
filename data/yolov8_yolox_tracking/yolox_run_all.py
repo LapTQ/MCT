@@ -4,6 +4,8 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 
+DIR = str(HERE / '../recordings/2d_v2/videos')
+
 
 def run(vid_path):
 
@@ -27,7 +29,6 @@ def run(vid_path):
 
 
 def main():
-    DIR = str(HERE / '../recordings/2d_v2/videos')
     for vid_name in sorted(os.listdir(DIR)):
         vid_path = os.path.join(DIR, vid_name)
         run(vid_path)
