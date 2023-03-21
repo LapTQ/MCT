@@ -1,10 +1,10 @@
 import os
 from pathlib import Path
 
-DATASET_NAME = '2d_v3'
-GT_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/gt'
-TRACKER_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-640-StrongSORT/sct'
-TRACKERS_TO_EVAL = 'YOLOv8l_pretrained-640-StrongSORT'
+DATASET_NAME = '2d_v1'
+GT_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v1/gt'
+TRACKER_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v1/YOLOXs_pretrained-640-ByteTrack/sct'
+TRACKERS_TO_EVAL = 'YOLOXs_pretrained-640-ByteTrack'
 
 
 EXTENSION = '.txt'
