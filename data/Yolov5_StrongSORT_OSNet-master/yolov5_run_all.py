@@ -11,12 +11,12 @@ def run(vid_path):
         'source': vid_path,
         'yolo-weights': str(HERE / '../../mct/weights/yolov5l.pt'),
         'img': 640,
-        'tracking-method': 'strongsort',
+        'tracking-method': 'bytetrack',
         'reid-weights': str(HERE / 'osnet_x1_0.pt'),
         'classes': 0,
         'device': "''", # 'cpu' or "''"
         'save-txt': '',
-        'save-vid': ''
+        #'save-vid': ''
     }
 
     command = f"python3 {HERE}/yolov5_track.py {' '.join([f'--{k} {v}' for k, v in params.items()])}"
