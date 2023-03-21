@@ -16,6 +16,7 @@ def run(vid_path):
         'tracking_method': 'strongsort',
         'reid-weights': HERE / 'osnet_x1_0.pt',
         'classes': 0,
+        'device': 'gpu', # 'gpu' or 'cpu'
         'save-txt': '',
         'save-vid': ''
     }

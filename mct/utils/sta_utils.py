@@ -7,8 +7,11 @@ from datetime import datetime, timedelta
 import os
 from ortools.linear_solver import pywraplp
 from img_utils import iou_batch
+import time
+
 
 HERE = Path(__file__).parent
+
 
 video_version_to_db_name = {
     '2d_v1': '20221124143517_sct',  # 20221118235019_sct (ban dau), 20221124143517_sct (sau khi bo non-object, refine cam 1)
@@ -995,21 +998,39 @@ def mct_mapping(
         roi,
         n_gmm_components,
         box_repr_kind,
+        window_size=1,
+        window_boundary=0,
         **kwargs
 ):
-    """n_gmm_components can be None or 1, 2, 3,... In this function, it should be 2."""
+    """
+    n_gmm_components can be None or 1, 2, 3,... In this function, it should be 2.
+    window_size must be odd
+    window_boundary limit sampling window_size frames in each direction
+    """
+    assert window_size % 2 == 1, 'window_size must be an odd number'
+
+    start_preprocess = time.time()
     C1T, C1X, C1Y, C1TT, C1S, C1X_no_trans, C1Y_no_trans, C1S_no_trans = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, box_repr_kind=box_repr_kind, homo=homo, roi=roi)
     C2T, C2X, C2Y, C2TT, C2S, C2X_no_trans, C2Y_no_trans, C2S_no_trans = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, box_repr_kind=box_repr_kind, roi=roi)
+    end_preprocess = time.time()
+
+    print(f'[INFO] Preprocess time: {end_preprocess - start_preprocess:.2f}s')
 
     N1, T1 = C1T.shape
     N2, T2 = C2T.shape
 
+    start_map_timestamp = time.time()
     time_correspondences = map_timestamp(C1TT, C2TT, diff_thresh=2)
+    end_map_timestamp = time.time()
+
+    print(f'[INFO] Mapping timestamp time: {end_map_timestamp - start_map_timestamp:.2f}s')
 
     X = np.zeros((N1, N2, T1), dtype='int32')   # T1 or T2 is either the same =)
     distances = np.empty((N1, N2, T1), dtype='float32')
 
+    map_frame_time = 0
     for t1 in range(T1):     # because I chose T1 as a dim of X
+        start_map_frame = time.time()
         if not np.any(time_correspondences[t1]):
             continue
 
@@ -1021,7 +1042,51 @@ def mct_mapping(
         cost = np.empty((len(H1_present_list), len(H2_present_list)), dtype='float32')
         for i1, h1 in enumerate(H1_present_list):
             for i2, h2 in enumerate(H2_present_list):
-                cost[i1, i2] = np.sqrt((C1X[h1, t1] - C2X[h2, t2])**2 + (C1Y[h1, t1] - C2Y[h2, t2])**2)
+                # sample up to window_size frames that h1, h2 co-occurs, but not exceed window_boundary in each direction
+                left_counter = 0
+                right_counter = 0
+                window_h1_loc = [[C1X[h1, t1], C1Y[h1, t1]]]
+                window_h2_loc = [[C2X[h2, t2], C2Y[h2, t2]]]
+                for i in range(1, window_boundary + 1):
+                    if left_counter + 1 > (window_size - 1) / 2:
+                        break
+
+                    temp_t1 = t1 - i
+                    if temp_t1 < 0 or not np.any(time_correspondences[temp_t1]):
+                        continue
+                    temp_t2 = np.where(time_correspondences[temp_t1])[0].item()
+
+                    if not C1T[h1, temp_t1] or not C2T[h2, temp_t2]:
+                        continue
+
+                    left_counter += 1
+                    window_h1_loc.append([C1X[h1, temp_t1], C1Y[h1, temp_t1]])
+                    window_h2_loc.append([C2X[h2, temp_t2], C2Y[h2, temp_t2]])
+
+                for i in range(1, window_boundary + 1):
+                    if right_counter + 1 > (window_size - 1) / 2:
+                        break
+
+                    temp_t1 = t1 + i
+                    if temp_t1 >= T1 or not np.any(time_correspondences[temp_t1]):
+                        continue
+                    temp_t2 = np.where(time_correspondences[temp_t1])[0].item()
+
+                    if not C1T[h1, temp_t1] or not C2T[h2, temp_t2]:
+                        continue
+
+                    right_counter += 1
+                    window_h1_loc.append([C1X[h1, temp_t1], C1Y[h1, temp_t1]])
+                    window_h2_loc.append([C2X[h2, temp_t2], C2Y[h2, temp_t2]])
+
+                # cost[i1, i2] = np.sqrt((C1X[h1, t1] - C2X[h2, t2])**2 + (C1Y[h1, t1] - C2Y[h2, t2])**2)
+                cost[i1, i2] = np.mean(
+                    np.sqrt(np.sum(
+                        np.square(np.array(window_h1_loc) - np.array(window_h2_loc)),
+                        axis=1,
+                        keepdims=False
+                    ))
+                )
 
         i1_matched_list, i2_matched_list = linear_sum_assignment(cost)
         for i1, i2 in zip(i1_matched_list, i2_matched_list):
@@ -1029,18 +1094,28 @@ def mct_mapping(
             h2 = H2_present_list[i2]
             X[h1, h2, t1] = 1
             distances[h1, h2, t1] = cost[i1, i2]
+        end_map_frame = time.time()
+        map_frame_time = 0.5 * map_frame_time + 0.5 * (end_map_frame - start_map_frame)
+    print(f'[INFO] Mapping object per frame time: {map_frame_time:.2f}s')
 
     # filter out false matches due to missing detection boxes
     # import seaborn as sns
     # import matplotlib.pyplot as plt
     # sns.kdeplot(distances[X == 1].flatten())
     # plt.show()
+    start_gmm_time = time.time()
+    np.random.seed(24)
     if n_gmm_components is not None and n_gmm_components > 0:
+
         from sklearn.mixture import GaussianMixture
         gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag').fit(distances[X == 1].reshape(-1, 1))
         smaller_component = np.argmin(gm.means_)
         boundary = gm.means_[smaller_component] + 3*np.sqrt(gm.covariances_[smaller_component])
         X = np.where(distances > boundary, 0, X)
+    end_gmm_time = time.time()
+
+    print(f'[INFO] GMM time: {end_gmm_time - start_gmm_time:.2f}s')
+    print(f'[INFO] Total mapping time: {end_gmm_time - start_preprocess:.2f}s')
 
     # just to show without timestamp details
     X_notime = np.any(X, axis=2)
@@ -1347,7 +1422,7 @@ def evaluate(true_path, pred_path):
 if __name__ == '__main__':
 
     video_version = '2d_v3'
-    TRACKER_NAME = 'YOLOv8l_pretrained-1280-StrongSORT'
+    TRACKER_NAME = 'YOLOv8l_pretrained-640-StrongSORT'
     box_repr_kind = 'bottom'
 
    
@@ -1400,10 +1475,12 @@ if __name__ == '__main__':
     # f = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences_v1.txt', 'w')
     # log_file is set to None if stdout
     GMM = True
-    log_file = open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{"GMM" if GMM else "noGMM"}.txt'), 'w')
+    window_size = 11
+    window_boundary = 5
+    log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{"GMM" if GMM else "noGMM"}.txt'), 'w')
     print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{"" if GMM else "OUT"} GMM ================', file=log_file)
 
-    for video_id in tqdm(range(1, 13)):
+    for video_id in tqdm(range(1, 4)):
 
         gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
         print(gt_txt1)
@@ -1456,7 +1533,6 @@ if __name__ == '__main__':
         ######################################################################################################
 
         ################### MAKE TRUE GT TRACKER CORRESPONDENCES V2 #############################################
-        #"""
         ret1 = make_true_sct_gttracker_correspondences_v2(
             gt_txt1, tracker_txt1,
             midpoint1,
@@ -1474,7 +1550,7 @@ if __name__ == '__main__':
             roi=roi,
             use_iou=True
         )
-        #"""
+
         """
         error_analysis_mct_mapping(
             cap1, cap1,
@@ -1602,6 +1678,8 @@ if __name__ == '__main__':
             roi,
             n_gmm_components=2 if GMM else None,
             box_repr_kind=box_repr_kind,
+            window_size=window_size,
+            window_boundary=window_boundary,
             true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
         )
         # COMMENT OUT IF NOT ERROR ANALYSIS
@@ -1611,7 +1689,7 @@ if __name__ == '__main__':
             roi,
             *ret,
             display=False,
-            export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi', # None
+            export_video=None, #f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi', # None
             log_file=log_file
         )
 

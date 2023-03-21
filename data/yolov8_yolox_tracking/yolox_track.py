@@ -189,17 +189,23 @@ def imageflow_demo(predictor, vis_folder, current_time, args, tracker):
         )
     prev_frames = None
     frame_idx = 0
+    inference_time = 0
+    tracker_time = 0
     while True:
         ret_val, frame = cap.read()
         if ret_val:
-            
+
+            start_inference_time = time.time()
             [outputs], img_info = predictor.inference(frame)
+            end_inference_time = time.time()
+            inference_time = 0.5 * inference_time + 0.5 * (end_inference_time - start_inference_time)
             # output is None or of [[x, y, w, h, obj_ness, cls_ness, cls_id],...]
 
             annotator = Annotator(frame, line_width=2, example=None)
 
 
             # outputs[0] <=> det
+            start_tracker_time = time.time()
             if hasattr(tracker, 'tracker') and hasattr(tracker.tracker, 'camera_update'):
                 if prev_frames is not None and frame is not None:  # camera motion compensation
                     tracker.tracker.camera_update(prev_frames, frame)
@@ -212,6 +218,8 @@ def imageflow_demo(predictor, vis_folder, current_time, args, tracker):
                 outputs = outputs.cpu()
                 outputs = torch.cat([outputs[outputs[:, 6] == cls] for cls in args.classes], dim=0)
                 outputs = tracker.update(outputs, frame)
+            end_tracker_time = time.time()
+            tracker_time = 0.5 * tracker_time + 0.5 * (end_tracker_time - start_tracker_time)
 
             if len(outputs) > 0:
 
@@ -249,6 +257,8 @@ def imageflow_demo(predictor, vis_folder, current_time, args, tracker):
                 vid_writer.write(result_frame)
         else:
             break
+
+    logger.info(f'{inference_time * 1000:.1f}ms inference ({1/inference_time} FPS), {tracker_time * 1000:.1f}ms {args.tracking_method} ({1/tracker_time} FPS) => {(inference_time + tracker_time) * 1000:.1f}ms combined ({1/(inference_time + tracker_time)} FPS)')
 
 
 def main(exp, args):
