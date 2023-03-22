@@ -5,8 +5,8 @@ HERE = Path(__file__).parent
 
 DIRS = ['2d_v3']
 COUNTS = [12]
-TRACKER_PREFIX = 'YOLOv8l_pretrained-640-ByteTrack'
-FILENAME = 'log_error_analysis_pred_mct_trackertracker_correspondences_v2_noGMM_windowsize1_windowboundary0.txt'
+TRACKER_PREFIX = 'YOLOv8l_pretrained-640-StrongSORT'
+FILENAME = 'log_error_analysis_pred_mct_trackertracker_correspondences_v2_IQR_windowsize1_windowboundary0.txt'
 
 tracker_names = [name for name in os.listdir(str(HERE / 'recordings' / DIRS[0])) if name.startswith(TRACKER_PREFIX)]
 

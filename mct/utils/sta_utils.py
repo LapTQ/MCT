@@ -872,11 +872,47 @@ def make_true_mct_trackertracker_correspondences_v1(
     return ret
 
 
+
+class IQRFilter:
+    def __init__(self, q1=25, q2=75):
+        self.q1 = q1
+        self.q2 = q2
+
+    def run(self, distances):
+        p1, p2 = np.percentile(distances, [self.q1, self.q2])
+        iqr = p2 - p1
+        upper_bound = p2 + 1.5 * iqr
+        return upper_bound
+
+
+class GMMFilter:
+    def __init__(self, n_components, std_coef=3):
+        self.n_components = n_components
+        self.std_coef = std_coef
+
+    def run(self, distances):
+        np.random.seed(24)
+        from sklearn.mixture import GaussianMixture
+        gmm_error_handled = False
+        reg_covar = 1e-6
+        while not gmm_error_handled:
+            try:
+                print(f'[DEBUG] Trying GMM reg_covar = {reg_covar}')
+                gm = GaussianMixture(n_components=self.n_components, covariance_type='diag', reg_covar=reg_covar).fit(distances)
+                gmm_error_handled = True
+            except:
+                print(f'[DEBUG] Failed!')
+                reg_covar *= 10
+        smaller_component = np.argmin(gm.means_)
+        upper_bound = gm.means_[smaller_component] + self.std_coef * np.sqrt(gm.covariances_[smaller_component])
+        return upper_bound
+
+
 def make_true_sct_gttracker_correspondences_v2(
         gt_txt_path,
         tracker_txt_path,
         midpoint,
-        n_gmm_components,
+        filter,
         box_repr_kind,
         **kwargs):
     # options for kwargs: homo, roi, use_iou
@@ -936,21 +972,8 @@ def make_true_sct_gttracker_correspondences_v2(
     # import matplotlib.pyplot as plt
     # sns.kdeplot(distances[X == 1].flatten())
     # plt.show()
-    if n_gmm_components is not None and n_gmm_components > 0:
-        from sklearn.mixture import GaussianMixture
-        gmm_error_handled = False
-        reg_covar = 1e-6
-        while not gmm_error_handled:
-            try:
-                print(f'[DEBUG] Trying GMM reg_covar = {reg_covar}')
-                gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag', reg_covar=reg_covar).fit(
-                    distances[X == 1].reshape(-1, 1))
-                gmm_error_handled = True
-            except:
-                print(f'[DEBUG] Failed!')
-                reg_covar *= 10
-        smaller_component = np.argmin(gm.means_)
-        boundary = gm.means_[smaller_component] + 3 * np.sqrt(gm.covariances_[smaller_component])
+    if filter is not None:
+        boundary = filter(distances[X == 1].reshape(-1, 1))
         X = np.where(distances > boundary, 0, X)
 
     return OT, HT, OX, HX, OY, HY, OS, HS, OX_no_trans, HX_no_trans, OY_no_trans, HY_no_trans, OS_no_trans, HS_no_trans, np.eye(T, T, dtype='int32'), X, X
@@ -1006,7 +1029,7 @@ def mct_mapping(
         midpoint1, midpoint2,
         homo,
         roi,
-        n_gmm_components,
+        filter,
         box_repr_kind,
         window_size=1,
         window_boundary=0,
@@ -1109,31 +1132,20 @@ def mct_mapping(
     print(f'[INFO] Mapping object per frame time: {map_frame_time:.2f}s')
 
     # filter out false matches due to missing detection boxes
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-    sns.kdeplot(distances[X == 1].flatten())
-    plt.show()
-    start_gmm_time = time.time()
-    np.random.seed(24)
-    if n_gmm_components is not None and n_gmm_components > 0:
-        from sklearn.mixture import GaussianMixture
-        gmm_error_handled = False
-        reg_covar = 1e-6
-        while not gmm_error_handled:
-            try:
-                print(f'[DEBUG] Trying GMM reg_covar = {reg_covar}')
-                gm = GaussianMixture(n_components=n_gmm_components, covariance_type='diag', reg_covar=reg_covar).fit(distances[X == 1].reshape(-1, 1))
-                gmm_error_handled = True
-            except:
-                print(f'[DEBUG] Failed!')
-                reg_covar *= 10
-        smaller_component = np.argmin(gm.means_)
-        boundary = gm.means_[smaller_component] + 3*np.sqrt(gm.covariances_[smaller_component])
+    # import seaborn as sns
+    # import matplotlib.pyplot as plt
+    # sns.kdeplot(distances[X == 1].flatten())
+    # plt.show()
+    start_filter_time = time.time()
+    if filter is not None:
+        print('Sum before filter', np.sum(X))
+        boundary = filter(distances[X == 1].reshape(-1, 1))
         X = np.where(distances > boundary, 0, X)
-    end_gmm_time = time.time()
+        print('Sum after filter', np.sum(X))
+    end_filter_time = time.time()
 
-    print(f'[INFO] GMM time: {end_gmm_time - start_gmm_time:.2f}s')
-    print(f'[INFO] Total mapping time: {end_gmm_time - start_preprocess:.2f}s')
+    print(f'[INFO] Filter time: {end_filter_time - start_filter_time:.2f}s')
+    print(f'[INFO] Total mapping time: {end_filter_time - start_preprocess:.2f}s')
 
     # just to show without timestamp details
     X_notime = np.any(X, axis=2)
@@ -1439,22 +1451,33 @@ def evaluate(true_path, pred_path):
 
 if __name__ == '__main__':
 
-    video_version = '2d_v1'
-    TRACKER_NAME = 'YOLOv8l_pretrained-640-ByteTrack'
-    box_repr_kind = 'foot'
+    video_version = '2d_v3'
+    TRACKER_NAME = 'YOLOv8l_pretrained-640-StrongSORT'
+    box_repr_kind = 'bottom'
 
     #'''
-    cam1_id = 21
-    cam2_id = 27
+    cam1_id = 121
+    cam2_id = 127
     n_0 = 5
     # video_id = 19
-    # f = open(f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences_v1.txt', 'w')
     # log_file is set to None if stdout
-    GMM = True
+    filter_type = 'IQR' # None, 'GMM', 'IQR'
     window_size = 1
     window_boundary = 0
-    log_file = None # open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{"GMM" if GMM else "noGMM"}_windowsize{window_size}_windowboundary{window_boundary}.txt'), 'w')
-    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{"" if GMM else "OUT"} GMM, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
+    gttracker_filter = IQRFilter(25, 75).run
+    if filter_type == 'GMM':
+        filter = GMMFilter(n_components=2, std_coef=3).run
+        # gttracker_filter = GMMFilter(n_components=1, std_coef=3).run
+    elif filter_type == 'IQR':
+        filter = IQRFilter(25, 75).run
+        # gttracker_filter = IQRFilter(25, 75).run
+    else:
+        filter = None
+        # gttracker_filter = None
+
+    cf = f'{filter_type if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
+    log_file = open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cf}.txt'), 'w')
+    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + filter_type if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
 
     for video_id in tqdm(range(1, 13)):
 
@@ -1512,7 +1535,7 @@ if __name__ == '__main__':
         ret1 = make_true_sct_gttracker_correspondences_v2(
             gt_txt1, tracker_txt1,
             midpoint1,
-            n_gmm_components=1,
+            filter=gttracker_filter,
             box_repr_kind=box_repr_kind,
             homo=homo,
             roi=roi,
@@ -1521,7 +1544,7 @@ if __name__ == '__main__':
         ret2 = make_true_sct_gttracker_correspondences_v2(
             gt_txt2, tracker_txt2,
             midpoint2,
-            n_gmm_components=1,
+            filter=gttracker_filter,
             box_repr_kind=box_repr_kind,
             roi=roi,
             use_iou=True
@@ -1534,7 +1557,7 @@ if __name__ == '__main__':
             roi,
             *ret1,
             display=False,
-            export_video=f'true_mct_gttracker_correspondences_{cam1_id}_{video_id}.avi',
+            export_video=f'true_mct_gttracker_correspondences_{cam1_id}_{video_id}_{cf}.avi',
             checking_true_gttracker=True
         )
         error_analysis_mct_mapping(
@@ -1543,7 +1566,7 @@ if __name__ == '__main__':
             roi,
             *ret2,
             display=False,
-            export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}.avi',
+            export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}_{cf}.avi',
             checking_true_gttracker=True
         )
         for t in range(ret1[-2].shape[-1]):
@@ -1608,7 +1631,7 @@ if __name__ == '__main__':
         #     roi,
         #     *ret,
         #     display=False,
-        #     export_video=f'true_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi',
+        #     export_video=f'true_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi',
         # )
         # for t in range(ret[-2].shape[-1]):
         #     if np.any(ret[-2][:, :, t]):
@@ -1640,7 +1663,7 @@ if __name__ == '__main__':
         #     roi,
         #     *ret,
         #     display=False,
-        #     export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi'
+        #     export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi'
         # )
         ##############################################################################################################
 
@@ -1652,22 +1675,22 @@ if __name__ == '__main__':
             midpoint1, midpoint2,
             homo,
             roi,
-            n_gmm_components=2 if GMM else None,
+            filter=filter,
             box_repr_kind=box_repr_kind,
             window_size=window_size,
             window_boundary=window_boundary,
             true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
         )
-        # # COMMENT OUT IF NOT ERROR ANALYSIS
-        # error_analysis_mct_mapping(
-        #     cap1, cap2,
-        #     homo,
-        #     roi,
-        #     *ret,
-        #     display=False,
-        #     export_video=None, #f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi', # None
-        #     log_file=log_file
-        # )
+        # COMMENT OUT IF NOT ERROR ANALYSIS
+        error_analysis_mct_mapping(
+            cap1, cap2,
+            homo,
+            roi,
+            *ret,
+            display=False,
+            export_video=None, #f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi', # None
+            log_file=log_file
+        )
 
         # for t in range(ret.shape[2]):
         #     print(list(zip(*np.where(ret[:, :, t]))))
