@@ -3,13 +3,16 @@ import os
 
 HERE = Path(__file__).parent
 
-DIRS = ['2d_v1']
-COUNTS = [16]
-TRACKER_PREFIX = 'YOLO'
-FILENAME = 'log_error_analysis_pred_mct_trackertracker_correspondences_v2_GMM_windowsize1_windowboundary0.txt'
+DIRS = ['2d_v3']
+COUNTS = [12]
+TRACKER_PREFIX = 'YOLOv8l_pretrained-640-ByteTrack'
+FILENAME = 'log_error_analysis_pred_mct_trackertracker_correspondences_v2_noGMM_windowsize1_windowboundary0.txt'
 
 tracker_names = [name for name in os.listdir(str(HERE / 'recordings' / DIRS[0])) if name.startswith(TRACKER_PREFIX)]
 
+c_Pre = 0
+c_Rec = 0
+c_F1 = 0
 for tracker_name in tracker_names:
     Pre = 0
     Rec = 0
@@ -33,4 +36,14 @@ for tracker_name in tracker_names:
     Pre /= sum(COUNTS)
     Rec /= sum(COUNTS)
     F1 /= sum(COUNTS)
+
     print(f'{tracker_name}:\tP = {Pre:.3f}\tR = {Rec:.3f}\tF1 = {F1:.3f}')
+
+    c_Pre += Pre
+    c_Rec += Rec
+    c_F1 += F1
+
+c_Pre /= len(tracker_names)
+c_Rec /= len(tracker_names)
+c_F1 /= len(tracker_names)
+print(f'Combined:\tP = {c_Pre:.3f}\tR = {c_Rec:.3f}\tF1 = {c_F1:.3f}')
