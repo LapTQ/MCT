@@ -572,12 +572,12 @@ def input_sct_from(txt_path, delimeter, midpoint, box_repr_kind, **kwargs):
     OT = np.zeros((N, T), dtype='int32')
 
     # spatio position
-    OX = np.zeros((N, T), dtype='float32')  # cannot use np.empty due to nan value in later computation.
-    OY = np.zeros((N, T), dtype='float32')
-    OX_no_trans = np.zeros((N, T), dtype='float32')
-    OY_no_trans = np.zeros((N, T), dtype='float32')
-    OS = np.zeros((N, T, 8), dtype='float32')
-    OS_no_trans = np.zeros((N, T, 8), dtype='float32')
+    OX = np.full((N, T), -1, dtype='float32')  # cannot use np.empty due to nan value in later computation.
+    OY = np.full((N, T), -1, dtype='float32')
+    OX_no_trans = np.full((N, T), -1, dtype='float32')
+    OY_no_trans = np.full((N, T), -1, dtype='float32')
+    OS = np.full((N, T, 8), -1, dtype='float32')
+    OS_no_trans = np.full((N, T, 8), -1, dtype='float32')
 
     for i, det in enumerate(seq):
         frame = np.int32(det[0])
@@ -605,13 +605,15 @@ def input_sct_from(txt_path, delimeter, midpoint, box_repr_kind, **kwargs):
                           ]),
                 kwargs['homo'])
 
+        OX[id, frame] = repr_x
+        OY[id, frame] = repr_y
+        OS[id, frame] = [x1, y1, x2, y2, x3, y3, x4, y4]
+
         if 'roi' in kwargs and not cv2.pointPolygonTest(kwargs['roi'], (repr_x, repr_y), True) >= -5:
             continue
 
         OT[id, frame] = 1
-        OX[id, frame] = repr_x
-        OY[id, frame] = repr_y
-        OS[id, frame] = [x1, y1, x2, y2, x3, y3, x4, y4]
+
 
     return OT, OX, OY, OS, OX_no_trans, OY_no_trans, OS_no_trans
 
@@ -630,21 +632,21 @@ def make_true_sct_gttracker_correspondences_v1(gt_txt_path, tracker_txt_path, mi
 
     # pad 0 to equalize temporal dimension
     OT = np.pad(OT, ((0, 0), (0, T - OT.shape[1])), mode='constant', constant_values=0)
-    OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=0)
-    OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=0)
-    OS = np.pad(OS, ((0, 0), (0, T - OS.shape[1]), (0, 0)), mode='constant', constant_values=0)
-    OX_no_trans = np.pad(OX_no_trans, ((0, 0), (0, T - OX_no_trans.shape[1])), mode='constant', constant_values=0)
-    OY_no_trans = np.pad(OY_no_trans, ((0, 0), (0, T - OY_no_trans.shape[1])), mode='constant', constant_values=0)
+    OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=-1)
+    OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=-1)
+    OS = np.pad(OS, ((0, 0), (0, T - OS.shape[1]), (0, 0)), mode='constant', constant_values=-1)
+    OX_no_trans = np.pad(OX_no_trans, ((0, 0), (0, T - OX_no_trans.shape[1])), mode='constant', constant_values=-1)
+    OY_no_trans = np.pad(OY_no_trans, ((0, 0), (0, T - OY_no_trans.shape[1])), mode='constant', constant_values=-1)
     OS_no_trans = np.pad(OS_no_trans, ((0, 0), (0, T - OS_no_trans.shape[1]), (0, 0)), mode='constant',
-                         constant_values=0)
+                         constant_values=-1)
     HT = np.pad(HT, ((0, 0), (0, T - HT.shape[1])), mode='constant', constant_values=0)
-    HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=0)
-    HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=0)
-    HS = np.pad(HS, ((0, 0), (0, T - HS.shape[1]), (0, 0)), mode='constant', constant_values=0)
-    HX_no_trans = np.pad(HX_no_trans, ((0, 0), (0, T - HX_no_trans.shape[1])), mode='constant', constant_values=0)
-    HY_no_trans = np.pad(HY_no_trans, ((0, 0), (0, T - HY_no_trans.shape[1])), mode='constant', constant_values=0)
+    HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=-1)
+    HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=-1)
+    HS = np.pad(HS, ((0, 0), (0, T - HS.shape[1]), (0, 0)), mode='constant', constant_values=-1)
+    HX_no_trans = np.pad(HX_no_trans, ((0, 0), (0, T - HX_no_trans.shape[1])), mode='constant', constant_values=-1)
+    HY_no_trans = np.pad(HY_no_trans, ((0, 0), (0, T - HY_no_trans.shape[1])), mode='constant', constant_values=-1)
     HS_no_trans = np.pad(HS_no_trans, ((0, 0), (0, T - HS_no_trans.shape[1]), (0, 0)), mode='constant',
-                         constant_values=0)
+                         constant_values=-1)
 
     OH_overlap = np.zeros((N, M), dtype='bool')
     for i in range(N):
@@ -749,12 +751,12 @@ def input_mct_from(txt_path, delimeter, fps, midpoint, box_repr_kind, **kwargs):
     OTT = np.zeros((T,), dtype='float64')    # timestamp
 
     # spatio position anskfsufhasufhaisuhfoaufhud
-    OX = np.zeros((N, T), dtype='float32')  # cannot use np.empty due to nan value in later computation.
-    OY = np.zeros((N, T), dtype='float32')
-    OS = np.zeros((N, T, 8), dtype='float32')
-    OX_no_trans = np.zeros((N, T), dtype='float32')
-    OY_no_trans = np.zeros((N, T), dtype='float32')
-    OS_no_trans = np.zeros((N, T, 8), dtype='float32')
+    OX = np.full((N, T), -1, dtype='float32')  # cannot use np.empty due to nan value in later computation.
+    OY = np.full((N, T), -1, dtype='float32')
+    OS = np.full((N, T, 8), -1, dtype='float32')
+    OX_no_trans = np.full((N, T), -1, dtype='float32')
+    OY_no_trans = np.full((N, T), -1, dtype='float32')
+    OS_no_trans = np.full((N, T, 8), -1, dtype='float32')
 
     for i, det in enumerate(seq):
         frame = np.int32(det[0])
@@ -782,13 +784,14 @@ def input_mct_from(txt_path, delimeter, fps, midpoint, box_repr_kind, **kwargs):
                           ]),
                 kwargs['homo'])
 
+        OX[id, frame] = repr_x
+        OY[id, frame] = repr_y
+        OS[id, frame] = [x1, y1, x2, y2, x3, y3, x4, y4]
+
         if 'roi' in kwargs and not cv2.pointPolygonTest(kwargs['roi'], (repr_x, repr_y), True) >= -5:
             continue
 
         OT[id, frame] = 1
-        OX[id, frame] = repr_x
-        OY[id, frame] = repr_y
-        OS[id, frame] = [x1, y1, x2, y2, x3, y3, x4, y4]
 
     for i in range(T):
         OTT[i] = (record_time + timedelta(seconds=(i - 1) / fps)).timestamp() # frame id starts from 1
@@ -928,11 +931,11 @@ def make_true_sct_gttracker_correspondences_v2(
 
     # pad 0 to equalize temporal dimension
     OT = np.pad(OT, ((0, 0), (0, T - OT.shape[1])), mode='constant', constant_values=0)
-    OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=0)
-    OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=0)
+    OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=-1)
+    OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=-1)
     HT = np.pad(HT, ((0, 0), (0, T - HT.shape[1])), mode='constant', constant_values=0)
-    HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=0)
-    HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=0)
+    HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=-1)
+    HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=-1)
 
     X = np.zeros((N, M, T), dtype='int32')
     distances = np.empty((N, M, T), dtype='float32')
@@ -948,17 +951,7 @@ def make_true_sct_gttracker_correspondences_v2(
                 if 'use_iou' not in kwargs or not kwargs['use_iou']:
                     cost[i, j] = np.sqrt((OX[o, t] - HX[h, t])**2 + (OY[o, t] - HY[h, t])**2)
                 else:
-                    ox1, oy1, ox2, oy2 = OS[o, t, [0, 1, 4, 5]]
-                    hx1, hy1, hx2, hy2 = HS[h, t, [0, 1, 4, 5]]
-                    if 'homo' in kwargs:
-                        homo_inv = np.linalg.inv(kwargs['homo'])
-                        [[[ox1, oy1]], [[ox2, oy2]]] = cv2.perspectiveTransform(
-                            np.array([ox1, oy1, ox2, oy2]).reshape(-1, 1, 2),
-                            homo_inv)
-                        [[[hx1, hy1]], [[hx2, hy2]]] = cv2.perspectiveTransform(
-                            np.array([hx1, hy1, hx2, hy2]).reshape(-1, 1, 2),
-                            homo_inv)
-                    cost[i, j] = - iou_batch([[ox1, oy1, ox2, oy2]], [[hx1, hy1, hx2, hy2]])
+                    cost[i, j] = - iou_batch([OS[o, t, [0, 1, 4, 5]]], [HS[h, t, [0, 1, 4, 5]]])
 
         i_matched_list, j_matched_list = linear_sum_assignment(cost)
         for i, j in zip(i_matched_list, j_matched_list):
@@ -1257,12 +1250,12 @@ def error_analysis_mct_mapping(
             frame2 = frame1.copy()
         black = np.full_like(frame2, 0)
         cv2.drawContours(black, [roi], -1, (255, 255, 255), 2)
-        cv2.drawContours(frame2, [roi], -1, (255, 255, 255), 2)
-        cv2.drawContours(frame1_no_trans, [roi_inv_trans], -1, (255, 255, 255), 2)
+        cv2.drawContours(frame2, [roi_inv_trans if checking_true_gttracker and homo is not None else roi], -1, (255, 255, 255), 2)
+        cv2.drawContours(frame1_no_trans, [roi_inv_trans if checking_true_gttracker and homo is not None else roi], -1, (255, 255, 255), 2)
         cv2.putText(black, f'frame {t1}', (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=2)
 
         for h1 in range(N1):
-            if C1T[h1, t1] == 0:
+            if C1X[h1, t1] == -1:
                 continue
 
             color1 = COLORS[h1 % len(COLORS)]
@@ -1276,14 +1269,14 @@ def error_analysis_mct_mapping(
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
 
         for h2 in range(N2):
-            if t2 is None or C2T[h2, t2] == 0:
+            if t2 is None or C2X[h2, t2] == -1:
                 continue
 
             color2 = COLORS[h2 % len(COLORS)]
-            cv2.polylines(frame2, [np.int32(C2S[h2, t2]).reshape(-1, 1, 2)], True, color=color2, thickness=2)
-            cv2.circle(frame2, (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])), radius=6, color=color2, thickness=-1)
+            cv2.polylines(frame2, [np.int32(C2S_no_trans[h2, t2] if checking_true_gttracker and homo is not None else C2S[h2, t2]).reshape(-1, 1, 2)], True, color=color2, thickness=2)
+            cv2.circle(frame2, (np.int32(C2X_no_trans[h2, t2]), np.int32(C2Y_no_trans[h2, t2])) if checking_true_gttracker and homo is not None else (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])), radius=6, color=color2, thickness=-1)
             cv2.circle(black, (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])), radius=6, color=color2, thickness=-1)
-            cv2.putText(frame2, f'2-{h2}', (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2]) - 10),
+            cv2.putText(frame2, f'2-{h2}', (np.int32(C2X_no_trans[h2, t2]), np.int32(C2Y_no_trans[h2, t2]) - 10) if checking_true_gttracker and homo is not None else (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2]) - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, color2, thickness=2)
             cv2.putText(black, f'2-{h2}', (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2]) - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, color2, thickness=2)
@@ -1307,7 +1300,10 @@ def error_analysis_mct_mapping(
                              (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])),
                              color=connection_color, thickness=3)
 
-        frame1 = cv2.warpPerspective(frame1_no_trans, homo, (W, H))
+        if homo is not None:
+            frame1 = cv2.warpPerspective(frame1_no_trans, homo, (W, H))
+        else:
+            frame1 = frame1_no_trans
 
         show_img = np.concatenate(
             [np.concatenate([frame1, frame2], axis=1),
@@ -1452,7 +1448,7 @@ def evaluate(true_path, pred_path):
 if __name__ == '__main__':
 
     video_version = '2d_v3'
-    TRACKER_NAME = 'YOLOv8l_pretrained-640-StrongSORT'
+    TRACKER_NAME = 'YOLOv8l_pretrained-640-ByteTrack'
     box_repr_kind = 'bottom'
 
     #'''
@@ -1465,6 +1461,7 @@ if __name__ == '__main__':
     window_size = 1
     window_boundary = 0
     gttracker_filter = IQRFilter(25, 75).run
+
     if filter_type == 'GMM':
         filter = GMMFilter(n_components=2, std_coef=3).run
         # gttracker_filter = GMMFilter(n_components=1, std_coef=3).run
@@ -1476,7 +1473,7 @@ if __name__ == '__main__':
         # gttracker_filter = None
 
     cf = f'{filter_type if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
-    log_file = open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cf}.txt'), 'w')
+    log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cf}.txt'), 'w')
     print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + filter_type if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
 
     for video_id in tqdm(range(1, 13)):
@@ -1537,7 +1534,6 @@ if __name__ == '__main__':
             midpoint1,
             filter=gttracker_filter,
             box_repr_kind=box_repr_kind,
-            homo=homo,
             roi=roi,
             use_iou=True
         )
@@ -1550,14 +1546,13 @@ if __name__ == '__main__':
             use_iou=True
         )
 
-        """
         error_analysis_mct_mapping(
             cap1, cap1,
             homo,
             roi,
             *ret1,
             display=False,
-            export_video=f'true_mct_gttracker_correspondences_{cam1_id}_{video_id}_{cf}.avi',
+            export_video=f'true_mct_gttracker_correspondences_{cam1_id}_{video_id}.avi',
             checking_true_gttracker=True
         )
         error_analysis_mct_mapping(
@@ -1566,16 +1561,16 @@ if __name__ == '__main__':
             roi,
             *ret2,
             display=False,
-            export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}_{cf}.avi',
+            export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}.avi',
             checking_true_gttracker=True
         )
-        for t in range(ret1[-2].shape[-1]):
-            if np.any(ret1[-2][:, :, t]):
-                print(t, list(zip(*np.where(ret1[-2][:, :, t]))))
-        for t in range(ret2[-2].shape[-1]):
-            if np.any(ret2[-2][:, :, t]):
-                print(t, list(zip(*np.where(ret2[-2][:, :, t]))))
-        """
+        continue
+        # for t in range(ret1[-2].shape[-1]):
+        #     if np.any(ret1[-2][:, :, t]):
+        #         print(t, list(zip(*np.where(ret1[-2][:, :, t]))))
+        # for t in range(ret2[-2].shape[-1]):
+        #     if np.any(ret2[-2][:, :, t]):
+        #         print(t, list(zip(*np.where(ret2[-2][:, :, t]))))
         ######################################################################################################
 
 
@@ -1631,7 +1626,7 @@ if __name__ == '__main__':
         #     roi,
         #     *ret,
         #     display=False,
-        #     export_video=f'true_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi',
+        #     export_video=f'true_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi',
         # )
         # for t in range(ret[-2].shape[-1]):
         #     if np.any(ret[-2][:, :, t]):
@@ -1663,7 +1658,7 @@ if __name__ == '__main__':
         #     roi,
         #     *ret,
         #     display=False,
-        #     export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi'
+        #     export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi'
         # )
         ##############################################################################################################
 
@@ -1688,7 +1683,7 @@ if __name__ == '__main__':
             roi,
             *ret,
             display=False,
-            export_video=None, #f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi', # None
+            export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi', # None
             log_file=log_file
         )
 
