@@ -3,10 +3,10 @@ import os
 
 HERE = Path(__file__).parent
 
-DIRS = ['2d_v1', '2d_v2', '2d_v3']
-COUNTS = [16, 6, 12]
+DIRS = ['2d_v1']
+COUNTS = [16]
 TRACKER_PREFIX = 'YOLO'
-FILENAME = 'log_error_analysis_pred_mct_trackertracker_correspondences_v2_noGMM_windowsize1_windowboundary0.txt'
+FILENAME = 'log_error_analysis_pred_mct_trackertracker_correspondences_v2_GMM_windowsize1_windowboundary0.txt'
 
 tracker_names = [name for name in os.listdir(str(HERE / 'recordings' / DIRS[0])) if name.startswith(TRACKER_PREFIX)]
 
