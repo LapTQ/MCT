@@ -211,10 +211,11 @@ def main(opt):
 
     while True:
         window_name = 'PREVIEW RESULT OF SELECTING MATCHES: <y> to submit. <ESC> to reset'
-        src_pts, dst_pts = select_matches(src, dst)
-        print(src_pts)
-        print(dst_pts)
-        H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
+        # src_pts, dst_pts = select_matches(src, dst)
+        # print(src_pts)
+        # print(dst_pts)
+        # H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
+        H = np.loadtxt('recordings/2d_v3/homo_121_to_127.txt')
 
         src_transformed = cv2.warpPerspective(src, H, (dst.shape[1], dst.shape[0]))
 
