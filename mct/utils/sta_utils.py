@@ -1236,49 +1236,50 @@ def error_analysis_mct_mapping(
                 cv2.destroyAllWindows()
             break
 
-        H, W = frame2.shape[:2]
-        frame1_no_trans = frame1.copy()
-        if homo is not None:
+        if display or export_video is not None:
+            H, W = frame2.shape[:2]
+            frame1_no_trans = frame1.copy()
+            if homo is not None:
 
-            homo_inv = np.linalg.inv(homo)
-            roi_inv_trans = cv2.perspectiveTransform(
-                np.float32(roi),
-                homo_inv).astype('int32')
+                homo_inv = np.linalg.inv(homo)
+                roi_inv_trans = cv2.perspectiveTransform(
+                    np.float32(roi),
+                    homo_inv).astype('int32')
 
-        if checking_true_gttracker:
-            frame2 = frame1.copy()
-        black = np.full_like(frame2, 0)
-        cv2.drawContours(black, [roi], -1, (255, 255, 255), 2)
-        cv2.drawContours(frame2, [roi_inv_trans if checking_true_gttracker and homo is not None else roi], -1, (255, 255, 255), 2)
-        cv2.drawContours(frame1_no_trans, [roi_inv_trans if checking_true_gttracker and homo is not None else roi], -1, (255, 255, 255), 2)
-        cv2.putText(black, f'frame {t1}', (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=2)
+            if checking_true_gttracker:
+                frame2 = frame1.copy()
+            black = np.full_like(frame2, 0)
+            cv2.drawContours(black, [roi], -1, (255, 255, 255), 2)
+            cv2.drawContours(frame2, [roi_inv_trans if checking_true_gttracker and homo is not None else roi], -1, (255, 255, 255), 2)
+            cv2.drawContours(frame1_no_trans, [roi_inv_trans if homo is not None else roi], -1, (255, 255, 255), 2)
+            cv2.putText(black, f'frame {t1}', (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=2)
 
-        for h1 in range(N1):
-            if C1X[h1, t1] == -1:
-                continue
+            for h1 in range(N1):
+                if C1X[h1, t1] == -1:
+                    continue
 
-            color1 = COLORS[h1 % len(COLORS)]
-            cv2.circle(black, (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1])), radius=6, color=color1, thickness=-1)
-            cv2.putText(black, f'1-{h1}', (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1]) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
+                color1 = COLORS[h1 % len(COLORS)]
+                cv2.circle(black, (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1])), radius=6, color=color1, thickness=-1)
+                cv2.putText(black, f'1-{h1}', (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1]) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
 
-            cv2.polylines(frame1_no_trans, [np.int32(C1S_no_trans[h1, t1]).reshape(-1, 1, 2)], True, color=color1, thickness=2)
-            cv2.circle(frame1_no_trans, (np.int32(C1X_no_trans[h1, t1]), np.int32(C1Y_no_trans[h1, t1])), radius=6, color=color1, thickness=-1)
-            cv2.putText(frame1_no_trans, f'1-{h1}', (np.int32(C1X_no_trans[h1, t1]), np.int32(C1Y_no_trans[h1, t1]) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
+                cv2.polylines(frame1_no_trans, [np.int32(C1S_no_trans[h1, t1]).reshape(-1, 1, 2)], True, color=color1, thickness=2)
+                cv2.circle(frame1_no_trans, (np.int32(C1X_no_trans[h1, t1]), np.int32(C1Y_no_trans[h1, t1])), radius=6, color=color1, thickness=-1)
+                cv2.putText(frame1_no_trans, f'1-{h1}', (np.int32(C1X_no_trans[h1, t1]), np.int32(C1Y_no_trans[h1, t1]) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
 
-        for h2 in range(N2):
-            if t2 is None or C2X[h2, t2] == -1:
-                continue
+            for h2 in range(N2):
+                if t2 is None or C2X[h2, t2] == -1:
+                    continue
 
-            color2 = COLORS[h2 % len(COLORS)]
-            cv2.polylines(frame2, [np.int32(C2S_no_trans[h2, t2] if checking_true_gttracker and homo is not None else C2S[h2, t2]).reshape(-1, 1, 2)], True, color=color2, thickness=2)
-            cv2.circle(frame2, (np.int32(C2X_no_trans[h2, t2]), np.int32(C2Y_no_trans[h2, t2])) if checking_true_gttracker and homo is not None else (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])), radius=6, color=color2, thickness=-1)
-            cv2.circle(black, (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])), radius=6, color=color2, thickness=-1)
-            cv2.putText(frame2, f'2-{h2}', (np.int32(C2X_no_trans[h2, t2]), np.int32(C2Y_no_trans[h2, t2]) - 10) if checking_true_gttracker and homo is not None else (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2]) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color2, thickness=2)
-            cv2.putText(black, f'2-{h2}', (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2]) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color2, thickness=2)
+                color2 = COLORS[h2 % len(COLORS)]
+                cv2.polylines(frame2, [np.int32(C2S_no_trans[h2, t2] if checking_true_gttracker and homo is not None else C2S[h2, t2]).reshape(-1, 1, 2)], True, color=color2, thickness=2)
+                cv2.circle(frame2, (np.int32(C2X_no_trans[h2, t2]), np.int32(C2Y_no_trans[h2, t2])) if checking_true_gttracker and homo is not None else (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])), radius=6, color=color2, thickness=-1)
+                cv2.circle(black, (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])), radius=6, color=color2, thickness=-1)
+                cv2.putText(frame2, f'2-{h2}', (np.int32(C2X_no_trans[h2, t2]), np.int32(C2Y_no_trans[h2, t2]) - 10) if checking_true_gttracker and homo is not None else (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2]) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color2, thickness=2)
+                cv2.putText(black, f'2-{h2}', (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2]) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color2, thickness=2)
 
         for h1 in range(N1):
             for h2 in range(N2):
@@ -1293,43 +1294,44 @@ def error_analysis_mct_mapping(
                     connection_color = (11, 185, 255)
                     FN += 1
 
-                if X_eval[h1, h2, t1] > 0:
+                if (display or export_video is not None) and X_eval[h1, h2, t1] > 0:
                     cv2.line(black,
                              (np.int32(C1X[h1, t1]), np.int32(C1Y[h1, t1])),
                              (np.int32(C2X[h2, t2]), np.int32(C2Y[h2, t2])),
                              color=connection_color, thickness=3)
 
-        if homo is not None:
-            frame1 = cv2.warpPerspective(frame1_no_trans, homo, (W, H))
-        else:
-            frame1 = frame1_no_trans
+        if display or export_video is not None:
+            if homo is not None:
+                frame1 = cv2.warpPerspective(frame1_no_trans, homo, (W, H))
+            else:
+                frame1 = frame1_no_trans
 
-        show_img = np.concatenate(
-            [np.concatenate([frame1, frame2], axis=1),
-             np.concatenate([frame1_no_trans, black], axis=1)],
-            axis=0
-        )
+            show_img = np.concatenate(
+                [np.concatenate([frame1, frame2], axis=1),
+                 np.concatenate([frame1_no_trans, black], axis=1)],
+                axis=0
+            )
 
-        if display:
-            cv2.imshow('show', show_img)
-            key = cv2.waitKey(50)
-            if key == 27:
-                cv2.destroyAllWindows()
-                break
-            elif key == ord('e'):
-                exit(0)
-            elif key == ord(' '):
-                cv2.waitKey(0)
-        if export_video is not None:
-            if not writer_created:
-                writer = cv2.VideoWriter(
-                    str(HERE / f'../../output/{export_video}'),
-                    cv2.VideoWriter_fourcc(*'XVID'),
-                    cap1.get(cv2.CAP_PROP_FPS),
-                    (show_img.shape[1], show_img.shape[0])
-                )
-                writer_created = True
-            writer.write(show_img)
+            if display:
+                cv2.imshow('show', show_img)
+                key = cv2.waitKey(50)
+                if key == 27:
+                    cv2.destroyAllWindows()
+                    break
+                elif key == ord('e'):
+                    exit(0)
+                elif key == ord(' '):
+                    cv2.waitKey(0)
+            if export_video is not None:
+                if not writer_created:
+                    writer = cv2.VideoWriter(
+                        str(HERE / f'../../output/{export_video}'),
+                        cv2.VideoWriter_fourcc(*'XVID'),
+                        cap1.get(cv2.CAP_PROP_FPS),
+                        (show_img.shape[1], show_img.shape[0])
+                    )
+                    writer_created = True
+                writer.write(show_img)
 
     if display:
         cv2.destroyAllWindows()
@@ -1446,185 +1448,203 @@ def evaluate(true_path, pred_path):
 
 if __name__ == '__main__':
 
-    video_sets = {
-        '2d_v1': {'cam_id1': 21, 'cam_id2': 27, 'box_repr_kind': 'foot'},
-        '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'box_repr_kind': 'foot'},
-        '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'box_repr_kind': 'bottom'},
+    VIDEO_SET = {
+        '2d_v1': {'cam_id1': 21, 'cam_id2': 27, 'box_repr_kind': 'foot', 'range_': range(0, 16)},
+        '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'box_repr_kind': 'foot', 'range_': range(19, 25)},
+        '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'box_repr_kind': 'bottom', 'range_': range(1, 13)},
     }
+    TRACKER_SET = [
+        'YOLOv5l_pretrained-640-ByteTrack',
+        'YOLOv8l_pretrained-640-ByteTrack',
+        'YOLOv8l_pretrained-640-StrongSORT',
+        'YOLOv8m_pretrained-640-ByteTrack',
+        'YOLOv8s_pretrained-640-ByteTrack',
+        'YOLOXl_pretrained-640-ByteTrack',
+        'YOLOXm_pretrained-640-ByteTrack',
+        'YOLOXs_pretrained-640-ByteTrack'
+    ]
+    FILTER_CHOICE = [None, 'IQR', 'GMM']
+    WINDOW_CHOICE = [(1, 0), (11, 5)]
 
     video_version = '2d_v3'
     TRACKER_NAME = 'YOLOv8l_pretrained-640-ByteTrack'
-
-    #'''
-    cam1_id = video_sets[video_version]['cam_id1']
-    cam2_id = video_sets[video_version]['cam_id2']
-    box_repr_kind = video_sets[video_version]['box_repr_kind']
-    n_0 = 5
-    # video_id = 19
-    # log_file is set to None if stdout
-    filter_type = 'IQR' # None, 'GMM', 'IQR'
+    filter_type = 'IQR'  # None, 'GMM', 'IQR'
     window_size = 1
     window_boundary = 0
-    gttracker_filter = IQRFilter(25, 75).run
 
-    if filter_type == 'GMM':
-        filter = GMMFilter(n_components=2, std_coef=3).run
-        # gttracker_filter = GMMFilter(n_components=1, std_coef=3).run
-    elif filter_type == 'IQR':
-        filter = IQRFilter(25, 75).run
-        # gttracker_filter = IQRFilter(25, 75).run
-    else:
-        filter = None
-        # gttracker_filter = None
+    for video_version in VIDEO_SET:
+        for TRACKER_NAME in TRACKER_SET:
+            for filter_type in FILTER_CHOICE:
+                for window_size, window_boundary in WINDOW_CHOICE:
+                    print(video_version, TRACKER_NAME, filter_type, window_size, window_boundary)
 
-    cf = f'{filter_type if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
-    log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cf}.txt'), 'w')
-    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + filter_type if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
+                    cam1_id = VIDEO_SET[video_version]['cam_id1']
+                    cam2_id = VIDEO_SET[video_version]['cam_id2']
+                    box_repr_kind = VIDEO_SET[video_version]['box_repr_kind']
+                    range_ = VIDEO_SET[video_version]['range_']
+                    n_0 = 5
+                    # video_id = 19
+                    # log_file is set to None if stdout
 
-    for video_id in tqdm(range(1, 13)):
+                    gttracker_filter = IQRFilter(25, 75).run
+                    if filter_type == 'GMM':
+                        filter = GMMFilter(n_components=2, std_coef=3).run
+                        # gttracker_filter = GMMFilter(n_components=1, std_coef=3).run
+                    elif filter_type == 'IQR':
+                        filter = IQRFilter(25, 75).run
+                        # gttracker_filter = IQRFilter(25, 75).run
+                    else:
+                        filter = None
+                        # gttracker_filter = None
 
-        gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
-        print(gt_txt1)
-        tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
-        print(tracker_txt1)
-        gt_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
-        print(gt_txt2)
-        tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
-        print(tracker_txt2)
+                    cf = f'{filter_type if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
+                    log_file = open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cf}.txt'), 'w')
+                    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + filter_type if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
 
+                    for video_id in tqdm(range_):
 
-        cap1 = cv2.VideoCapture(
-            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.avi"))[0])
-        )
-        midpoint1 = cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        fps1 = cap1.get(cv2.CAP_PROP_FPS)
-
-        cap2 = cv2.VideoCapture(
-            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.avi"))[0])
-        )
-        midpoint2 = cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        fps2 = cap2.get(cv2.CAP_PROP_FPS)
-
-        homo = get_homo(cam1_id, cam2_id, video_version)
-        roi = get_roi(cam2_id, video_version)
+                        gt_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
+                        print(gt_txt1)
+                        tracker_txt1 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
+                        print(tracker_txt1)
+                        gt_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/gt').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
+                        print(gt_txt2)
+                        tracker_txt2 = str(list((HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/sct').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.txt"))[0])
+                        print(tracker_txt2)
 
 
-        ################### MAKE TRUE GT TRACKER CORRESPONDENCES V2 #############################################
-        ret1 = make_true_sct_gttracker_correspondences_v2(
-            gt_txt1, tracker_txt1,
-            midpoint1,
-            filter=gttracker_filter,
-            box_repr_kind=box_repr_kind,
-            homo=homo, # must have
-            roi=roi,
-            use_iou=False
-        )
-        ret2 = make_true_sct_gttracker_correspondences_v2(
-            gt_txt2, tracker_txt2,
-            midpoint2,
-            filter=gttracker_filter,
-            box_repr_kind=box_repr_kind,
-            roi=roi,
-            use_iou=False
-        )
+                        cap1 = cv2.VideoCapture(
+                            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f"{cam1_id}_{('00000' + str(video_id))[-n_0:]}_*_*.avi"))[0])
+                        )
+                        midpoint1 = cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                        fps1 = cap1.get(cv2.CAP_PROP_FPS)
 
-        # error_analysis_mct_mapping(
-        #     cap1, cap1,
-        #     homo,
-        #     roi,
-        #     *ret1,
-        #     display=False,
-        #     export_video=f'true_mct_gttracker_correspondences_{cam1_id}_{video_id}.avi',
-        #     checking_true_gttracker=True
-        # )
-        # error_analysis_mct_mapping(
-        #     cap2, cap2,
-        #     None,
-        #     roi,
-        #     *ret2,
-        #     display=False,
-        #     export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}.avi',
-        #     checking_true_gttracker=True
-        # )
-        # continue
-        # for t in range(ret1[-2].shape[-1]):
-        #     if np.any(ret1[-2][:, :, t]):
-        #         print(t, list(zip(*np.where(ret1[-2][:, :, t]))))
-        # for t in range(ret2[-2].shape[-1]):
-        #     if np.any(ret2[-2][:, :, t]):
-        #         print(t, list(zip(*np.where(ret2[-2][:, :, t]))))
-        ######################################################################################################
+                        cap2 = cv2.VideoCapture(
+                            str(list((HERE / f'../../data/recordings/{video_version}/videos').glob(f"{cam2_id}_{('00000' + str(video_id))[-n_0:]}_*_*.avi"))[0])
+                        )
+                        midpoint2 = cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                        fps2 = cap2.get(cv2.CAP_PROP_FPS)
+
+                        homo = get_homo(cam1_id, cam2_id, video_version)
+                        roi = get_roi(cam2_id, video_version)
 
 
+                        ################### MAKE TRUE GT TRACKER CORRESPONDENCES V2 #############################################
+                        ret1 = make_true_sct_gttracker_correspondences_v2(
+                            gt_txt1, tracker_txt1,
+                            midpoint1,
+                            filter=gttracker_filter,
+                            box_repr_kind=box_repr_kind,
+                            homo=homo, # must have
+                            roi=roi,
+                            use_iou=False
+                        )
+                        ret2 = make_true_sct_gttracker_correspondences_v2(
+                            gt_txt2, tracker_txt2,
+                            midpoint2,
+                            filter=gttracker_filter,
+                            box_repr_kind=box_repr_kind,
+                            roi=roi,
+                            use_iou=False
+                        )
 
-        #################### MAKE TRUE MCT TRACKER TRACKER CORRESPONDENCES V2 ###################################
-        with open(f'../../data/recordings/{video_version}/true_mct_gtgt_correspondences.txt', 'r') as f:
-            mct_gtgt_correspondences = f.read().strip().split('\n')
-            mct_gtgt_correspondences = [eval(l) for l in mct_gtgt_correspondences]
-            mct_gtgt_correspondences = [(l[2], l[5]) for l in mct_gtgt_correspondences if
-                                      l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
-        ret = make_true_mct_trackertracker_correspondences_v2(
-            tracker_txt1, tracker_txt2,
-            fps1, fps2,
-            midpoint1, midpoint2,
-            mct_gtgt_correspondences,
-            ret1[-1],
-            ret2[-1],
-            homo,
-            roi,
-            box_repr_kind=box_repr_kind
-        )
-
-        # error_analysis_mct_mapping(
-        #     cap1, cap2,
-        #     homo,
-        #     roi,
-        #     *ret,
-        #     display=False,
-        #     export_video=f'true_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi',
-        # )
-        # for t in range(ret[-2].shape[-1]):
-        #     if np.any(ret[-2][:, :, t]):
-        #         print(t, list(zip(*np.where(ret[-2][:, :, t]))))
-        ######################################################################################################
+                        # error_analysis_mct_mapping(
+                        #     cap1, cap1,
+                        #     homo,
+                        #     roi,
+                        #     *ret1,
+                        #     display=False,
+                        #     export_video=f'true_mct_gttracker_correspondences_{cam1_id}_{video_id}.avi',
+                        #     checking_true_gttracker=True
+                        # )
+                        # error_analysis_mct_mapping(
+                        #     cap2, cap2,
+                        #     None,
+                        #     roi,
+                        #     *ret2,
+                        #     display=False,
+                        #     export_video=f'true_mct_gttracker_correspondences_{cam2_id}_{video_id}.avi',
+                        #     checking_true_gttracker=True
+                        # )
+                        # continue
+                        # for t in range(ret1[-2].shape[-1]):
+                        #     if np.any(ret1[-2][:, :, t]):
+                        #         print(t, list(zip(*np.where(ret1[-2][:, :, t]))))
+                        # for t in range(ret2[-2].shape[-1]):
+                        #     if np.any(ret2[-2][:, :, t]):
+                        #         print(t, list(zip(*np.where(ret2[-2][:, :, t]))))
+                        ######################################################################################################
 
 
-        ######################## PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2 ########################################
-        print(f'\n\n[INFO]\t VIDEO {video_id} PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2', file=log_file)
-        ret = mct_mapping(
-            tracker_txt1, tracker_txt2,
-            fps1, fps2,
-            midpoint1, midpoint2,
-            homo,
-            roi,
-            filter=filter,
-            box_repr_kind=box_repr_kind,
-            window_size=window_size,
-            window_boundary=window_boundary,
-            true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
-        )
-        # COMMENT OUT IF NOT ERROR ANALYSIS
-        error_analysis_mct_mapping(
-            cap1, cap2,
-            homo,
-            roi,
-            *ret,
-            display=False,
-            export_video=f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi', # None
-            log_file=log_file
-        )
 
-        # for t in range(ret.shape[2]):
-        #     print(list(zip(*np.where(ret[:, :, t]))))
+                        #################### MAKE TRUE MCT TRACKER TRACKER CORRESPONDENCES V2 ###################################
+                        with open(f'../../data/recordings/{video_version}/true_mct_gtgt_correspondences.txt', 'r') as f:
+                            mct_gtgt_correspondences = f.read().strip().split('\n')
+                            mct_gtgt_correspondences = [eval(l) for l in mct_gtgt_correspondences]
+                            mct_gtgt_correspondences = [(l[2], l[5]) for l in mct_gtgt_correspondences if
+                                                      l[0] == cam1_id and l[3] == cam2_id and l[1] == video_id]
+                        ret = make_true_mct_trackertracker_correspondences_v2(
+                            tracker_txt1, tracker_txt2,
+                            fps1, fps2,
+                            midpoint1, midpoint2,
+                            mct_gtgt_correspondences,
+                            ret1[-1],
+                            ret2[-1],
+                            homo,
+                            roi,
+                            box_repr_kind=box_repr_kind
+                        )
 
-        # detect_IDSW(*ret)
+                        # error_analysis_mct_mapping(
+                        #     cap1, cap2,
+                        #     homo,
+                        #     roi,
+                        #     *ret,
+                        #     display=False,
+                        #     export_video=f'true_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}.avi',
+                        # )
+                        # for t in range(ret[-2].shape[-1]):
+                        #     if np.any(ret[-2][:, :, t]):
+                        #         print(t, list(zip(*np.where(ret[-2][:, :, t]))))
+                        ######################################################################################################
 
-        ##############################################################################################################
 
-    # f.close()
-    # '''
-    # evaluate(f'../../data/recordings/{video_version}/{TRACKER_NAME}/true_mct_trackertracker_correspondences.txt',
-    #          f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences.txt')
+                        ######################## PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2 ########################################
+                        print(f'\n\n[INFO]\t VIDEO {video_id} PREDICT MCT TRACKER TRACKER CORRESPONDENCES V2', file=log_file)
+                        ret = mct_mapping(
+                            tracker_txt1, tracker_txt2,
+                            fps1, fps2,
+                            midpoint1, midpoint2,
+                            homo,
+                            roi,
+                            filter=filter,
+                            box_repr_kind=box_repr_kind,
+                            window_size=window_size,
+                            window_boundary=window_boundary,
+                            true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
+                        )
+                        # COMMENT OUT IF NOT ERROR ANALYSIS
+                        error_analysis_mct_mapping(
+                            cap1, cap2,
+                            homo,
+                            roi,
+                            *ret,
+                            display=False,
+                            export_video=None,#f'pred_mct_trackertracker_correspondences_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi', # None
+                            log_file=log_file
+                        )
+
+                        # for t in range(ret.shape[2]):
+                        #     print(list(zip(*np.where(ret[:, :, t]))))
+
+                        # detect_IDSW(*ret)
+
+                        ##############################################################################################################
+
+                    # f.close()
+                    # '''
+                    # evaluate(f'../../data/recordings/{video_version}/{TRACKER_NAME}/true_mct_trackertracker_correspondences.txt',
+                    #          f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences.txt')
 
 
 
