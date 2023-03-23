@@ -1,0 +1,1 @@
+================= ERROR ANALYSIS FOR TRACKER YOLOv8l_pretrained-640-StrongSORT VIDEO VERSION 2d_v2 WITH None FILTER, WINDOW_SIZE = 1, WINDOW_BOUNDARY = 0 ================
