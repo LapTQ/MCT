@@ -1370,11 +1370,14 @@ def detect_IDSW(
                 if h2a <= h2b:
                     continue
 
-                h1_map_h2a = X_pred[h1, h2a] if label == 'CAM_1' else (X_pred[h1, h2a].reshape(1, -1) @ time_correspondences).reshape(-1)
-                h1_map_h2b = X_pred[h1, h2b] if label == 'CAM_1' else (X_pred[h1, h2b].reshape(1, -1) @ time_correspondences).reshape(-1)
-                both_h2_present = ((C2T[h2a] * C2T[h2b]).reshape(1, -1) \
-                                   @ time_correspondences) \
-                    .reshape(-1)
+                h1_map_h2a = X_pred[h1, h2a]
+                h1_map_h2b = X_pred[h1, h2b]
+                if label == 'CAM_1':
+                    both_h2_present = ((C2T[h2a] * C2T[h2b]).reshape(1, -1) \
+                                       @ time_correspondences) \
+                        .reshape(-1)
+                else:
+                    both_h2_present = C2T[h2a] * C2T[h2b]
 
                 # if h2_a, h2_b co-occur when one of them is mapped to h1
                 # then there is an object swap
@@ -1384,7 +1387,7 @@ def detect_IDSW(
                 if not object_swap_found:
                     continue
 
-                print(f'{label} ID {h1} maps to {h2a} and {h2b} while they co-occur at frame {np.where(h1_h2a_h2b_present_and_map)[0][0]} (w.r.t cam 1)', file=log_file)
+                print(f'{label} ID {h1} - {"CAM_2" if label == "CAM_1" else "CAM_1"} ID {h2a} and {h2b}, co-occur at frame {np.where(h1_h2a_h2b_present_and_map)[0][0]} (w.r.t cam 1)', file=log_file)
 
                 time_ascending_maps = sorted(list(
                     zip(*np.where(np.stack(
@@ -1405,7 +1408,7 @@ def detect_IDSW(
                         previous_map = h2a if previous_map == 0 else h2b
                         if current_map != previous_map:
                             print(
-                                f'\t switched from {previous_map} (at frame {start_time_of_previous_map}) to {current_map} (at frame {current_time}) (w.r.t cam 1)', file=log_file)
+                                f'\t switched from {h1} - {previous_map} (at frame {start_time_of_previous_map}) to {h1} - {current_map} (at frame {current_time}) (w.r.t cam 1)', file=log_file)
                             start_time_of_previous_map = current_time
 
     for h1 in range(N1):
@@ -1488,7 +1491,7 @@ if __name__ == '__main__':
         filter = GMMFilter(n_components=2, std_coef=3).run
         # gttracker_filter = GMMFilter(n_components=1, std_coef=3).run
     elif filter_type == 'IQR':
-        filter = IQRFilter(25, 75).run
+        filter = IQRFilter(30, 70).run
         # gttracker_filter = IQRFilter(25, 75).run
     else:
         filter = None
@@ -1496,6 +1499,7 @@ if __name__ == '__main__':
 
     cf = f'{filter_type if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
     log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cf}.txt'), 'w')
+    IDSW_log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/IDSW_{cf}.txt'), 'w')
     print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + filter_type if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
 
     for video_id in tqdm(range_):
@@ -1627,14 +1631,14 @@ if __name__ == '__main__':
             roi,
             *ret,
             display=False,
-            export_video=None,#f'pred_mct_trackertracker_correspondences_{TRACKER_NAME}_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi', # None
+            export_video=None, #f'pred_mct_trackertracker_correspondences_{TRACKER_NAME}_{cam1_id}_{cam2_id}_{video_id}_{cf}.avi', # None
             log_file=log_file
         )
 
         # for t in range(ret[-2].shape[2]):
         #     print(list(zip(*np.where(ret[-2][:, :, t]))))
 
-        detect_IDSW(*ret, log_file=log_file)
+        # detect_IDSW(*ret, log_file=IDSW_log_file)
 
         ##############################################################################################################
 
