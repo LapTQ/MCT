@@ -7,8 +7,11 @@ from datetime import datetime, timedelta
 import os
 from ortools.linear_solver import pywraplp
 from img_utils import iou_batch
+from map_utils import hungarian, map_timestamp
 import time
 
+import sys
+sys.path.append(sys.path[0] + '/../..')
 
 HERE = Path(__file__).parent
 
@@ -85,35 +88,6 @@ def trajectory_distance(traj1, traj2, kind):
     else:
         raise ValueError('Invalid value for kind')
 
-import sys
-sys.path.append(sys.path[0] + '/../..')
-from mct.utils.db_utils import Pymongo
-from scipy.optimize import linear_sum_assignment
-
-
-def bipartite_match(seq1, seq2):
-    n1 = len(seq1)
-    n2 = len(seq2)
-    if not isinstance(seq1, np.ndarray):
-        seq1 = np.array(seq1)
-    if not isinstance(seq2, np.ndarray):
-        seq2 = np.array(seq2)
-
-    assert len(seq1.shape) == len(seq2.shape) == 1, 'Invalid seq dimension, must be (N,)'
-    seq1 = np.expand_dims(seq1, axis=1)
-    seq2 = np.expand_dims(seq2, axis=0)
-
-    cost_matrix = np.abs(np.subtract(seq1, seq2))
-    list_idx1, list_idx2 = linear_sum_assignment(cost_matrix)
-
-    list_unmatched_idx1 = np.array([i for i in range(n1) if i not in list_idx1])
-    list_unmatched_idx2 = np.array([i for i in range(n2) if i not in list_idx2])
-
-    return (list_idx1, list_idx2), list_unmatched_idx1, list_unmatched_idx2
-
-
-from mct.utils.vis_utils import draw_track
-
 
 def get_homo(src, dst, video_version):
 
@@ -131,432 +105,6 @@ def get_roi(dst, video_version):
     roi = roi.reshape(-1, 1, 2).astype('int32')
 
     return roi
-
-def map_tracks(cam1, cam2, vid_id, video_version, sample_roi, use_iou, box_repr_kind, vis=False, export_video=False):
-
-    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection(video_version_to_db_name[video_version]).get_product()
-
-    list_tracks = list(mongo.collection.find({'videoid': vid_id, 'camid': {'$in': [cam1, cam2]}}))
-
-    mongo.close()
-
-    # just to get the frame height and width
-    # TODO: get frame height and width from database/config
-    cap1 = cv2.VideoCapture(
-        str(list(Path(HERE/f'../../data/recordings/{video_version}/videos').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
-    cap2 = cv2.VideoCapture(
-        str(list(Path(HERE/f'../../data/recordings/{video_version}/videos').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0]))
-    homo = get_homo(cam1, cam2, video_version)
-    roi = get_roi(cam2, video_version)
-
-    # categorize tracks by camid, and sample detections in ROI
-    by_camid = {cam1: {}, cam2: {}}
-    for track in list_tracks:
-        by_camid[track['camid']][track['trackid']] = track['detections']
-
-    distance_matrix = np.empty((len(by_camid[cam1]), len(by_camid[cam2])), dtype='float32')
-    iou_matrix = np.empty((len(by_camid[cam1]), len(by_camid[cam2])), dtype='float32')
-
-    track_indexes1 = {}
-    track_indexes2 = {}
-    for idx1, id1 in enumerate(by_camid[cam1]):
-        for idx2, id2 in enumerate(by_camid[cam2]):
-
-            track_indexes1[idx1] = id1
-            track_indexes2[idx2] = id2
-
-            # filter 1: sample time correspondences of 2 tracks
-            timestamps1 = [det['time'].timestamp() for det in by_camid[cam1][id1]]
-            timestamps2 = [det['time'].timestamp() for det in by_camid[cam2][id2]]
-
-            (matched_indexes1, matched_indexes2), unmatched_indexes1, unmatched_indexes2 = bipartite_match(timestamps1, timestamps2)
-            # print(f'[INFO] Number of points sampled from trackid {id1} and {id2}: {len(matched_indexes1)}')
-            sampled_boxes1 = [by_camid[cam1][id1][idx]['box'] for idx in matched_indexes1]
-            sampled_boxes2 = [by_camid[cam2][id2][idx]['box'] for idx in matched_indexes2]
-
-            repr_points1 = get_box_repr(sampled_boxes1, kind=box_repr_kind, midpoint=(cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-            repr_points2 = get_box_repr(sampled_boxes2, kind=box_repr_kind, midpoint=(cap2.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-
-            repr_points1_trans = cv2.perspectiveTransform(repr_points1.reshape(-1, 1, 2), homo)
-
-            if repr_points1_trans is None:
-                repr_points1_trans = np.empty((0, 2))
-            else:
-                repr_points1_trans = repr_points1_trans.reshape(-1, 2)
-
-            # filter 2: sample points in ROI
-            if sample_roi:
-                repr_points1_trans_roi = []
-                repr_points2_roi = []
-                for p1, p2 in zip(repr_points1_trans, repr_points2):
-                    if cv2.pointPolygonTest(roi, p1, True) >= -5 and cv2.pointPolygonTest(roi, p2, True) >= -5:
-                        repr_points1_trans_roi.append(p1)
-                        repr_points2_roi.append(p2)
-                repr_points1_trans = np.array(repr_points1_trans_roi).reshape(-1, 2)
-                repr_points2 = np.array(repr_points2_roi).reshape(-1, 2)
-
-            # TODO nghien cuu so luong match (VD iou), threshold
-            distance_matrix[idx1, idx2] = trajectory_distance(repr_points1_trans, repr_points2, kind='euclid')
-            iou_matrix[idx1, idx2] = len(matched_indexes1) / (len(matched_indexes1) + len(unmatched_indexes1) + len(unmatched_indexes2))
-
-            # after 2 filters, distance matrix may have nan
-
-    if use_iou:
-        cost_matrix = distance_matrix / iou_matrix
-    else:
-        cost_matrix = distance_matrix
-
-    print(track_indexes1, track_indexes2)
-    print(distance_matrix)
-    print(iou_matrix)
-    print(cost_matrix)
-
-    nan_mask = np.isnan(distance_matrix)
-    cost_matrix[nan_mask] = 1e9
-
-    matched_track_indexes1, matched_track_indexes2 = linear_sum_assignment(cost_matrix)
-
-    matched_track_ids1 = []
-    matched_track_ids2 = []
-    for idx1, idx2 in zip(matched_track_indexes1, matched_track_indexes2):
-        if not nan_mask[idx1, idx2]:
-            matched_track_ids1.append(track_indexes1[idx1])
-            matched_track_ids2.append(track_indexes2[idx2])
-
-    ret = []
-    for id1, id2 in zip(matched_track_ids1, matched_track_ids2):
-        ret.append(f'{cam1},{vid_id},{id1},{cam2},{vid_id},{id2}')
-
-    # ======================== VISUALIZATION ==========================
-    if vis or export_video:
-        correspondence = np.stack([matched_track_ids1, matched_track_ids2], axis=1)
-        LENGTH = 35
-        n_frames = int(min(cap1.get(cv2.CAP_PROP_FRAME_COUNT), cap2.get(cv2.CAP_PROP_FRAME_COUNT)))
-        if vis:
-            window_name = 'show'
-            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        history = {cam1: {}, cam2: {}}
-        writer_created = False
-        for frame_count in tqdm(range(1, n_frames + 1)):
-
-            success, frame1 = cap1.read()
-            success, frame2 = cap2.read()
-
-            dets1 = []
-            dets2 = []
-            for trackid in by_camid[cam1].keys():
-                for detection in by_camid[cam1][trackid]:
-                    if detection['frameid'] == frame_count:
-                        dets1.append([frame_count, trackid] + detection['box'] + [detection['score']])
-
-            for trackid in by_camid[cam2].keys():
-                for detection in by_camid[cam2][trackid]:
-                    if detection['frameid'] == frame_count:
-                        dets2.append([frame_count, trackid] + detection['box'] + [detection['score']])
-
-            dets1 = np.array(dets1).reshape(-1, 7)
-            dets2 = np.array(dets2).reshape(-1, 7)
-
-            coords1 = np.int32(np.stack([dets1[:, 2], dets1[:, 3], dets1[:, 2], dets1[:, 5], dets1[:, 4], dets1[:, 5], dets1[:, 4], dets1[:, 3]], axis=1).reshape(-1, 4, 1, 2))
-            coords2 = np.int32(np.stack([dets2[:, 2], dets2[:, 3], dets2[:, 2], dets2[:, 5], dets2[:, 4], dets2[:, 5], dets2[:, 4], dets2[:, 3]], axis=1).reshape(-1, 4, 1, 2))
-
-            points1 = get_box_repr(dets1[:, 2:6], kind=box_repr_kind, midpoint=(frame1.shape[1] // 2, frame1.shape[0]))
-            points2 = get_box_repr(dets2[:, 2:6], kind=box_repr_kind, midpoint=(frame2.shape[1] // 2, frame2.shape[0]))
-
-            points1_trans = cv2.perspectiveTransform(points1.reshape(-1, 1, 2), homo)
-            coords1_trans = cv2.perspectiveTransform(np.float32(coords1).reshape(-1, 1, 2), homo)
-            if points1_trans is None:
-                points1_trans = []
-                coords1_trans = []
-            else:
-                points1_trans = points1_trans.reshape(-1, 2)
-                coords1_trans = coords1_trans.reshape(-1, 4, 1, 2).astype('int32')
-
-            frame1_trans = cv2.warpPerspective(frame1, homo, (frame2.shape[1], frame2.shape[0]))
-
-            for id in history[cam1]:
-                if not np.any(dets1[:, 1] == id):
-                    history[cam1][id] = []
-            for id in history[cam2]:
-                if not np.any(dets2[:, 1] == id):
-                    history[cam2][id] = []
-
-            white = np.full((int(cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap2.get(cv2.CAP_PROP_FRAME_WIDTH)), 3), 0,
-                            dtype='uint8')
-            cv2.drawContours(white, [roi], -1, (255, 255, 255), 2)
-            cv2.drawContours(frame1_trans, [roi], -1, (255, 255, 255), 2)
-            cv2.drawContours(frame2, [roi], -1, (255, 255, 255), 2)
-
-            for pts, id, box_trans, box in zip(points1_trans, dets1[:, 1], coords1_trans, coords1):
-                id = int(id)
-                if id not in history[cam1]:
-                    history[cam1][id] = []
-                history[cam1][id].append(pts)
-                if len(history[cam1][id]) > LENGTH:
-                    del history[cam1][id][0]
-                color = COLORS[id % len(COLORS)]
-                cv2.polylines(frame1_trans, [box_trans], True, color, thickness=2)
-                cv2.polylines(frame1, [box], True, color, thickness=2)
-                frame1_trans = draw_track(frame1_trans, history[cam1][id], id=id, color=color, radius=5)
-                white = draw_track(white, history[cam1][id], id=id, color=color, radius=3, camid=cam1)
-
-            for pts, id, box in zip(points2, dets2[:, 1], coords2):
-                id = int(id)
-                if id not in history[cam2]:
-                    history[cam2][id] = []
-                history[cam2][id].append(pts)
-                if len(history[cam2][id]) > LENGTH:
-                    del history[cam2][id][0]
-                if len(correspondence[correspondence[:, 1] == id]) > 0:
-                    color = COLORS[correspondence[correspondence[:, 1] == id][0, 0] % len(COLORS)]
-                else:
-                    color = COLORS[(correspondence[:, 0].max() + 2 + id - correspondence[:, 1].min()) % len(COLORS)]
-                cv2.polylines(frame2, [box], True, color, thickness=2)
-                frame2 = draw_track(frame2, history[cam2][id], id=id, color=color, radius=5)
-                white = draw_track(white, history[cam2][id], id=id, color=color, radius=3, camid=cam2)
-
-            cv2.putText(white, f"{correspondence}", (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=2)
-
-            show_img = np.concatenate([
-                np.concatenate([frame1_trans, frame2], axis=1),
-                np.concatenate([frame1, white], axis=1)
-            ], axis=0)
-
-            if export_video:
-                if not writer_created:
-                    writer = cv2.VideoWriter(
-                        str(HERE/f'../../output/map_{cam1}_{cam2}_{vid_id}.avi'),
-                        cv2.VideoWriter_fourcc(*'XVID'),
-                        10.0,
-                        (show_img.shape[1], show_img.shape[0])
-                    )
-                    writer_created = True
-                else:
-                    writer.write(show_img)
-
-            if vis:
-                cv2.imshow(window_name, show_img)
-                key = cv2.waitKey(1)
-                if key == 27:
-                    break
-                elif key == ord('e'):
-                    exit(0)
-                elif key == ord(' '):
-                    cv2.waitKey(0)
-    # =====================================================================
-
-    return '\n'.join(ret)
-
-
-def analyze_homo(cam1, cam2, vid_id, video_version, correspondence, box_repr_kind, vis=False, export_video=False):
-
-    mongo = Pymongo.Builder('localhost', 1111).set_database('tracking').set_collection(
-        video_version_to_db_name[video_version]).get_product()
-
-    list_tracks = list(mongo.collection.find({'videoid': vid_id, 'camid': {'$in': [cam1, cam2]}}))
-
-    mongo.close()
-
-    # just to get the frame height and width
-    # TODO: get frame height and width from database/config
-    vid1_path = str(list(Path(HERE/f'../../data/recordings/{video_version}/videos').glob(f'{cam1}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
-    vid2_path = str(list(Path(HERE/f'../../data/recordings/{video_version}/videos').glob(f'{cam2}_{("00000" + str(vid_id))[-5:]}*.avi'))[0])
-    cap1 = cv2.VideoCapture(vid1_path)
-    cap2 = cv2.VideoCapture(vid2_path)
-    homo = get_homo(cam1, cam2, video_version)
-    roi = get_roi(cam2, video_version)
-
-    # categorize tracks by camid
-    by_camid = {cam1: {}, cam2: {}}
-    for track in list_tracks:
-        by_camid[track['camid']][track['trackid']] = track['detections']
-
-    fps = cap1.get(cv2.CAP_PROP_FPS)
-    vid1_starttime = datetime.strptime('_'.join(os.path.splitext(os.path.split(vid1_path)[1])[0].split('_')[2:]), '%Y-%m-%d_%H-%M-%S-%f')
-    n_frames1 = int(cap1.get(cv2.CAP_PROP_FRAME_COUNT))
-    vid1_endtime = vid1_starttime + timedelta(seconds=(n_frames1 - 1) / fps)
-    vid2_starttime = datetime.strptime('_'.join(os.path.splitext(os.path.split(vid2_path)[1])[0].split('_')[2:]), '%Y-%m-%d_%H-%M-%S-%f')
-    n_frames2 = int(cap2.get(cv2.CAP_PROP_FRAME_COUNT))
-    vid2_endtime = vid2_starttime + timedelta(seconds=(n_frames2 - 1) / fps)
-
-    min_timestamp = min(vid1_starttime.timestamp(), vid2_starttime.timestamp())
-    max_timestamp = max(vid1_endtime.timestamp(), vid2_endtime.timestamp())
-    frame_diff = int((vid2_starttime.timestamp() - vid1_starttime.timestamp()) * fps)
-    n_timestamp = int((max_timestamp - min_timestamp) * fps + 1)
-
-    timestampsa = np.linspace(min_timestamp, max_timestamp, n_timestamp)
-
-    distance_tensor = np.full((len(by_camid[cam1]), len(by_camid[cam2]), n_timestamp), 1e9, dtype='float32')
-    mask_tensor = np.full_like(distance_tensor, False, dtype='bool')
-    roi_tensor = np.full_like(distance_tensor, False, dtype='bool')
-
-    # sample time correspondences of 2 tracks
-    track_indexes1 = {}
-    track_indexes2 = {}
-    points_records = {}
-    for idx1, id1 in enumerate(by_camid[cam1]):
-        for idx2, id2 in enumerate(by_camid[cam2]):
-
-            track_indexes1[idx1] = id1
-            track_indexes2[idx2] = id2
-
-            timestamps1 = [det['time'].timestamp() for det in by_camid[cam1][id1]]
-            timestamps2 = [det['time'].timestamp() for det in by_camid[cam2][id2]]
-
-            (matched_indexes1, matched_indexesa1), _, _ = bipartite_match(timestamps1, timestampsa)
-            (matched_indexes2, matched_indexesa2), _, _ = bipartite_match(timestamps2, timestampsa)
-
-            overlap = [(time_idxa1, time_idx1, time_idx2)
-                       for (time_idx1, time_idxa1) in zip(matched_indexes1, matched_indexesa1)
-                       for (time_idx2, time_idxa2) in zip(matched_indexes2, matched_indexesa2)
-                       if time_idxa1 == time_idxa2]
-            for time_idxa, time_idx1, time_idx2 in overlap:
-                box1 = by_camid[cam1][id1][time_idx1]['box']
-                box2 = by_camid[cam2][id2][time_idx2]['box']
-
-                repr_points1 = get_box_repr([box1], kind=box_repr_kind, midpoint=(
-                    cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-                repr_points2 = get_box_repr([box2], kind=box_repr_kind, midpoint=(
-                    cap1.get(cv2.CAP_PROP_FRAME_WIDTH) // 2, cap1.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-                repr_points1_trans = cv2.perspectiveTransform(repr_points1.reshape(-1, 1, 2), homo).reshape(-1, 2)
-
-                if cv2.pointPolygonTest(roi, repr_points1_trans[0], True) >= -5 and cv2.pointPolygonTest(roi, repr_points2[0], True) >= -5:
-                    distance_tensor[idx1, idx2, time_idxa] = trajectory_distance(repr_points1_trans, repr_points2,
-                                                                                 kind='euclid')
-                    roi_tensor[idx1, idx2, time_idxa] = True
-                else:
-                    distance_tensor[idx1, idx2, time_idxa] = 1e9
-
-                mask_tensor[idx1, idx2, time_idxa] = True
-
-                coords1 = np.int32(
-                    [box1[0], box1[1], box1[0], box1[3], box1[2], box1[3], box1[2],
-                     box1[1]]).reshape(4, 1, 2)
-                coords2 = np.int32(
-                    [box2[0], box2[1], box2[0], box2[3], box2[2], box2[3], box2[2],
-                     box2[1]]).reshape(4, 1, 2)
-                coords1_trans = cv2.perspectiveTransform(np.float32(coords1), homo).astype('int32')
-
-                points_records[(time_idxa, id1, id2)] = (coords1, coords1_trans, coords2, repr_points1[0], repr_points1_trans[0], repr_points2[0])
-
-
-    if vis:
-        cv2.namedWindow(str(vid_id), cv2.WINDOW_NORMAL)
-    writer_created = False
-
-    count_total = 0
-    count_false = 0
-    false_distances = []
-    true_distances = []
-    frame_skipped = False
-    distance_tensor = distance_tensor[:, :, abs(frame_diff):]
-    mask_tensor = mask_tensor[:, :, abs(frame_diff):]
-    roi_tensor = roi_tensor[:, :, abs(frame_diff):]
-    n_timestamp -= abs(frame_skipped)
-    for frame_count in tqdm(range(n_timestamp)):
-        matches = []
-        matched_track_indexes1, matched_track_indexes2 = linear_sum_assignment(distance_tensor[:, :, frame_count])
-        matched_track_ids1 = [track_indexes1[idx] for idx in matched_track_indexes1]
-        matched_track_ids2 = [track_indexes2[idx] for idx in matched_track_indexes2]
-
-        if not frame_skipped:
-            for _ in range(abs(frame_diff)):
-                if frame_diff > 0:
-                    _, frame1 = cap1.read()
-                else:
-                    __, frame2 = cap2.read()
-            frame_skipped = True
-
-        _, frame1 = cap1.read()
-        __, frame2 = cap2.read()
-
-        if not (_ and __ and frame1 is not None and frame2 is not None):
-            if vis:
-                cv2.destroyAllWindows()
-            break
-
-        frame1_trans = cv2.warpPerspective(frame1, homo, (frame2.shape[1], frame2.shape[0]))
-
-        white = np.full((int(cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap2.get(cv2.CAP_PROP_FRAME_WIDTH)), 3), 0,
-                        dtype='uint8')
-        cv2.drawContours(white, [roi], -1, (255, 255, 255), 2)
-        cv2.drawContours(frame1_trans, [roi], -1, (255, 255, 255), 2)
-        cv2.drawContours(frame2, [roi], -1, (255, 255, 255), 2)
-
-        for idx1, idx2, id1, id2 in zip(matched_track_indexes1, matched_track_indexes2, matched_track_ids1, matched_track_ids2):
-
-            if mask_tensor[idx1, idx2, frame_count]:
-                matches.append((id1, id2))
-                count_total += 1
-
-                c1, c1_trans, c2, p1, p1_trans, p2 = points_records[(frame_count + abs(frame_diff), id1, id2)]
-                distance = np.sqrt(np.sum(np.square(p1_trans - p2)))
-
-                if (id1, id2) not in correspondence:
-                    count_false += 1
-                    tf_color = (0, 0, 255)
-                    false_distances.append(distance)
-                else:
-                    tf_color = (0, 255, 0)
-                    true_distances.append(distance)
-
-
-                if roi_tensor[idx1, idx2, frame_count]:
-                    cv2.line(white, np.int32(p1_trans), np.int32(p2), color=tf_color, thickness=3)
-
-                color1 = COLORS[id1 % len(COLORS)]
-                color2 = COLORS[id2 % len(COLORS)]
-
-                cv2.polylines(frame1_trans, [c1_trans], True, color1, thickness=2)
-                cv2.polylines(frame1, [c1], True, color1, thickness=2)
-                cv2.polylines(frame2, [c2], True, color2, thickness=2)
-                cv2.circle(frame1_trans, np.int32(p1_trans), radius=5, color=color1, thickness=-1)
-                cv2.circle(frame1, np.int32(p1), radius=5, color=color1, thickness=-1)
-                cv2.circle(frame2, np.int32(p2), radius=5, color=color2, thickness=-1)
-
-                cv2.circle(white, np.int32(p1_trans), radius=5, color=color1, thickness=-1)
-                cv2.putText(white, f'{cam1} ({id1})', (int(p1_trans[0]), int(p1_trans[1]) - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color1, thickness=2)
-
-                cv2.circle(white, np.int32(p2), radius=5, color=color2, thickness=-1)
-                cv2.putText(white, f'{cam2} ({id2})', (int(p2[0]), int(p2[1]) - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color2, thickness=2)
-
-        if vis or export_video:
-            show_img = np.concatenate(
-                [np.concatenate([frame1_trans, frame2], axis=1),
-                 np.concatenate([frame1, white], axis=1)],
-                axis=0
-            )
-            if vis:
-                cv2.imshow(str(vid_id), show_img)
-                key = cv2.waitKey(50)
-                if key == 27:
-                    cv2.destroyAllWindows()
-                    break
-                elif key == ord('e'):
-                    exit(0)
-                elif key == ord(' '):
-                    cv2.waitKey(0)
-            if export_video:
-                if not writer_created:
-                    writer = cv2.VideoWriter(
-                        str(HERE / f'../../output/check_frame_{cam1}_{cam2}_{vid_id}.avi'),
-                        cv2.VideoWriter_fourcc(*'XVID'),
-                        10.0,
-                        (show_img.shape[1], show_img.shape[0])
-                    )
-                    writer_created = True
-                else:
-                    writer.write(show_img)
-        # print(matches, correspondence)
-
-    if vis:
-        cv2.destroyAllWindows()
-
-    print(f'{vid_id} -> False: {count_false}/{count_total} =', count_false/count_total)
-    print(f'true distances: {true_distances}')
-    print(f'false distances: {false_distances}')
 
 
 def input_sct_from(txt_path, delimeter, midpoint, box_repr_kind, **kwargs):
@@ -616,122 +164,6 @@ def input_sct_from(txt_path, delimeter, midpoint, box_repr_kind, **kwargs):
 
 
     return OT, OX, OY, OS, OX_no_trans, OY_no_trans, OS_no_trans
-
-
-def make_true_sct_gttracker_correspondences_v1(gt_txt_path, tracker_txt_path, midpoint, box_repr_kind, **kwargs):
-    # options for kwargs: homo, roi, use_iou
-    # output of this function is saved in true_sct_gttracker_correspondences.txt
-
-    # CONCERN ON OVERLAPPING REGION ONLY
-    OT, OX, OY, OS, OX_no_trans, OY_no_trans, OS_no_trans = input_sct_from(gt_txt_path, delimeter=',', midpoint=midpoint, box_repr_kind=box_repr_kind, **kwargs)
-    HT, HX, HY, HS, HX_no_trans, HY_no_trans, HS_no_trans = input_sct_from(tracker_txt_path, delimeter=None, midpoint=midpoint, box_repr_kind=box_repr_kind, **kwargs)
-
-    N = OT.shape[0]
-    M = HT.shape[0]
-    T = max(OT.shape[1], HT.shape[1])
-
-    # pad 0 to equalize temporal dimension
-    OT = np.pad(OT, ((0, 0), (0, T - OT.shape[1])), mode='constant', constant_values=0)
-    OX = np.pad(OX, ((0, 0), (0, T - OX.shape[1])), mode='constant', constant_values=-1)
-    OY = np.pad(OY, ((0, 0), (0, T - OY.shape[1])), mode='constant', constant_values=-1)
-    OS = np.pad(OS, ((0, 0), (0, T - OS.shape[1]), (0, 0)), mode='constant', constant_values=-1)
-    OX_no_trans = np.pad(OX_no_trans, ((0, 0), (0, T - OX_no_trans.shape[1])), mode='constant', constant_values=-1)
-    OY_no_trans = np.pad(OY_no_trans, ((0, 0), (0, T - OY_no_trans.shape[1])), mode='constant', constant_values=-1)
-    OS_no_trans = np.pad(OS_no_trans, ((0, 0), (0, T - OS_no_trans.shape[1]), (0, 0)), mode='constant',
-                         constant_values=-1)
-    HT = np.pad(HT, ((0, 0), (0, T - HT.shape[1])), mode='constant', constant_values=0)
-    HX = np.pad(HX, ((0, 0), (0, T - HX.shape[1])), mode='constant', constant_values=-1)
-    HY = np.pad(HY, ((0, 0), (0, T - HY.shape[1])), mode='constant', constant_values=-1)
-    HS = np.pad(HS, ((0, 0), (0, T - HS.shape[1]), (0, 0)), mode='constant', constant_values=-1)
-    HX_no_trans = np.pad(HX_no_trans, ((0, 0), (0, T - HX_no_trans.shape[1])), mode='constant', constant_values=-1)
-    HY_no_trans = np.pad(HY_no_trans, ((0, 0), (0, T - HY_no_trans.shape[1])), mode='constant', constant_values=-1)
-    HS_no_trans = np.pad(HS_no_trans, ((0, 0), (0, T - HS_no_trans.shape[1]), (0, 0)), mode='constant',
-                         constant_values=-1)
-
-    OH_overlap = np.zeros((N, M), dtype='bool')
-    for i in range(N):
-        for j in range(M):
-            if np.any(OT[i] * HT[j]):
-                OH_overlap[i, j] = True
-
-    # compute cost when map Oi to Hj
-    cost = np.empty((N, M), dtype='float32')
-    for i in range(N):
-        for j in range(M):
-            # TODO xem lai cho cost va weight nay
-            # if Oi and Hj have overlap
-            if OH_overlap[i, j]:
-                idx = np.where(OT[i] * HT[j])
-                iou = sum(np.logical_and(OT[i], HT[j])) / sum(np.logical_or(OT[i], HT[j]))   # IoU is better
-
-                if 'use_iou' not in kwargs or not kwargs['use_iou']:
-                    np.mean(np.square(OX[i, idx] - HX[j, idx]) + np.square(OY[i, idx] - HY[j, idx]))
-                else:
-                    cost[i, j] = - np.mean(
-                        [iou_batch(
-                            OS[i, t, [0, 1, 4, 5]].reshape(1, 4),
-                            HS[j, t, [0, 1, 4, 5]].reshape(1, 4))
-                        for t in idx[0]])
-
-                cost[i, j] /= iou
-            # if Oi and Hj have no overlap
-            else:
-                cost[i, j] = 1e9
-
-    solver = pywraplp.Solver.CreateSolver('SCIP')
-
-    X = np.array([[solver.IntVar(0, 1, f'X[{i}, {j}]') for j in range(M)] for i in range(N)])
-
-    # constraint 1: each Oi is mapped to >= 0 Hj
-    # for i in range(N):
-    #     solver.Add(sum(X[i, j] for j in range(M)) >= 0)
-
-    # constraint 2: each Hj is mapped to <= 1 Oi
-    for j in range(M):
-        solver.Add(sum(X[i, j] for i in range(N)) <= 1)
-
-    # # constraint 3: every Hj1 and Hj2 mapped to a same Oi must not overlap (????????)
-    # for i in range(N):
-    #     for k in range(M - 1):
-    #         for q in range(k + 1, M):
-    #             for t in range(T):
-    #                     solver.Add(X[i, k] * HT[k, t] + X[i, q] * HT[q, t] <= 1)
-
-    # constraint 4: force minimum independent Hj
-    for t in range(T):
-        n_O_present = np.sum(OT[:, t])
-        n_H_present = np.sum(HT[:, t])
-        O_present = np.where(OT[:, t])[0].tolist()
-        H_present = np.where(HT[:, t])[0].tolist()
-        for j in H_present:
-            for i in range(N):
-                if i not in O_present and OH_overlap[i, j]:
-                    O_present.append(i)
-                    n_O_present += 1
-        if n_H_present > 0:
-            solver.Add(sum(X[i, j] for i in range(N) for j in H_present) == min(n_O_present, n_H_present))
-
-    # objective function
-    # chỉ xét những cặp được map với nhau (X[i, j])
-    Y = sum(X[i, j] * cost[i, j] for i in range(N) for j in range(M))
-    # - 1e4 * sum(X[i, j] for i in range(N) for j in range(M)) #
-
-    solver.Minimize(Y)
-
-    print('Solving')
-    status = solver.Solve()
-    print('Done')
-
-    if status == pywraplp.Solver.OPTIMAL:
-        objective_value = solver.Objective().Value()
-        optimal_solution = [(i, j) for i in range(N) for j in range(M) if X[i, j].solution_value() == 1] # {i: [j for j in range(M) if X[i, j].solution_value() == 1] for i in range(N)}
-        print(optimal_solution)
-        print(objective_value)
-    else:
-        print("INFEASIBLE")
-        optimal_solution = []
-
-    return optimal_solution
 
 
 def input_mct_from(txt_path, delimeter, fps, midpoint, box_repr_kind, **kwargs):
@@ -799,92 +231,17 @@ def input_mct_from(txt_path, delimeter, fps, midpoint, box_repr_kind, **kwargs):
     return OT, OX, OY, OTT, OS, OX_no_trans, OY_no_trans, OS_no_trans
 
 
-def map_timestamp(ATT, BTT, diff_thresh=None):
-    # all params must be in seconds (not milliseconds or anything else)
-
-    T1 = len(ATT)
-    T2 = len(BTT)
-
-    if diff_thresh is None:
-        diff_thresh = float('inf')
-
-    if not isinstance(ATT, np.ndarray):
-        ATT = np.array(ATT)
-    if not isinstance(BTT, np.ndarray):
-        BTT = np.array(BTT)
-
-    assert len(ATT.shape) == len(BTT.shape) == 1, 'Invalid seq dimension, must be (N,)'
-
-    X = np.zeros((T1, T2), dtype='int32')
-
-    valid_pairs = [(abs(ATT[i] - BTT[j]), i, j)
-                   for i in range(T1)
-                   for j in range(T2)
-                   if abs(ATT[i] - BTT[j]) <= diff_thresh]
-    valid_pairs = sorted(valid_pairs)
-
-    def _is_crossing(i, j):
-
-        for i_optimal, j_optimal in zip(*np.where(X)):
-            if (ATT[i] - ATT[i_optimal])*(BTT[j] - BTT[j_optimal]) <= 0:
-                return True
-
-        return False
-
-    for _, i, j in valid_pairs:
-        if not np.any(X[i, :]) and not np.any(X[:, j]) and not _is_crossing(i, j):
-            X[i, j] = 1
-
-    return X
-
-
-def make_true_mct_trackertracker_correspondences_v1(
-        cam1_tracker_path, cam2_tracker_path,
-        fps1, fps2,
-        midpoint1, midpoint2,
-        mct_gtgt_correspondences,
-        sct_gttracker_correspondences,
-        homo,
-        roi,
-        box_repr_kind
-):
-
-    C1T, C1X, C1Y, C1TT, _, _, _, _ = input_mct_from(cam1_tracker_path, delimeter=None, fps=fps1, midpoint=midpoint1, box_repr_kind=box_repr_kind, homo=homo, roi=roi)
-    C2T, C2X, C2Y, C2TT, _, _, _, _ = input_mct_from(cam2_tracker_path, delimeter=None, fps=fps2, midpoint=midpoint2, box_repr_kind=box_repr_kind, roi=roi)
-
-    T1 = C1T.shape[1]
-    T2 = C2T.shape[1]
-
-    time_correspondences = map_timestamp(C1TT, C2TT, diff_thresh=1)
-
-    ret = []
-
-    for o_c1, o_c2 in mct_gtgt_correspondences:
-        o_c1_h_list = [pair[1] for pair in sct_gttracker_correspondences[0] if pair[0] == o_c1]
-        o_c2_h_list = [pair[1] for pair in sct_gttracker_correspondences[1] if pair[0] == o_c2]
-
-        for h_c1 in o_c1_h_list:
-            for h_c2 in o_c2_h_list:
-
-                h_c1_present = C1T[h_c1].reshape(-1, 1) @ np.ones((1, T2), dtype='int32')
-                h_c2_present = np.ones((T1, 1), dtype='int32') @ C2T[h_c2].reshape(1, -1)
-                h_c1_and_h_c2_present = h_c1_present * h_c2_present * time_correspondences
-                if np.any(h_c1_and_h_c2_present):
-                    ret.append((h_c1, h_c2))
-
-    return ret
-
-
-
 class IQRFilter:
     def __init__(self, q1=25, q2=75):
         self.q1 = q1
         self.q2 = q2
 
     def run(self, distances):
+        print('[DEBUG] Calculating upper bound for distance using IQR')
         p1, p2 = np.percentile(distances, [self.q1, self.q2])
         iqr = p2 - p1
         upper_bound = p2 + 1.5 * iqr
+        print('[DEBUG] Upper bound =', upper_bound)
         return upper_bound
 
 
@@ -894,7 +251,8 @@ class GMMFilter:
         self.std_coef = std_coef
 
     def run(self, distances):
-        np.random.seed(24)
+        print('[DEBUG] Calculating upper bound for distance using GMM')
+        np.random.seed(42)
         from sklearn.mixture import GaussianMixture
         gmm_error_handled = False
         reg_covar = 1e-6
@@ -909,6 +267,14 @@ class GMMFilter:
         smaller_component = np.argmin(gm.means_)
         upper_bound = gm.means_[smaller_component] + self.std_coef * np.sqrt(gm.covariances_[smaller_component])
         print(f'[DEBUG] smaller component has mean = {min(gm.means_)} and std = {np.sqrt(gm.covariances_[smaller_component])}')
+        print('[DEBUG] Upper bound =', upper_bound)
+
+        # filter out false matches due to missing detection boxes
+        import matplotlib.pyplot as plt
+        plt.hist(distances.flatten(), bins=42)
+        plt.plot([upper_bound, upper_bound], plt.ylim())
+        plt.show()
+
         return upper_bound
 
 
@@ -953,7 +319,7 @@ def make_true_sct_gttracker_correspondences_v2(
                 else:
                     cost[i, j] = - iou_batch([OS_no_trans[o, t, [0, 1, 4, 5]]], [HS_no_trans[h, t, [0, 1, 4, 5]]])
 
-        i_matched_list, j_matched_list = linear_sum_assignment(cost)
+        i_matched_list, j_matched_list = hungarian(cost)
         for i, j in zip(i_matched_list, j_matched_list):
             o = O_present_list[i]
             h = H_present_list[j]
@@ -961,13 +327,14 @@ def make_true_sct_gttracker_correspondences_v2(
             distances[o, h, t] = cost[i, j]
 
     # filter out false matches due to missing detection boxes
-    # import seaborn as sns
     # import matplotlib.pyplot as plt
-    # sns.kdeplot(distances[X == 1].flatten())
+    # plt.hist(distances[X == 1].flatten(), bins=42)
     # plt.show()
     if filter is not None:
         boundary = filter(distances[X == 1].reshape(-1, 1))
         X = np.where(distances > boundary, 0, X)
+
+    print('[DEBUG] Number of matches:', np.sum(X))
 
     return OT, HT, OX, HX, OY, HY, OS, HS, OX_no_trans, HX_no_trans, OY_no_trans, HY_no_trans, OS_no_trans, HS_no_trans, np.eye(T, T, dtype='int32'), X, X
 
@@ -1023,6 +390,7 @@ def mct_mapping(
         homo,
         roi,
         filter,
+        max_filter_iters,
         box_repr_kind,
         window_size=1,
         window_boundary=0,
@@ -1051,96 +419,106 @@ def mct_mapping(
 
     print(f'[INFO] Mapping timestamp time: {end_map_timestamp - start_map_timestamp:.2f}s')
 
-    X = np.zeros((N1, N2, T1), dtype='int32')   # T1 or T2 is either the same =)
-    distances = np.empty((N1, N2, T1), dtype='float32')
-
     map_frame_time = 0
-    for t1 in range(T1):     # because I chose T1 as a dim of X
-        start_map_frame = time.time()
-        if not np.any(time_correspondences[t1]):
-            continue
+    X_prev = np.zeros((N1, N2, T1), dtype='int32')  # T1 or T2 is either the same =)
+    gate_prev = np.ones((N1, N2, T1), dtype='int32')
+    for filter_iter in range(max_filter_iters):
+        X = np.zeros((N1, N2, T1), dtype='int32')
+        distances = np.empty((N1, N2, T1), dtype='float32')
+        for t1 in range(T1):     # because I chose T1 as a dim of X
+            start_map_frame = time.time()
+            if not np.any(time_correspondences[t1]):
+                continue
 
-        t2 = np.where(time_correspondences[t1])[0].item()
+            t2 = np.where(time_correspondences[t1])[0].item()
 
-        H1_present_list = np.where(C1T[:, t1])[0]
-        H2_present_list = np.where(C2T[:, t2])[0]
+            H1_present_list = np.where(C1T[:, t1])[0]
+            H2_present_list = np.where(C2T[:, t2])[0]
 
-        cost = np.empty((len(H1_present_list), len(H2_present_list)), dtype='float32')
-        for i1, h1 in enumerate(H1_present_list):
-            for i2, h2 in enumerate(H2_present_list):
-                # sample up to window_size frames that h1, h2 co-occurs, but not exceed window_boundary in each direction
-                left_counter = 0
-                right_counter = 0
-                window_h1_loc = [[C1X[h1, t1], C1Y[h1, t1]]]
-                window_h2_loc = [[C2X[h2, t2], C2Y[h2, t2]]]
-                for i in range(1, window_boundary + 1):
-                    if left_counter + 1 > (window_size - 1) / 2:
-                        break
+            cost = np.empty((len(H1_present_list), len(H2_present_list)), dtype='float32')
+            sub_gate = np.empty((len(H1_present_list), len(H2_present_list)), dtype='int32')
+            for i1, h1 in enumerate(H1_present_list):
+                for i2, h2 in enumerate(H2_present_list):
+                    # sample up to window_size frames that h1, h2 co-occurs, but not exceed window_boundary in each direction
+                    left_counter = 0
+                    right_counter = 0
+                    window_h1_loc = [[C1X[h1, t1], C1Y[h1, t1]]]
+                    window_h2_loc = [[C2X[h2, t2], C2Y[h2, t2]]]
+                    for i in range(1, window_boundary + 1):
+                        if left_counter + 1 > (window_size - 1) / 2:
+                            break
 
-                    temp_t1 = t1 - i
-                    if temp_t1 < 0 or not np.any(time_correspondences[temp_t1]):
-                        continue
-                    temp_t2 = np.where(time_correspondences[temp_t1])[0].item()
+                        temp_t1 = t1 - i
+                        if temp_t1 < 0 or not np.any(time_correspondences[temp_t1]):
+                            continue
+                        temp_t2 = np.where(time_correspondences[temp_t1])[0].item()
 
-                    if not C1T[h1, temp_t1] or not C2T[h2, temp_t2]:
-                        continue
+                        if not C1T[h1, temp_t1] or not C2T[h2, temp_t2]:
+                            continue
 
-                    left_counter += 1
-                    window_h1_loc.append([C1X[h1, temp_t1], C1Y[h1, temp_t1]])
-                    window_h2_loc.append([C2X[h2, temp_t2], C2Y[h2, temp_t2]])
+                        left_counter += 1
+                        window_h1_loc.append([C1X[h1, temp_t1], C1Y[h1, temp_t1]])
+                        window_h2_loc.append([C2X[h2, temp_t2], C2Y[h2, temp_t2]])
 
-                for i in range(1, window_boundary + 1):
-                    if right_counter + 1 > (window_size - 1) / 2:
-                        break
+                    for i in range(1, window_boundary + 1):
+                        if right_counter + 1 > (window_size - 1) / 2:
+                            break
 
-                    temp_t1 = t1 + i
-                    if temp_t1 >= T1 or not np.any(time_correspondences[temp_t1]):
-                        continue
-                    temp_t2 = np.where(time_correspondences[temp_t1])[0].item()
+                        temp_t1 = t1 + i
+                        if temp_t1 >= T1 or not np.any(time_correspondences[temp_t1]):
+                            continue
+                        temp_t2 = np.where(time_correspondences[temp_t1])[0].item()
 
-                    if not C1T[h1, temp_t1] or not C2T[h2, temp_t2]:
-                        continue
+                        if not C1T[h1, temp_t1] or not C2T[h2, temp_t2]:
+                            continue
 
-                    right_counter += 1
-                    window_h1_loc.append([C1X[h1, temp_t1], C1Y[h1, temp_t1]])
-                    window_h2_loc.append([C2X[h2, temp_t2], C2Y[h2, temp_t2]])
+                        right_counter += 1
+                        window_h1_loc.append([C1X[h1, temp_t1], C1Y[h1, temp_t1]])
+                        window_h2_loc.append([C2X[h2, temp_t2], C2Y[h2, temp_t2]])
 
-                # cost[i1, i2] = np.sqrt((C1X[h1, t1] - C2X[h2, t2])**2 + (C1Y[h1, t1] - C2Y[h2, t2])**2)
-                cost[i1, i2] = np.mean(
-                    np.sqrt(np.sum(
-                        np.square(np.array(window_h1_loc) - np.array(window_h2_loc)),
-                        axis=1,
-                        keepdims=False
-                    ))
-                )
+                    # cost[i1, i2] = np.sqrt((C1X[h1, t1] - C2X[h2, t2])**2 + (C1Y[h1, t1] - C2Y[h2, t2])**2)
+                    cost[i1, i2] = np.mean(
+                        np.sqrt(np.sum(
+                            np.square(np.array(window_h1_loc) - np.array(window_h2_loc)),
+                            axis=1,
+                            keepdims=False
+                        ))
+                    )
 
-        i1_matched_list, i2_matched_list = linear_sum_assignment(cost)
-        for i1, i2 in zip(i1_matched_list, i2_matched_list):
-            h1 = H1_present_list[i1]
-            h2 = H2_present_list[i2]
-            X[h1, h2, t1] = 1
-            distances[h1, h2, t1] = cost[i1, i2]
-        end_map_frame = time.time()
-        map_frame_time = 0.5 * map_frame_time + 0.5 * (end_map_frame - start_map_frame)
+                    sub_gate[i1, i2] = gate_prev[h1, h2, t1]
+
+            i1_matched_list, i2_matched_list = hungarian(cost, sub_gate)
+            for i1, i2 in zip(i1_matched_list, i2_matched_list):
+                h1 = H1_present_list[i1]
+                h2 = H2_present_list[i2]
+                X[h1, h2, t1] = 1
+                distances[h1, h2, t1] = cost[i1, i2]
+            end_map_frame = time.time()
+            map_frame_time = 0.5 * map_frame_time + 0.5 * (end_map_frame - start_map_frame)
+
+        if filter is None:
+            break
+
+        start_filter_time = time.time()
+        boundary = filter(distances[X == 1].reshape(-1, 1))
+        gate_prev = np.where(np.logical_and(X == 1, distances > boundary), 0, 1)
+        X = np.where(distances > boundary, 0, X)
+        if np.all(X == X_prev):
+            break
+        X_prev = X
+
+        end_filter_time = time.time()
+        print('[DEBUG] Number of matches:', np.sum(X))
+
     print(f'[INFO] Mapping object per frame time: {map_frame_time:.2f}s')
 
-    # filter out false matches due to missing detection boxes
-    # import seaborn as sns
-    # import matplotlib.pyplot as plt
-    # sns.kdeplot(distances[X == 1].flatten())
-    # plt.show()
-    start_filter_time = time.time()
-    if filter is not None:
-        boundary = filter(distances[X == 1].reshape(-1, 1))
-        X = np.where(distances > boundary, 0, X)
-    end_filter_time = time.time()
 
     print(f'[INFO] Filter time: {end_filter_time - start_filter_time:.2f}s')
     print(f'[INFO] Total mapping time: {end_filter_time - start_preprocess:.2f}s')
 
     # just to show without timestamp details
-    X_notime = np.any(X, axis=2)
-    X_notime = list(zip(*np.where(X_notime == 1)))
+    # X_notime = np.any(X, axis=2)
+    # X_notime = list(zip(*np.where(X_notime == 1)))
 
     # for error analysis
     if 'true_mct_trackertracker_correspondences' in kwargs:
@@ -1419,36 +797,10 @@ def detect_IDSW(
         _process_track('CAM_2', h2, maps_of_h2, np.swapaxes(X_pred, 0, 1), C1T, time_correspondences)
 
 
-
-
-
-
-def evaluate(true_path, pred_path):
-    with open(true_path, 'r') as f:
-        true = set(l[:-1] for l in f.readlines())
-    with open(pred_path, 'r') as f:
-        pred = set(l[:-1] for l in f.readlines())
-
-    TP = true.intersection(pred)
-    FP = pred.difference(true)
-    FN = true.difference(pred)
-    print('TP', len(TP))
-    print('FP', len(FP))
-    print('FN', len(FN))
-    precision = len(TP) / (len(TP) + len(FP))
-    recall = len(TP) / (len(TP) + len(FN))
-    print('Precision', precision)
-    print('Recall', recall)
-    print('F1', 2*precision*recall/(precision + recall))
-    print(FP)
-    print(FN)
-
-
 # TODO (tomorrow):
 #  1. hàm tính khoảng cách 2 track (euclid, Hausdorff, DTW)
 #  2. hàm match các điểm của 2 track
 #  3. hàm smooth bằng kalman/moving average cho track
-
 
 
 if __name__ == '__main__':
@@ -1474,6 +826,9 @@ if __name__ == '__main__':
     video_version = '2d_v3'
     TRACKER_NAME = 'YOLOv8l_pretrained-640-ByteTrack'
     filter_type = 'IQR'  # None, 'GMM', 'IQR'
+    max_filter_iters = 2
+    IQR_lower = 30
+    IQR_upper = 70
     window_size = 1
     window_boundary = 0
 
@@ -1491,16 +846,16 @@ if __name__ == '__main__':
         filter = GMMFilter(n_components=2, std_coef=3).run
         # gttracker_filter = GMMFilter(n_components=1, std_coef=3).run
     elif filter_type == 'IQR':
-        filter = IQRFilter(30, 70).run
+        filter = IQRFilter(IQR_lower, IQR_upper).run
         # gttracker_filter = IQRFilter(25, 75).run
     else:
         filter = None
         # gttracker_filter = None
 
-    cf = f'{filter_type if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
+    cf = f'{("GMM" if filter_type == "GMM" else "IQR" + str(IQR_lower) + str(IQR_upper)) if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
     log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cf}.txt'), 'w')
     IDSW_log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/IDSW_{cf}.txt'), 'w')
-    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + filter_type if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
+    print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + ("GMM" if filter_type == "GMM" else "IQR" + str(IQR_lower) + str(IQR_upper)) if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
 
     for video_id in tqdm(range_):
 
@@ -1555,7 +910,7 @@ if __name__ == '__main__':
         #     roi,
         #     *ret1,
         #     display=False,
-        #     export_video=f'true_mct_gttracker_correspondences_{TRACKER_NAME}_{cam1_id}_{video_id}.avi',
+        #     export_video=f'true_sct_gttracker_correspondences_{TRACKER_NAME}_{cam1_id}_{video_id}.avi',
         #     checking_true_gttracker=True
         # )
         # error_analysis_mct_mapping(
@@ -1564,7 +919,7 @@ if __name__ == '__main__':
         #     roi,
         #     *ret2,
         #     display=False,
-        #     export_video=f'true_mct_gttracker_correspondences_{TRACKER_NAME}_{cam2_id}_{video_id}.avi',
+        #     export_video=f'true_sct_gttracker_correspondences_{TRACKER_NAME}_{cam2_id}_{video_id}.avi',
         #     checking_true_gttracker=True
         # )
         # continue
@@ -1619,12 +974,13 @@ if __name__ == '__main__':
             homo,
             roi,
             filter=filter,
+            max_filter_iters=max_filter_iters,
             box_repr_kind=box_repr_kind,
             window_size=window_size,
             window_boundary=window_boundary,
             true_mct_trackertracker_correspondences=ret[-1], # COMMENT OUT IF NOT ERROR ANALYSIS OR DETECT IDSW
         )
-        # COMMENT OUT IF NOT ERROR ANALYSIS
+        # # COMMENT OUT IF NOT ERROR ANALYSIS
         error_analysis_mct_mapping(
             cap1, cap2,
             homo,
@@ -1644,8 +1000,5 @@ if __name__ == '__main__':
 
     # f.close()
     # '''
-    # evaluate(f'../../data/recordings/{video_version}/{TRACKER_NAME}/true_mct_trackertracker_correspondences.txt',
-    #          f'../../data/recordings/{video_version}/{TRACKER_NAME}/pred_mct_trackertracker_correspondences.txt')
-
 
 
