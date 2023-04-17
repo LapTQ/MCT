@@ -12,12 +12,12 @@ def hungarian(cost, gate=None):
     assert cost.shape == gate.shape, 'cost and gate must be of the same size'
     cost = cost.copy()
     outliers = cost[gate == 0]
-    thresh = min(outliers) if len(outliers) > 0 else 1e9
+    thresh = min(outliers) if len(outliers) > 0 else 1e9    # 1e9 instead of Inf due to linear_sum_assignment does not accept maxtrix full of Inf
     cost = np.where(cost < thresh, cost, 1e9)
     i_matches, j_matches = linear_sum_assignment(cost)
     i_matches_new, j_matches_new = [], []
     for i, j in zip(i_matches, j_matches):
-        if gate[i, j] == 1:
+        if cost[i, j] < thresh: # do not use gate[i, j] == 1
             i_matches_new.append(i)
             j_matches_new.append(j)
     return i_matches_new, j_matches_new

@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
 
-SRC_DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-1280-StrongSORT/sct'
-DST_DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-1280-StrongSORT/sct'
+SRC_DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct'
+DST_DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct'
 EXTENSION = '.txt'
 
 filenames = [name for name in os.listdir(SRC_DIR) if name.endswith(EXTENSION)]

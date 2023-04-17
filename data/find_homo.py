@@ -5,14 +5,19 @@ import argparse
 
 HERE = Path(__file__).parent
 
-# CAM1 = str(HERE / 'recordings/2d_v1/videos/21_00000_2022-11-03_14-56-57-643967.avi')
-# CAM2 = str(HERE / 'recordings/2d_v1/videos/27_00000_2022-11-03_14-56-56-863473.avi')
+#CAM1 = str(HERE / 'recordings/2d_v1/videos/21_00000_2022-11-03_14-56-57-643967.avi')
+#CAM2 = str(HERE / 'recordings/2d_v1/videos/27_00000_2022-11-03_14-56-56-863473.avi')
 
-# CAM1 = str(HERE / 'recordings/2d_v2/videos/21_00019_2022-12-02_18-15-20-498917.avi')
-# CAM2 = str(HERE / 'recordings/2d_v2/videos/27_00019_2022-12-02_18-15-21-292795.avi')
+#CAM1 = str(HERE / 'recordings/2d_v2/videos/21_00019_2022-12-02_18-15-20-498917.avi')
+#CAM2 = str(HERE / 'recordings/2d_v2/videos/27_00019_2022-12-02_18-15-21-292795.avi')
 
 CAM1 = str(HERE / 'recordings/2d_v3/frames/frame_cam121.png')
 CAM2 = str(HERE / 'recordings/2d_v3/frames/frame_cam127.png')
+
+#CAM1 = str(HERE / 'recordings/2d_v4/frames/frame_cam41.png')
+#CAM2 = str(HERE / 'recordings/2d_v4/frames/frame_cam42_1.png')
+#CAM1 = str(HERE / 'recordings/2d_v4/frames/frame_cam42_2.png')
+#CAM2 = str(HERE / 'recordings/2d_v4/frames/frame_cam43.png')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -28,7 +33,7 @@ def parse_opt():
 
     ap.add_argument('--src', type=str, required=True)
     ap.add_argument('--dst', type=str, required=True)
-    ap.add_argument('--homo_out_path', type=str, default=None)
+    ap.add_argument('--matches_out_path', type=str, default=None)
     ap.add_argument('--roi_out_path', type=str, default=None)
     ap.add_argument('--video', action='store_true')
 
@@ -47,8 +52,8 @@ def extract_frame(cap):
 
 def select_matches(src, dst):
 
-    # return (np.array([[[530, 447]], [[476, 485]], [[525, 235]], [[627, 268]], [[616, 626]], [[710, 403]], [[814, 635]], [[708, 283]]], dtype='float32'),
-    #         np.array([[[736, 488]], [[703, 445]], [[1034, 528]], [[984, 622]], [[532, 499]], [[753, 659]], [[450, 631]], [[963, 698]]], dtype='float32'))
+    # return (np.array([[530, 447], [476, 485], [525, 235], [627, 268], [616, 626], [710, 403], [814, 635], [708, 283]], dtype='int32'),
+    #         np.array([[736, 488], [703, 445], [1034, 528], [984, 622], [532, 499], [753, 659], [450, 631], [963, 698]], dtype='int32'))
 
     global img
     global src_pts
@@ -102,8 +107,8 @@ def select_matches(src, dst):
 
     cv2.destroyAllWindows()
 
-    return (np.array(src_pts).reshape(-1, 1, 2).astype('float32'),
-            np.array(dst_pts).reshape(-1, 1, 2).astype('float32'))
+    return (np.array(src_pts, dtype='int32'), 
+            np.array(dst_pts, dtype='int32'))
 
 
 def select_ROI(src, dst, homo):
@@ -212,10 +217,13 @@ def main(opt):
     while True:
         window_name = 'PREVIEW RESULT OF SELECTING MATCHES: <y> to submit. <ESC> to reset'
         src_pts, dst_pts = select_matches(src, dst)
+        # matches = np.loadtxt('recordings/2d_v3/matches_121_to_127.txt', dtype='int32')
+        # src_pts, dst_pts = matches[:, :2], matches[:, 2:]
+        src_pts = src_pts.astype('float32').reshape(-1, 1, 2)
+        dst_pts = dst_pts.astype('float32').reshape(-1, 1, 2)
         print(src_pts)
         print(dst_pts)
         H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
-        # H = np.loadtxt('recordings/2d_v3/homo_121_to_127.txt')
 
         src_transformed = cv2.warpPerspective(src, H, (dst.shape[1], dst.shape[0]))
 
@@ -235,11 +243,12 @@ def main(opt):
 
     contour = select_ROI(src, dst, H)
 
-    if opt['homo_out_path'] is not None:
-        np.savetxt(opt['homo_out_path'], H)
-        print('[INFO] Homography saved in', opt['homo_out_path'])
+    if opt['matches_out_path'] is not None:
+        matches = np.concatenate([src_pts.reshape(-1, 2), dst_pts.reshape(-1, 2)], axis=1)
+        np.savetxt(opt['matches_out_path'], matches)
+        print('[INFO] Matches saved in', opt['matches_out_path'])
     else:
-        print('[INFO] Not save homography\n...Printing result to stdout\nH =', H)
+        print('[INFO] Not save matches\n...Printing result to stdout\nH =', matches)
 
     if opt['roi_out_path'] is not None:
         np.savetxt(opt['roi_out_path'], contour.reshape(-1, 2))
@@ -255,7 +264,7 @@ if __name__ == '__main__':
     opt = {
         'src': CAM1,
         'dst': CAM2,
-        'homo_out_path': None, #str(Path(CAM1).parent.parent / 'homo_121_to_127.txt'), # None
+        'matches_out_path': str(Path(CAM1).parent.parent / 'matches_121_to_127.txt'), # None
         'roi_out_path': None, #str(Path(CAM1).parent.parent / 'roi_127.txt'),  # None
         'video': True
     }

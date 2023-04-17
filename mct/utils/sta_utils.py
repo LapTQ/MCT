@@ -92,7 +92,10 @@ def trajectory_distance(traj1, traj2, kind):
 def get_homo(src, dst, video_version):
 
     # TODO any
-    return np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/homo_{src}_to_{dst}.txt'))
+    matches = np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/matches_{src}_to_{dst}.txt'), dtype='int32')
+    src_pts, dst_pts = matches[:, :2], matches[:, 2:]
+    H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
+    return H
 
 
 def get_roi(dst, video_version):
@@ -242,6 +245,13 @@ class IQRFilter:
         iqr = p2 - p1
         upper_bound = p2 + 1.5 * iqr
         print('[DEBUG] Upper bound =', upper_bound)
+
+        # filter out false matches due to missing detection boxes
+        import matplotlib.pyplot as plt
+        plt.hist(distances.flatten(), bins=42)
+        plt.plot([upper_bound, upper_bound], plt.ylim())
+        plt.show()
+
         return upper_bound
 
 
@@ -326,10 +336,6 @@ def make_true_sct_gttracker_correspondences_v2(
             X[o, h, t] = 1
             distances[o, h, t] = cost[i, j]
 
-    # filter out false matches due to missing detection boxes
-    # import matplotlib.pyplot as plt
-    # plt.hist(distances[X == 1].flatten(), bins=42)
-    # plt.show()
     if filter is not None:
         boundary = filter(distances[X == 1].reshape(-1, 1))
         X = np.where(distances > boundary, 0, X)
@@ -505,6 +511,10 @@ def mct_mapping(
         X = np.where(distances > boundary, 0, X)
         if np.all(X == X_prev):
             break
+        if filter_iter == 1:
+            for t1 in range(T1):
+                if np.any(X[:, :, t1] != X_prev[:, :, t1]):
+                    print(f'[DEBUG] change in frame {t1} after re-mapping after FP elimination with cost', distances[:, :, t1])
         X_prev = X
 
         end_filter_time = time.time()
@@ -629,7 +639,7 @@ def error_analysis_mct_mapping(
             cv2.drawContours(black, [roi], -1, (255, 255, 255), 2)
             cv2.drawContours(frame2, [roi_inv_trans if checking_true_gttracker and homo is not None else roi], -1, (255, 255, 255), 2)
             cv2.drawContours(frame1_no_trans, [roi_inv_trans if homo is not None else roi], -1, (255, 255, 255), 2)
-            cv2.putText(black, f'frame {t1}', (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=2)
+            cv2.putText(black, f'frame {t1}', (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), thickness=2)
 
             for h1 in range(N1):
                 if C1X[h1, t1] == -1:
@@ -808,7 +818,7 @@ if __name__ == '__main__':
     VIDEO_SET = {
         '2d_v1': {'cam_id1': 21, 'cam_id2': 27, 'box_repr_kind': 'foot', 'range_': range(0, 16)},
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'box_repr_kind': 'foot', 'range_': range(19, 25)},
-        '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'box_repr_kind': 'bottom', 'range_': range(1, 13)},
+        '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'box_repr_kind': 'bottom', 'range_': range(6, 7)},
     }
     TRACKER_SET = [
         'YOLOv5l_pretrained-640-ByteTrack',
@@ -827,8 +837,8 @@ if __name__ == '__main__':
     TRACKER_NAME = 'YOLOv8l_pretrained-640-ByteTrack'
     filter_type = 'IQR'  # None, 'GMM', 'IQR'
     max_filter_iters = 2
-    IQR_lower = 30
-    IQR_upper = 70
+    IQR_lower = 25
+    IQR_upper = 75
     window_size = 1
     window_boundary = 0
 
