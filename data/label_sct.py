@@ -316,7 +316,7 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
         if kwargs.get('display', False):
             cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
             cv2.imshow(filename, show_img)
-            key = cv2.waitKey(50)
+            key = cv2.waitKey(20)
             if key == 27:
                 break
             elif key == ord('e'):
@@ -368,20 +368,20 @@ if __name__ == '__main__':
     # main(opt)
 
 
-    ROOT_DIR = os.path.join(HERE, 'recordings/2d_v3')
-    VID_DIR = os.path.join(HERE, 'recordings/2d_v3/videos')
-    TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v3/YOLOv8l_pretrained-1280-StrongSORT/sct')
-    GT_DIR = os.path.join(HERE, 'recordings/2d_v3/gt')
+    ROOT_DIR = os.path.join(HERE, 'recordings/2d_v4')
+    VID_DIR = os.path.join(HERE, 'recordings/2d_v4/videos')
+    TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct')
+    GT_DIR = os.path.join(HERE, 'recordings/2d_v4/gt')
 
-    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('121_*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(GT_DIR).glob('121_*.txt')])
-    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('127_*.avi')])
-    txt_list2 = sorted([str(path) for path in Path(GT_DIR).glob('127_*.txt')])
+    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('42_*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    txt_list1 = sorted([str(path) for path in Path(GT_DIR).glob('42_*.txt')])
+    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('43_*.avi')])
+    txt_list2 = sorted([str(path) for path in Path(GT_DIR).glob('43_*.txt')])
     #
     # correspondence = np.loadtxt(f'{ROOT_DIR}/pred_mct_gtgt_correspondences.txt', delimiter=',', dtype=int)   # pred_mct_gtgt_correspondences.txt true_mct_gtgt_correspondences.txt
     #
     for vid_path1, txt_path1, vid_path2, txt_path2 in zip(vid_list1, txt_list1, vid_list2, txt_list2):
-        visualize_from_txt(vid_path1, txt_path1, save_video=True, vid_path2=vid_path2, txt_path2=txt_path2) # , correspondence=correspondence
+        visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True, vid_path2=vid_path2, txt_path2=txt_path2) # , correspondence=correspondence
 
     # for vid_id in range(19, 25):
     #     vid_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/videos').glob(f'21_000{vid_id}*.avi'))[0])

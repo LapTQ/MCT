@@ -11,11 +11,11 @@ HERE = Path(__file__).parent
 #CAM1 = str(HERE / 'recordings/2d_v2/videos/21_00019_2022-12-02_18-15-20-498917.avi')
 #CAM2 = str(HERE / 'recordings/2d_v2/videos/27_00019_2022-12-02_18-15-21-292795.avi')
 
-CAM1 = str(HERE / 'recordings/2d_v3/frames/frame_cam121.png')
-CAM2 = str(HERE / 'recordings/2d_v3/frames/frame_cam127.png')
+#CAM1 = str(HERE / 'recordings/2d_v3/frames/frame_cam121.png')
+#CAM2 = str(HERE / 'recordings/2d_v3/frames/frame_cam127.png')
 
-#CAM1 = str(HERE / 'recordings/2d_v4/frames/frame_cam41.png')
-#CAM2 = str(HERE / 'recordings/2d_v4/frames/frame_cam42_1.png')
+CAM1 = str(HERE / 'recordings/2d_v4/frames/frame_cam42_2.png')
+CAM2 = str(HERE / 'recordings/2d_v4/frames/frame_cam43.png')
 #CAM1 = str(HERE / 'recordings/2d_v4/frames/frame_cam42_2.png')
 #CAM2 = str(HERE / 'recordings/2d_v4/frames/frame_cam43.png')
 
@@ -24,7 +24,14 @@ CAM2 = str(HERE / 'recordings/2d_v3/frames/frame_cam127.png')
 # rtsp://admin:12345@192.168.3.21/live
 # rtsp://admin:12345@192.168.3.27/live
 
-
+opt = {
+        'src': CAM1,
+        'dst': CAM2,
+        'matches_out_path': str(Path(CAM1).parent.parent / 'matches_42_to_43.txt'), # None
+        'roi_out_path': str(Path(CAM1).parent.parent / 'roi_43.txt'),  # None
+        'video': False,
+        'draw_match_line': False
+    }
 
 
 def parse_opt():
@@ -36,6 +43,7 @@ def parse_opt():
     ap.add_argument('--matches_out_path', type=str, default=None)
     ap.add_argument('--roi_out_path', type=str, default=None)
     ap.add_argument('--video', action='store_true')
+    ap.add_argument('--draw_match_line', type=bool, default=True)
 
     opt = vars(ap.parse_args())
 
@@ -78,7 +86,8 @@ def select_matches(src, dst):
             else:
                 dst_pts.append([x - W1, y])
                 print(f'[INFO] {src_pts[-1]} matched to {dst_pts[-1]}')
-                cv2.line(img, src_pts[-1], (x, y), color=(0, 255, 0), thickness=2)
+                if opt['draw_match_line']:
+                    cv2.line(img, src_pts[-1], (x, y), color=(0, 255, 0), thickness=2)
             is_src = not is_src
 
             cv2.imshow(window_name, img)
@@ -260,14 +269,6 @@ def main(opt):
 if __name__ == '__main__':
 
     # opt = parse_opt()
-    
-    opt = {
-        'src': CAM1,
-        'dst': CAM2,
-        'matches_out_path': str(Path(CAM1).parent.parent / 'matches_121_to_127.txt'), # None
-        'roi_out_path': None, #str(Path(CAM1).parent.parent / 'roi_127.txt'),  # None
-        'video': True
-    }
     
     main(opt)
 
