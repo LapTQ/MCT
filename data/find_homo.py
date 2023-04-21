@@ -27,8 +27,8 @@ CAM2 = str(HERE / 'recordings/2d_v4/frames/frame_cam43.png')
 opt = {
         'src': CAM1,
         'dst': CAM2,
-        'matches_out_path': str(Path(CAM1).parent.parent / 'matches_42_to_43.txt'), # None
-        'roi_out_path': str(Path(CAM1).parent.parent / 'roi_43.txt'),  # None
+        'matches_out_path': None, #str(Path(CAM1).parent.parent / 'matches_42_to_43.txt'), # None
+        'roi_out_path': None, #str(Path(CAM1).parent.parent / 'roi_43.txt'),  # None
         'video': False,
         'draw_match_line': False
     }
@@ -226,7 +226,7 @@ def main(opt):
     while True:
         window_name = 'PREVIEW RESULT OF SELECTING MATCHES: <y> to submit. <ESC> to reset'
         src_pts, dst_pts = select_matches(src, dst)
-        # matches = np.loadtxt('recordings/2d_v3/matches_121_to_127.txt', dtype='int32')
+        # matches = np.loadtxt('recordings/2d_v3/matches_121_to_127.txt').astype('int32')
         # src_pts, dst_pts = matches[:, :2], matches[:, 2:]
         src_pts = src_pts.astype('float32').reshape(-1, 1, 2)
         dst_pts = dst_pts.astype('float32').reshape(-1, 1, 2)

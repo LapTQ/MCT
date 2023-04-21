@@ -92,7 +92,7 @@ def trajectory_distance(traj1, traj2, kind):
 def get_homo(src, dst, video_version):
 
     # TODO any
-    matches = np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/matches_{src}_to_{dst}.txt'), dtype='int32')
+    matches = np.loadtxt(str(HERE / f'../../data/recordings/{video_version}/matches_{src}_to_{dst}.txt')).astype('int32')
     src_pts, dst_pts = matches[:, :2], matches[:, 2:]
     H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
     return H
@@ -247,10 +247,10 @@ class IQRFilter:
         print('[DEBUG] Upper bound =', upper_bound)
 
         # filter out false matches due to missing detection boxes
-        import matplotlib.pyplot as plt
-        plt.hist(distances.flatten(), bins=42)
-        plt.plot([upper_bound, upper_bound], plt.ylim())
-        plt.show()
+        # import matplotlib.pyplot as plt
+        # plt.hist(distances.flatten(), bins=42)
+        # plt.plot([upper_bound, upper_bound], plt.ylim())
+        # plt.show()
 
         return upper_bound
 
@@ -280,10 +280,10 @@ class GMMFilter:
         print('[DEBUG] Upper bound =', upper_bound)
 
         # filter out false matches due to missing detection boxes
-        import matplotlib.pyplot as plt
-        plt.hist(distances.flatten(), bins=42)
-        plt.plot([upper_bound, upper_bound], plt.ylim())
-        plt.show()
+        # import matplotlib.pyplot as plt
+        # plt.hist(distances.flatten(), bins=42)
+        # plt.plot([upper_bound, upper_bound], plt.ylim())
+        # plt.show()
 
         return upper_bound
 
@@ -505,7 +505,6 @@ def mct_mapping(
         if filter is None:
             break
 
-        start_filter_time = time.time()
         boundary = filter(distances[X == 1].reshape(-1, 1))
         gate_prev = np.where(np.logical_and(X == 1, distances > boundary), 0, 1)
         X = np.where(distances > boundary, 0, X)
@@ -516,15 +515,9 @@ def mct_mapping(
                 if np.any(X[:, :, t1] != X_prev[:, :, t1]):
                     print(f'[DEBUG] change in frame {t1} after re-mapping after FP elimination with cost', distances[:, :, t1])
         X_prev = X
-
-        end_filter_time = time.time()
         print('[DEBUG] Number of matches:', np.sum(X))
-
+    
     print(f'[INFO] Mapping object per frame time: {map_frame_time:.2f}s')
-
-
-    print(f'[INFO] Filter time: {end_filter_time - start_filter_time:.2f}s')
-    print(f'[INFO] Total mapping time: {end_filter_time - start_preprocess:.2f}s')
 
     # just to show without timestamp details
     # X_notime = np.any(X, axis=2)
@@ -819,6 +812,8 @@ if __name__ == '__main__':
         '2d_v1': {'cam_id1': 21, 'cam_id2': 27, 'box_repr_kind': 'foot', 'range_': range(0, 16)},
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'box_repr_kind': 'foot', 'range_': range(19, 25)},
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'box_repr_kind': 'bottom', 'range_': range(6, 7)},
+        #'2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'box_repr_kind': 'bottom', 'range_': range(1, 13)},
+        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'box_repr_kind': 'bottom', 'range_': range(1, 13)},
     }
     TRACKER_SET = [
         'YOLOv5l_pretrained-640-ByteTrack',
@@ -833,12 +828,12 @@ if __name__ == '__main__':
     FILTER_CHOICE = [None, 'IQR', 'GMM']
     WINDOW_CHOICE = [(1, 0), (11, 5)]
 
-    video_version = '2d_v3'
+    video_version = '2d_v4'
     TRACKER_NAME = 'YOLOv8l_pretrained-640-ByteTrack'
-    filter_type = 'IQR'  # None, 'GMM', 'IQR'
+    filter_type = None  # None, 'GMM', 'IQR'
     max_filter_iters = 2
-    IQR_lower = 25
-    IQR_upper = 75
+    IQR_lower = 30
+    IQR_upper = 70
     window_size = 1
     window_boundary = 0
 
@@ -851,7 +846,7 @@ if __name__ == '__main__':
     # video_id = 19
     # log_file is set to None if stdout
 
-    gttracker_filter = IQRFilter(25, 75).run
+    gttracker_filter = None #IQRFilter(25, 75).run              ##### TRUE SCT DET BOX OF 2d_v4 IS DIFFERENT (LAZY)
     if filter_type == 'GMM':
         filter = GMMFilter(n_components=2, std_coef=3).run
         # gttracker_filter = GMMFilter(n_components=1, std_coef=3).run
@@ -863,7 +858,7 @@ if __name__ == '__main__':
         # gttracker_filter = None
 
     cf = f'{("GMM" if filter_type == "GMM" else "IQR" + str(IQR_lower) + str(IQR_upper)) if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
-    log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cf}.txt'), 'w')
+    log_file = open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cam1_id}_{cam2_id}_{cf}.txt'), 'w')
     IDSW_log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/IDSW_{cf}.txt'), 'w')
     print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + ("GMM" if filter_type == "GMM" else "IQR" + str(IQR_lower) + str(IQR_upper)) if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
 
