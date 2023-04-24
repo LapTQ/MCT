@@ -10,6 +10,11 @@ from tabulate import tabulate
 
 import torch
 from torch.nn import Module
+from pathlib import Path
+
+HERE = Path(__file__).parent
+import sys
+sys.path.append(str(HERE.parent.parent.resolve()))
 
 from yolox.utils import LRScheduler
 

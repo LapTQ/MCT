@@ -90,8 +90,12 @@ class STrack(BaseTrack):
             self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh))
         self.state = TrackState.Tracked
         self.is_activated = True
+        self.original_tlwh = new_tlwh
 
         self.score = new_track.score
+    
+    def get_original_tlwh(self):
+        return self.original_tlwh
 
     @property
     # @jit(nopython=True)
@@ -164,7 +168,7 @@ class BYTETracker(object):
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
 
-    def update(self, dets, _):
+    def update(self, dets, _, return_original_box=False):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -298,7 +302,10 @@ class BYTETracker(object):
         outputs = []
         for t in output_stracks:
             output= []
-            tlwh = t.tlwh
+            if not return_original_box:
+                tlwh = t.tlwh
+            else:
+                tlwh = t.get_original_tlwh()
             tid = t.track_id
             tlwh = np.expand_dims(tlwh, axis=0)
             xyxy = xywh2xyxy(tlwh)
