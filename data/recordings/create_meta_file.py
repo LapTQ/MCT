@@ -13,10 +13,12 @@ def run(vid_path):
     cap = cv2.VideoCapture(vid_path)
     info = {
         'name': vid_name,
+        'cam_id': vid_basename.split('_')[0],
         'fps': cap.get(cv2.CAP_PROP_FPS),
         'width': cap.get(cv2.CAP_PROP_FRAME_WIDTH),
         'height': cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
-        'start_time': '_'.join(vid_basename.split('_')[2:])
+        'start_time': '_'.join(vid_basename.split('_')[2:]),
+        'start_frame_id': 1
     }
     with open(os.path.join(parent, '../meta', vid_basename + '.yaml'), 'w') as f:
         f.write('\n'.join([f'{k}: {v}' for k, v in info.items()]))

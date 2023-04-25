@@ -858,7 +858,7 @@ if __name__ == '__main__':
         # gttracker_filter = None
 
     cf = f'{("GMM" if filter_type == "GMM" else "IQR" + str(IQR_lower) + str(IQR_upper)) if filter_type else "noFilter"}_windowsize{window_size}_windowboundary{window_boundary}'
-    log_file = open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cam1_id}_{cam2_id}_{cf}.txt'), 'w')
+    log_file = None # open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/log_error_analysis_pred_mct_trackertracker_correspondences_v2_{cam1_id}_{cam2_id}_{cf}.txt'), 'w')
     IDSW_log_file = None #open(str(HERE / f'../../data/recordings/{video_version}/{TRACKER_NAME}/IDSW_{cf}.txt'), 'w')
     print(f'================= ERROR ANALYSIS FOR TRACKER {TRACKER_NAME} VIDEO VERSION {video_version} WITH{" " + ("GMM" if filter_type == "GMM" else "IQR" + str(IQR_lower) + str(IQR_upper)) if filter_type else "OUT"} FILTER, WINDOW_SIZE = {window_size}, WINDOW_BOUNDARY = {window_boundary} ================', file=log_file)
 
