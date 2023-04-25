@@ -57,7 +57,11 @@ class Config:
 
 class MyQueue:
 
-    def __init__(self, maxsize=0, name='Queue'):
+    def __init__(
+            self, 
+            maxsize:int, 
+            name='Queue'
+    ) -> None:
         self.name = name
         self.maxsize = maxsize
         self.queue = Queue(maxsize)
@@ -78,20 +82,27 @@ class MyQueue:
     def empty(self):
         return self.queue.empty
     
-    def get_all(self) -> list:
+    def get_many(self, size='all', block=True, timeout=None) -> list:
+        
+        ret = []
         
         self.lock.acquire()
         
-        old_queue = self.queue
-        self.queue = Queue(self.maxsize)
+        if size == 'all':
+            old_queue = self.queue
+            self.queue = Queue(self.maxsize)
+            self.lock.release()
+            
+            while not old_queue.empty():
+                ret.append(old_queue.get(block, timeout))
+        else:
+            assert isinstance(size, int) and size > 0, 'size must be a positive integer'
+            for _ in range(size):
+                if not self.queue.empty():
+                    ret.append(self.queue.get(block, timeout))
+            self.lock.release()
 
-        
-        ret = []
-        while not old_queue.empty():
-            ret.append(old_queue.get())
-        self.lock.release()
-
-        #logging.debug(f'Dequeue all {old_queue.qsize()} items from {self.name}.')
+        logging.debug(f'Dequeue {len(ret)} items (/{size} requested) from {self.name}.')
         
         return ret
 
@@ -153,11 +164,16 @@ class Camera:
                         'frame_id': frame_id,
                         'frame_time': frame_time
                     },
-                    block=False
+                    block=self.config.get('QUEUE_GET_BLOCK'),
+                    timeout=self.config.get('QUEUE_TIMEOUT')
                 )
             
                 t1 = time.time()
                 logging.debug(f'{self.name} put a frame with frame_id={frame_id}, frame_time={frame_time} from {self.source} to {queue.name} [{t1 - t0:.6f} seconds]')
+
+            logging.debug(f"{self.name} is sleeping {self.config.get('CAMERA_SLEEP')}")
+            time.sleep(self.config.get('CAMERA_SLEEP'))
+            
         
         self.cap.release()
 
@@ -211,7 +227,11 @@ class Display:
             # if self.input_queue.empty():
             #     continue
 
-            items = self.input_queue.get_all()
+            items = self.input_queue.get_many(
+                size=self.config.get('GET_MANY_QUEUE_SIZE'),
+                block=self.config.get('QUEUE_GET_BLOCK'),
+                timeout=self.config.get('QUEUE_TIMEOUT')
+            )
 
             for item in items:
 
@@ -264,7 +284,7 @@ if __name__ == '__main__':
 
     config = Config('/media/tran/003D94E1B568C6D12/Workingspace/MCT/mct/utils/config.yaml')
 
-    queue_1 = MyQueue()
+    queue_1 = MyQueue(config.get('QUEUE_MAXSIZE'))
     camera = Camera(config, '/media/tran/003D94E1B568C6D12/Workingspace/MCT/data/recordings/2d_v4/videos/41_00001_2023-04-05_08-30-00-000000.avi', output_queues=queue_1)
     display = Display(config, input_queue=queue_1)
 
