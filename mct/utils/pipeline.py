@@ -8,6 +8,7 @@ import cv2
 import logging
 import sys
 import yaml
+from abc import ABC, abstractmethod
 
 
 logging.basicConfig(
@@ -48,7 +49,7 @@ class Config:
     def stop(self):
         self.lock.acquire()
         self.stopped = True
-        logging.debug(f'config stop locked')
+        logging.debug(f'{self.name} stop locked')
         self.lock.release()
 
     def is_stopped(self):
@@ -107,7 +108,34 @@ class MyQueue:
         return ret
 
 
-class Camera:
+class Pipeline(ABC):
+
+    @abstractmethod
+    def __init__(
+            self, 
+            config:Config, 
+            name='Pipeline component'
+    ) -> None:
+        
+        self.config = config
+        self.name = name
+        self.thread = Thread(target=self._start, args=(), name=self.name)    
+    
+    @abstractmethod
+    def _start(self) -> None:
+        pass
+    
+    def start(self) -> None:
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.config.stop()
+
+    def is_stopped(self) -> bool:
+        return self.config.is_stopped() is True
+
+
+class Camera(Pipeline):
 
     def __init__(
             self,
@@ -117,10 +145,8 @@ class Camera:
             output_queues:Union[list[MyQueue], MyQueue, None] = None,
             name='Camera thread'
     ) -> None:
+        super().__init__(config, name)
         
-        self.config = config
-        
-        self.name = name
         self.source = source
         self.cap = cv2.VideoCapture(self.source)
         
@@ -129,8 +155,6 @@ class Camera:
         
         self.output_queues = output_queues
         self._check_output_queues()
-
-        self.thread = Thread(target=self._start, args=(), name=self.name)
         
         logging.debug(f'Initilized {self.name}')
 
@@ -176,16 +200,6 @@ class Camera:
             
         
         self.cap.release()
-
-    
-    def start(self) -> None:
-        self.thread.start()
-
-    def stop(self):
-        self.config.stop()
-
-    def is_stopped(self):
-        return self.config.is_stopped()
         
 
     def _check_meta(self) -> None:
@@ -199,7 +213,7 @@ class Camera:
             self.output_queues = [self.output_queues]
 
 
-class Display:
+class Display(Pipeline):
 
     def __init__(
             self,
@@ -207,14 +221,9 @@ class Display:
             input_queue:MyQueue,
             name='Display thread'
     ) -> None:
-        
-        self.config = config
-        
-        self.name = name
+        super().__init__(config, name)
         
         self.input_queue = input_queue
-
-        self.thread = Thread(target=self._start, args=(), name=self.name)
 
         logging.debug(f'Initilized {self.name}')
     
@@ -248,20 +257,11 @@ class Display:
             
         cv2.destroyAllWindows()
 
-
-    def start(self):
-        self.thread.start()
-
-    
-    def stop(self):
-        self.config.stop()
-
-    def is_stopped(self):
-        return self.config.is_stopped()
-
     
     def _setup_window(self):
         cv2.namedWindow(self.name, cv2.WINDOW_NORMAL)
+
+
 
 
 
@@ -277,6 +277,7 @@ class Display:
     def _check_MCT_queues(self):
         raise NotImplementedError
 """
+
 
 
 
