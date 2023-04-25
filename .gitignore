@@ -565,3 +565,6 @@ cython_debug/
 ############## LARGE FILE
 yolox_l.pth
 yolox_m.pth
+
+output/
+.idea/
