@@ -1,5 +1,7 @@
 name: 41_00007_2023-04-11_08-30-00-000000.avi
+cam_id: 41
 fps: 30.0
 width: 1920.0
 height: 1080.0
 start_time: 2023-04-11_08-30-00-000000
+start_frame_id: 1

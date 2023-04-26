@@ -1,5 +1,7 @@
 name: 42_00011_2023-04-15_08-30-00-000000.avi
+cam_id: 42
 fps: 30.011
 width: 1920.0
 height: 1080.0
 start_time: 2023-04-15_08-30-00-000000
+start_frame_id: 1
