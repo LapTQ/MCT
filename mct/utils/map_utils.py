@@ -23,7 +23,7 @@ def hungarian(cost, gate=None):
     return i_matches_new, j_matches_new
 
 
-def map_timestamp(ATT, BTT, diff_thresh=None):
+def map_timestamp(ATT, BTT, diff_thresh=None, return_matrix=True):
     """Heuristic mapping function.
 
     all params must be of the same time unit (i.e all are in second, or all are in milisecond)
@@ -49,6 +49,8 @@ def map_timestamp(ATT, BTT, diff_thresh=None):
                    for j in range(T2)
                    if abs(ATT[i] - BTT[j]) <= diff_thresh]
     valid_pairs = sorted(valid_pairs)
+    M1 = []
+    M2 = []
 
     def _is_crossing(i, j):
         for i_optimal, j_optimal in zip(*np.where(X)):
@@ -59,5 +61,11 @@ def map_timestamp(ATT, BTT, diff_thresh=None):
     for _, i, j in valid_pairs:
         if not np.any(X[i, :]) and not np.any(X[:, j]) and not _is_crossing(i, j):
             X[i, j] = 1
+            M1.append(i)
+            M2.append(j)
+    
+    if return_matrix:
+        return X
+    else:
+        return M1, M2
 
-    return X

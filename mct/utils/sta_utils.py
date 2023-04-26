@@ -185,7 +185,7 @@ def input_mct_from(txt_path, delimeter, fps, midpoint, box_repr_kind, **kwargs):
     OT = np.zeros((N, T), dtype='int32')
     OTT = np.zeros((T,), dtype='float64')    # timestamp
 
-    # spatio position anskfsufhasufhaisuhfoaufhud
+    # spatio position 
     OX = np.full((N, T), -1, dtype='float32')  # cannot use np.empty due to nan value in later computation.
     OY = np.full((N, T), -1, dtype='float32')
     OS = np.full((N, T, 8), -1, dtype='float32')
