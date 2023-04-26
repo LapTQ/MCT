@@ -9,6 +9,7 @@ import logging
 import sys
 import yaml
 from abc import ABC, abstractmethod
+import numpy as np
 
 
 logging.basicConfig(
@@ -33,26 +34,26 @@ class Config:
 
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
-            logging.info(f'Loading config at {config_path}')
+            logging.info(f'{self.name}:\t loading config at {config_path}')
 
         self.stopped = False
 
         self.lock = Lock()
         
-        logging.debug(f'Initilized {self.name}')
+        logging.debug(f'{self.name}:\t initilized')
 
     
     def get(self, attr:str):
         return self.config[attr]
 
 
-    def stop(self):
+    def stop(self) -> None:
         self.lock.acquire()
         self.stopped = True
-        logging.debug(f'{self.name} stop locked')
+        logging.debug(f'{self.name}\t stop locked')
         self.lock.release()
 
-    def is_stopped(self):
+    def is_stopped(self) -> bool:
         return self.stopped is True
 
 
@@ -60,7 +61,7 @@ class MyQueue:
 
     def __init__(
             self, 
-            maxsize:int, 
+            maxsize: int, 
             name='Queue'
     ) -> None:
         self.name = name
@@ -69,19 +70,19 @@ class MyQueue:
 
         self.lock = Lock()
 
-        logging.debug(f'Initilized {self.name}')
+        logging.debug(f'{self.name}:\t initilized')
     
     def get(self, block=True, timeout=None):
         ret = self.queue.get(block, timeout)
-        logging.debug(f'Dequeue an item from {self.name}. {self.name} is containing {self.queue.qsize()}')
+        logging.debug(f'{self.name}:\t dequeue 1 item, containing {self.queue.qsize()}')
         return ret
     
-    def put(self, item, block=True, timeout=None):
+    def put(self, item, block=True, timeout=None) -> None:
         self.queue.put(item, block, timeout)
-        logging.debug(f'Eequeue an item to {self.name}. {self.name} is containing {self.queue.qsize()}')
+        logging.debug(f'{self.name}:\t enqueue 1 item, containing {self.queue.qsize()}')
 
-    def empty(self):
-        return self.queue.empty
+    def empty(self) -> bool:
+        return self.queue.empty()
     
     def get_many(self, size='all', block=True, timeout=None) -> list:
         
@@ -92,6 +93,9 @@ class MyQueue:
         if size == 'all':
             old_queue = self.queue
             self.queue = Queue(self.maxsize)
+            
+            logging.debug(f'{self.name}:\t dequeue {len(ret)} items (/{size} requested).')
+            
             self.lock.release()
             
             while not old_queue.empty():
@@ -101,9 +105,12 @@ class MyQueue:
             for _ in range(size):
                 if not self.queue.empty():
                     ret.append(self.queue.get(block, timeout))
+            
+            logging.debug(f'{self.name}:\t dequeue {len(ret)} items (/{size} requested).')
+            
             self.lock.release()
 
-        logging.debug(f'Dequeue {len(ret)} items (/{size} requested) from {self.name}.')
+        
         
         return ret
 
@@ -113,7 +120,7 @@ class Pipeline(ABC):
     @abstractmethod
     def __init__(
             self, 
-            config:Config, 
+            config: Config, 
             name='Pipeline component'
     ) -> None:
         
@@ -139,10 +146,10 @@ class Camera(Pipeline):
 
     def __init__(
             self,
-            config:Config, 
-            source,
-            meta:Union[dict, None] = None, 
-            output_queues:Union[list[MyQueue], MyQueue, None] = None,
+            config: Config, 
+            source: Union[int, str],
+            meta: Union[dict, None] = None, 
+            output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='Camera thread'
     ) -> None:
         super().__init__(config, name)
@@ -168,7 +175,7 @@ class Camera(Pipeline):
             t0 = time.time()
 
             if not self.cap.isOpened():
-                logging.info(f'Camera thread {self.name} from {self.source} was disconnected')
+                logging.info(f'{self.name}:\t disconnected from {self.source}')
                 self.stop()
                 break
 
@@ -177,7 +184,7 @@ class Camera(Pipeline):
             ret, frame = self.cap.read()
 
             if not ret:
-                logging.info(f'{self.name} from {self.source} was disconnected')
+                logging.info(f'{self.name}:\t disconnected from {self.source}')
                 self.stop()
                 break
             
@@ -193,9 +200,9 @@ class Camera(Pipeline):
                 )
             
                 t1 = time.time()
-                logging.debug(f'{self.name} put a frame with frame_id={frame_id}, frame_time={frame_time} from {self.source} to {queue.name} [{t1 - t0:.6f} seconds]')
+                logging.debug(f'{self.name}:\t put to {queue.name}\t frame_id={frame_id}, frame_time={frame_time} from {self.source} [{t1 - t0:.6f} seconds]')
 
-            logging.debug(f"{self.name} is sleeping {self.config.get('CAMERA_SLEEP')}")
+            logging.debug(f"{self.name}:\t sleep {self.config.get('CAMERA_SLEEP')}")
             time.sleep(self.config.get('CAMERA_SLEEP'))
             
         
@@ -217,27 +224,25 @@ class Display(Pipeline):
 
     def __init__(
             self,
-            config:Config,
-            input_queue:MyQueue,
+            config: Config,
+            input_queue: MyQueue,
             name='Display thread'
     ) -> None:
         super().__init__(config, name)
         
         self.input_queue = input_queue
 
-        logging.debug(f'Initilized {self.name}')
+        logging.debug(f'{self.name}:\t initilized')
     
-    def _start(self):
+    def _start(self) -> None:
 
         self._setup_window()
 
         while not self.is_stopped():
 
-            # if self.input_queue.empty():
-            #     continue
-
+            logging.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
             items = self.input_queue.get_many(
-                size=self.config.get('GET_MANY_QUEUE_SIZE'),
+                size=self.config.get('QUEUE_GET_MANY_SIZE'),
                 block=self.config.get('QUEUE_GET_BLOCK'),
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
@@ -248,7 +253,7 @@ class Display(Pipeline):
                 frame_id = item['frame_id']
                 frame_time = item['frame_time']
 
-                logging.debug(f'{self.name} is displaying frame from {self.input_queue.name} with frame_id={frame_id} and frame_time={frame_time}')
+                logging.debug(f'{self.name}:\t display from {self.input_queue.name}\t frame_id={frame_id} and frame_time={frame_time}')
                 cv2.imshow(self.name, frame_img)
                 key = cv2.waitKey(self.config.get('DISPLAY_FPS'))
                 if key == ord('q'):
@@ -258,26 +263,102 @@ class Display(Pipeline):
         cv2.destroyAllWindows()
 
     
-    def _setup_window(self):
+    def _setup_window(self) -> None:
         cv2.namedWindow(self.name, cv2.WINDOW_NORMAL)
 
 
+class Tracker:
 
+    def __init__(
+            self,
+            detection_mode: Union[str, None] = None,
+            tracking_mode: Union[str, None] = None,
+            txt_path: Union[str, None] = None,
+            name='Tracker'
+    ) -> None:
+        
+        self.detection_mode = detection_mode
+        self.tracking_mode = tracking_mode
+        self.txt_path = txt_path
+        
+        if txt_path is not None:
+            self.seq = np.loadtxt(txt_path)
+        
+        self.name = name
 
-
-"""
-            SCT_queues:Union[list[MyQueue], MyQueue, None] = None,
-            MCT_queues:Union[list[MyQueue], MyQueue, None] = None,
-    def _check_camera_queues(self):
-        raise NotImplementedError
+        logging.info(f'{self.name}:\t initialized')
+        
     
-    def _check_SCT_queues(self):
-        raise NotImplementedError
-    
-    def _check_MCT_queues(self):
-        raise NotImplementedError
-"""
+    def infer(self, img: Union[np.ndarray, None], frame_id: Union[int, None] = None) -> np.ndarray:
 
+        if self.txt_path is not None:
+            assert  isinstance(frame_id, int), 'frame_id must be provided in mock test'
+
+            dets = self.seq[self.seq[:, 0] == frame_id]
+
+            logging.debug(f'{self.name}:\t detected {len(dets)} people')
+
+            return dets
+
+        else:
+            raise NotImplementedError()
+
+
+class SCT(Pipeline):
+
+    def __init__(
+            self, 
+            config: Config, 
+            tracker: Tracker,
+            input_queue: MyQueue,
+            output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            name='SCT'
+    ) -> None:
+        super().__init__(config, name)
+
+        self.tracker = tracker
+        
+        self.input_queue = input_queue
+        self.output_queues = output_queues
+        self._check_output_queues()
+
+    
+    def _start(self) -> None:
+        
+        while not self.config.is_stopped():
+
+            t0 = time.time()
+
+            logging.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
+            items = self.input_queue.get_many(
+                size=self.config.get('QUEUE_GET_MANY_SIZE'),
+                block=self.config.get('QUEUE_GET_BLOCK'),
+                timeout=self.config.get('QUEUE_TIMEOUT')
+            )
+
+            for item in items:
+
+                item['sct_output'] = self.tracker.infer(item['frame_img'], item['frame_id'])
+
+                for queue in self.output_queues:
+                    queue.put(
+                    item,
+                    block=self.config.get('QUEUE_GET_BLOCK'),
+                    timeout=self.config.get('QUEUE_TIMEOUT')
+                )
+            
+                    t1 = time.time()
+                    logging.debug(f'{self.name}:\t put SCT result from {self.input_queue.name} to {queue.name}\t frame_id={item["frame_id"]}, frame_time={item["frame_time"]} [{t1 - t0:.6f} seconds]')
+            
+            logging.debug(f"{self.name}:\t sleep {self.config.get('SCT_TXT_SLEEP')}")
+            time.sleep(self.config.get('SCT_TXT_SLEEP'))
+
+
+    def _check_output_queues(self) -> None:
+        if self.output_queues is None:
+            self.output_queues = []
+        elif isinstance(self.output_queues, MyQueue):
+            self.output_queues = [self.output_queues]
 
 
 
@@ -285,11 +366,18 @@ if __name__ == '__main__':
 
     config = Config('/media/tran/003D94E1B568C6D12/Workingspace/MCT/mct/utils/config.yaml')
 
-    queue_1 = MyQueue(config.get('QUEUE_MAXSIZE'))
-    camera = Camera(config, '/media/tran/003D94E1B568C6D12/Workingspace/MCT/data/recordings/2d_v4/videos/41_00001_2023-04-05_08-30-00-000000.avi', output_queues=queue_1)
+    queue_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-Input-Queue')
+    queue_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-1-Input-Queue')
+    camera_1 = Camera(config, '/media/tran/003D94E1B568C6D12/Workingspace/MCT/data/recordings/2d_v4/videos/41_00001_2023-04-05_08-30-00-000000.avi', output_queues=[queue_1, queue_2], name='Camera 1')
+    
+    
+    queue_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-1-Output-Queue')
+    tracker = Tracker(txt_path='/media/tran/003D94E1B568C6D12/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/41_00001_2023-04-05_08-30-00-000000.txt')
+    sct_1 = SCT(config, tracker=tracker, input_queue=queue_2, output_queues=queue_3)
     display = Display(config, input_queue=queue_1)
 
-    camera.start()
+    camera_1.start()
     display.start()
+    sct_1.start()
 
     

@@ -1,7 +1,19 @@
-CAMERA_SLEEP: 0
+
+
+
+# queue
 QUEUE_MAXSIZE: 0
 QUEUE_GET_BLOCK: false
 QUEUE_PUT_BLOCK: false
 QUEUE_TIMEOUT: null
-GET_MANY_QUEUE_SIZE: 'all' # 100, 'all'
+QUEUE_GET_MANY_SIZE: 'all' # 100, 'all'
+
+# camera pipeline
+CAMERA_SLEEP: 0
+
+
+# SCT pipeline
+SCT_TXT_SLEEP: 0
+
+# display pipeline
 DISPLAY_FPS: 1
