@@ -1,5 +1,5 @@
 
-from typing import Union
+from typing import Any, Union
 from queue import Queue
 from threading import Lock, Thread
 from datetime import datetime
@@ -11,12 +11,14 @@ import yaml
 from abc import ABC, abstractmethod
 import numpy as np
 
-from map_utils import map_timestamp
+from map_utils import map_timestamp, hungarian
+from filter import FilterBase, IQRFilter, GMMFilter
+from mct.utils.pipeline import Config
 
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s\t|%(levelname)s\t|%(funcName)s\t|%(lineno)d\t|%(message)s',
+    format='%(asctime)s\t|%(thread)d\t|%(funcName)s\t|%(lineno)d\t|%(levelname)s\t|%(message)s',
     handlers=[
         #logging.FileHandler("~/Downloads/log.txt"),
         logging.StreamHandler(sys.stdout)
@@ -112,8 +114,6 @@ class MyQueue:
             
             self.lock.release()
 
-        
-        
         return ret
 
 
@@ -164,19 +164,19 @@ class Camera(Pipeline):
         
         self.output_queues = output_queues
         self._check_output_queues()
-        
-        logging.debug(f'Initilized {self.name}')
-
-    
-    def _start(self) -> None:
 
         if self.config.get('CAMERA_FRAME_WIDTH') is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.get('CAMERA_FRAME_WIDTH'))
         if self.config.get('CAMERA_FRAME_HEIGHT') is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.get('CAMERA_FRAME_HEIGHT'))
-        if self.meta is None and self.config.get('CAMERA_FPS') is not None:
+        if self.config.get('CAMERA_FPS') is not None:
+            assert self.meta is None, 'camera_fps must not be set when capturing videos from disk'
             self.cap.set(cv2.CAP_PROP_FPS, self.config.get('CAMERA_FPS'))
+        
+        logging.debug(f'Initilized {self.name}')
 
+    
+    def _start(self) -> None:
 
         if self.meta is None:
             frame_id = 0
@@ -197,7 +197,7 @@ class Camera(Pipeline):
             if self.meta is None:
                 frame_time = datetime.now().timestamp()
             else:   # if reading from video on disk
-                frame_time = datetime.strptime(self.meta['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (frame_id - self.meta['start_frame_id']) / self.meta['fps']
+                frame_time = datetime.strptime(self.meta['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (frame_id - self.meta['start_frame_id']) / self.fps
             
             ret, frame = self.cap.read()
 
@@ -206,7 +206,7 @@ class Camera(Pipeline):
                 self.stop()
                 break
             
-            for queue in self.output_queues:
+            for queue in self.output_queues:                    # type: ignore
                 queue.put(
                     {
                         'frame_img': frame,
@@ -218,15 +218,39 @@ class Camera(Pipeline):
                 )
             
                 t1 = time.time()
-                logging.debug(f'{self.name}:\t put to {queue.name}\t frame_id={frame_id}, frame_time={frame_time} from {self.source} [{t1 - t0:.6f} seconds]')
+                logging.debug(f"{self.name}:\t put to {queue.name}\t frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')} [{t1 - t0:.6f} seconds]")
 
             # if reading from video on disk, then sleep according to fps to sync time.
-            sleep = self.config.get('CAMERA_SLEEP') if self.meta is None else 0.01 / self.meta['fps']
+            sleep = self.config.get('CAMERA_SLEEP') if self.meta is None else 0.01 / self.fps
             logging.debug(f"{self.name}:\t sleep {sleep}")
             time.sleep(sleep)
         
         self.cap.release()
+
+    
+    @property
+    def width(self):
+        if self.meta is not None:
+            return int(self.meta['width'])
+        else:
+            return int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         
+    
+    @property
+    def height(self):
+        if self.meta is not None:
+            return int(self.meta['height'])
+        else:
+            return int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+
+    @property
+    def fps(self):
+        if self.meta is not None:
+            return int(self.meta['fps'])
+        else:
+            return int(self.cap.get(cv2.CAP_PROP_FPS))
+
 
     def _check_meta(self) -> None:
         pass
@@ -252,6 +276,7 @@ class Tracker:
         self.detection_mode = detection_mode
         self.tracking_mode = tracking_mode
         self.txt_path = txt_path
+        self.name = name
         
         # if using offline mock tracking result
         if txt_path is not None:
@@ -318,7 +343,7 @@ class SCT(Pipeline):
                 item['sct_detection_mode'] = self.tracker.detection_mode
                 item['sct_tracking_mode'] = self.tracker.tracking_mode
 
-                for queue in self.output_queues:
+                for queue in self.output_queues:                # type: ignore
                     queue.put(
                     item,
                     block=self.config.get('QUEUE_GET_BLOCK'),
@@ -392,7 +417,7 @@ class StackFrames(Pipeline):
             self, 
             config: Config, 
             input_queues: list[MyQueue],
-            output_queues: Union[list[MyQueue], MyQueue],
+            output_queues: Union[list[MyQueue], MyQueue, None] = None,
             shape: Union[list[int], tuple[int], None] = None,
             name='StackFrames'
     ) -> None:
@@ -460,7 +485,7 @@ class StackFrames(Pipeline):
                 }
 
                 frame_img = out_item['frame_img']
-                ncols, nrows = self.shape
+                ncols, nrows = self.shape                   # type: ignore
                 frame_img.extend([None for _ in range(ncols * nrows - len(frame_img))])
                 H, W = frame_img[0].shape[:2]
                 collage = np.empty((H * nrows, W * ncols, 3), dtype='uint8')
@@ -473,7 +498,7 @@ class StackFrames(Pipeline):
                     collage[H * row: H * (row + 1), W * col: W * (col + 1), :] = img
                 out_item['frame_img'] = collage
 
-                for output_queue in self.output_queues:
+                for output_queue in self.output_queues:     # type: ignore
                     output_queue.put(
                     out_item,
                     block=self.config.get('QUEUE_GET_BLOCK'),
@@ -489,7 +514,9 @@ class StackFrames(Pipeline):
 
     
     def _check_output_queues(self):
-        if isinstance(self.output_queues, MyQueue):
+        if self.output_queues is None:
+            self.output_queues = []
+        elif isinstance(self.output_queues, MyQueue):
             self.output_queues = [self.output_queues]
 
     
@@ -515,7 +542,62 @@ class StackFrames(Pipeline):
             logging.debug(f'{self.name}:\t calculate grid shape = {self.shape}')
 
 
-class 
+class Scene:
+
+    def __init__(
+            self,
+            width: Union[int, float, None] = None,
+            height: Union[int, float, None] = None,
+            roi: Union[np.ndarray, None] = None,
+            roi_test_offset=0,
+            name='Scene'
+    ) -> None:
+
+        self.width = width
+        self.height = height
+        self.roi = np.int32(roi)    # type: ignore
+        self.roi_test_offset = roi_test_offset
+
+        self.name = name
+
+        logging.debug(f'{self.name}:\t initialized')
+    
+
+    def is_in_roi(self, x) -> Union[bool, np.ndarray]:
+        not_np = False
+        if not isinstance(x, np.ndarray):
+            x = np.array(x)
+            not_np = True
+        
+        x = np.float32(x.reshape(-1, 2))
+
+        ret = [cv2.pointPolygonTest(self.roi, p, True) >= self.roi_test_offset for p in x]      # type: ignore
+
+        if not_np and len(ret) == 1:
+            return ret[0]
+        else:
+            return np.array(ret, dtype=bool)
+
+
+    def calc_position(
+            self, 
+            x,
+            loc_infer_mode,
+    ) -> np.ndarray:
+        
+        if not isinstance(x, np.ndarray):
+            x = np.array(x)
+
+        x = x.copy()
+        assert len(x.shape) == 2, 'Invalid x shape, must be (N, M)'
+
+        # TODO
+        if loc_infer_mode == 1:     # box, midpoint of bottom edge
+            x[:, 2] += x[:, 4] / 2
+            x[:, 3] += x[:, 5]
+            return x[:, 2:4]
+        
+        raise NotImplementedError()
 
 
 class STA(Pipeline):
@@ -523,8 +605,9 @@ class STA(Pipeline):
     def __init__(
             self, 
             config: Config, 
+            scenes: list[Scene],
             input_queues: list[MyQueue],
-            output_queues: Union[list[MyQueue], MyQueue],
+            output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='STA'
     ) -> None:
         super().__init__(config, name)
@@ -535,8 +618,12 @@ class STA(Pipeline):
         self.output_queues = output_queues
         self._check_output_queues()
 
-        # [(frame_id_1, frame_time_1, frame_id_2, frame_time_2, [(id_1, id_2, distance), ...]), ...]
-        self.matches = []
+        self.scenes = scenes
+        self._check_scenes()
+
+        self.history = []       # [(frame_id_1, frame_time_1, frame_id_2, frame_time_2, ({id_1: loc_1, ...}, {id_2: loc_2, ...}), [(mid_1, mid_2), ...]), ...]
+        self.distances = []     # record distances for FP elimination
+        self.wait_list = self._new_wait_list()
 
         logging.debug(f'{self.name}:\t initialized')
 
@@ -546,32 +633,238 @@ class STA(Pipeline):
         while not self.is_stopped():
 
             t0 = time.time()
-
-            cam1_items, cam2_items = [
-                input_queue.get_many(
-                    size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                    block=self.config.get('QUEUE_GET_BLOCK'),
-                    timeout=self.config.get('QUEUE_TIMEOUT')
+            
+            # load both the coming and waiting list
+            for c in range(len(self.input_queues)):
+                self.wait_list[c].extend(
+                    self.input_queues[c].get_many(
+                        size=self.config.get('QUEUE_GET_MANY_SIZE'),
+                        block=self.config.get('QUEUE_GET_BLOCK'),
+                        timeout=self.config.get('QUEUE_TIMEOUT')
+                    )
                 )
-                for input_queue in self.input_queues
-            ]
+            
+            # do not map if the number of pairs are so small
+            if min(len(self.wait_list[0]), len(self.wait_list[1])) < self.config.get('MIN_TIME_CORRESPONDENCES'):
+                logging.debug(f'{self.name}:\t wait list not enough, waiting...')
+                continue
+
+            active_list = self.wait_list
+            self.wait_list = self._new_wait_list()
+
+            # TODO CHUYEN 1 SO FRAME CUOI VE WAITING LIST => WINDOW
+
+            # reorganize items
+            adict = {
+                'frame_img': [],            # [[c1_f1, c1_f2,...], [c2_f1, c2_f2, ...]]
+                'frame_id': [],
+                'frame_time': [],
+                'sct_output': [],
+                'sct_detection_mode': [],
+                'sct_tracking_mode': [],
+            }
+            for items in active_list:
+                for k in adict:
+                    adict[k].append([])
+                for k in adict:
+                    for item in items:
+                        adict[k][-1].append(item[k])
+            # each array in frame_time, frame_id should already been in increasing order of time
+
+            # match timestamps
+            c1_adict_matched, c2_adict_matched = map_timestamp(*adict['frame_time'], diff_thresh=self.config.get('TIME_DIFF_THRESH'), return_matrix=False)
+            c1_adict_matched = sorted(c1_adict_matched)
+            c2_adict_matched = sorted(c2_adict_matched)
+
+            # add un-processed items to wait list
+            if len(c1_adict_matched) > 0:
+                self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
+                self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
+            logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
+            logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.input_queues[1].name} to wait list')
+
+            # using continuous indexes from 0 -> T-1 rather than discrete indexes
+            T = len(c1_adict_matched)
+            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
+            for k in adict:
+                adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
+                adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
 
             
+            adict['in_roi'] = [[], []]
+            for t in range(T):
+                self.history.append(
+                    (
+                        adict['frame_id'][0][t],
+                        adict['frame_time'][0][t],
+                        adict['frame_id'][1][t],
+                        adict['frame_time'][1][t],
+                        ({}, {}),
+                        []
+                    )
+                )
+                for c in range(2):
+                    scene = self.scenes[c]
+                    dets = adict['sct_output'][c][t]
+                    locs = scene.calc_position(dets, self.config.get('LOC_INFER_MODE'))
+                    
+                    # filter in ROI
+                    in_roi_idxs = scene.is_in_roi(locs)
+                    dets_in_roi = dets[in_roi_idxs]
+                    locs_in_roi = locs[in_roi_idxs]
+                    adict['in_roi'][c].append(dets_in_roi)
+                    logging.info(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} ({datetime.fromtimestamp(adict["frame_time"][c][t]).strftime("%M-%S-%f")}) found {len(dets_in_roi)}/{len(dets)} objects in ROI')
+
+                    # store history
+                    assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
+                    self.history[-1][4][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi)})       # type: ignore
+
+            matches = []
+            for t in range(T):
+                
+                h1_ids = adict['in_roi'][0][t][:, 1]
+                h2_ids = adict['in_roi'][1][t][:, 1]
+
+                cost = np.empty((len(h1_ids), len(h2_ids)), dtype='float32')
+                for i1, c1_id in enumerate(h1_ids):
+                    for i2, c2_id in enumerate(h2_ids):
+                        c1_locs, c2_locs = self._retrieve_window_locations(
+                            c1_id, c2_id,
+                            t - T,
+                            self.config.get('DIST_WINDOW_SIZE'),
+                            self.config.get('DIST_WINDOW_BOUNDARY')
+                        )
+
+                        cost[i1, i2] = np.mean(
+                            np.sqrt(np.sum(
+                                np.square(c1_locs - c2_locs),
+                                axis=1,
+                                keepdims=False
+                            ))
+                        )
+                
+                mi1s, mi2s = hungarian(cost)
+                if len(mi1s) > 0:
+                    logging.info(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
+                for i1, i2 in zip(mi1s, mi2s):
+                    h1 = h1_ids[i1]
+                    h2 = h2_ids[i2]
+                    dist = cost[i1, i2]
+                    matches.append([t, h1, h2, dist])
+            
+            matches = np.array(matches).reshape(-1, 4)
+            
+            # FP filter
+            d = self.distances + matches[:, 3].tolist()
+            if self.config.get('FP_FILTER') and len(d) >= self.config.get('MIN_SAMPLE_SIZE_TO_FP_FILTER'):
+                filter = self._create_fp_filter()
+                ub = filter(np.array(d).reshape(-1, 1))             # type: ignore
+                matches = matches[matches[:, 3] <= ub]
+            
+            self.distances.extend(matches[:, 3].tolist())
+
+            for m in matches:
+                t = int(m[0].item())
+                self.history[t - T][5].append(m[1:3])    # correct only because t in [0, T-1]
+
+            for out_item in self.history[-T:]:
+                for output_queue in self.output_queues:             # type: ignore
+                    output_queue.put(
+                        out_item,
+                        block=self.config.get('QUEUE_GET_BLOCK'),
+                        timeout=self.config.get('QUEUE_TIMEOUT')
+                    )
+
+                    t1 = time.time()
+                    logging.debug(f'{self.name}:\t put STA result to {output_queue.name}\t {self.input_queues[0].name} frame={out_item[0]}, {self.input_queues[1].name} frame={out_item[2]} [{t1 - t0:.6f} seconds]')
 
 
+    def _create_fp_filter(self) -> Union[FilterBase, None]:
 
-    
+        filter_type = self.config.get('FP_FILTER')
+
+        if not filter_type:
+            return None
+        
+        if filter_type == 'iqr':
+            return IQRFilter(
+                self.config.get('FP_IQR_LOWER'),
+                self.config.get('FP_IQR_UPPER')
+            )
+        
+        if filter_type == 'gmm':
+            return GMMFilter(
+                self.config.get('FP_GMM_N_COMPONENTS'),
+                self.config.get('FP_GMM_STD_COEF')
+            )
+        
+
+    def _retrieve_window_locations(self, c1_id, c2_id, t, window_size, window_boundary) -> tuple:
+        """Return a tuple of 2 np arrays for locations
+        
+        Arguments:
+            t: index in the self.history (e.g -1 or -5)
+            window_size: max size (frame unit) of the window, must be an odd number.
+            window_boundary: boundary (frame unit) to ONE SIDE
+        """
+        assert window_size % 2 == 1, 'window size must be an odd number.'
+        
+        locs = [self.history[t][4][0][c1_id]], [self.history[t][4][1][c2_id]]
+        
+        ns = [0, 0]     # counter for left, right
+        slices = [
+            [self.history[j][4] for j in range(t - 1, t - 1 - window_boundary, -1)], 
+            [self.history[j][4] for j in range(t + 1, t + window_boundary + 1)]
+        ]
+
+        for i, slice in enumerate(slices):
+            for j in range(window_boundary):
+
+                if j >= len(slice) or ns[i] >= (window_size - 1) // 2:
+                    break
+
+                if c1_id in slice[j][0] and c2_id in slice[j][1]:
+                    locs[0].append(slice[j][0][c1_id])
+                    locs[1].append(slice[j][1][c2_id])
+                    ns[i] += 1
+        logging.info(f'{self.name}:\t window_size = {ns}')
+
+        return np.array(locs[0]), np.array(locs[1])
+
+                
     def _check_input_queues(self):
         assert len(self.input_queues) == 2, f'currently support only bipartite mapping, got {len(self.input_queues)}'
 
 
     def _check_output_queues(self):
-        if isinstance(self.output_queues, MyQueue):
+        if self.output_queues is None:
+            self.output_queues = []
+        elif isinstance(self.output_queues, MyQueue):
             self.output_queues = [self.output_queues]
 
+    
+    def _check_scenes(self):
+        assert len(self.scenes) == len(self.input_queues), 'the number of scenes must == number of input queues'
 
 
+    def _new_wait_list(self):
+        return [[] for _ in range(len(self.input_queues))]
 
+
+def load_roi(path, W, H) -> np.ndarray:
+    roi = np.loadtxt(path)
+    roi[:, 0] *= W
+    roi[:, 1] *= H
+    roi = roi.reshape(-1, 1, 2)
+    return roi
+
+
+def load_homo(matches_path) -> np.ndarray:
+    """matches_path: path to file containing matching points"""
+    matches = np.int32(np.loadtxt(matches_path))
+    src, dst = matches[:, :2], matches[:, 2:]       # type: ignore
+    H, mask = cv2.findHomography(src, dst)      # cv2.RANSAC
+    return H
 
 
 if __name__ == '__main__':
@@ -586,14 +879,14 @@ if __name__ == '__main__':
     # ONLY USE META IF CAPTURING VIDEOS
     meta_1 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/41_00001_2023-04-05_08-30-00-000000.yaml', 'r'))
     meta_2 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/42_00001_2023-04-05_08-30-00-000000.yaml', 'r'))
-    camera_1 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00001_2023-04-05_08-30-00-000000.avi', meta=meta_1, output_queues=[queue_2], name='Camera 1')
-    camera_2 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00001_2023-04-05_08-30-00-000000.avi', meta=meta_2, output_queues=[queue_5], name='Camera 2')
+    camera_1 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00001_2023-04-05_08-30-00-000000.avi', meta=meta_1, output_queues=[queue_2], name='Camera-1')
+    camera_2 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00001_2023-04-05_08-30-00-000000.avi', meta=meta_2, output_queues=[queue_5], name='Camera-2')
     
     
     queue_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-1-Input-Queue')
     queue_6 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-2-Input-Queue')
-    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/41_00001_2023-04-05_08-30-00-000000.txt', name='Tracker 1')
-    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/42_00001_2023-04-05_08-30-00-000000.txt', name='Tracker 2')
+    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/41_00001_2023-04-05_08-30-00-000000.txt', name='Tracker-1')
+    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/42_00001_2023-04-05_08-30-00-000000.txt', name='Tracker-2')
     sct_1 = SCT(config, tracker=tracker1, input_queue=queue_2, output_queues=queue_3)
     sct_2 = SCT(config, tracker=tracker2, input_queue=queue_5, output_queues=queue_6)
     # queue_7 = MyQueue(config.get('QUEUE_MAXSIZE'), name='StackFrames-Output-Queue')
@@ -602,7 +895,12 @@ if __name__ == '__main__':
     # display_2 = Display(config, input_queue=queue_4, name='Display 2')
 
     queue_8 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-Output-Queue')
-    sta = STA(config, [queue_3, queue_6], queue_8)
+    roi_2 = load_roi('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/roi_42.txt', camera_2.width, camera_2.height)
+    homo = load_homo('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/matches_41_to_42.txt')
+    roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo))
+    scene_1 = Scene(camera_1.width, camera_1.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
+    scene_2 = Scene(camera_2.width, camera_2.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
+    sta = STA(config, [scene_1, scene_2], [queue_3, queue_6], queue_8)
 
     camera_1.start()
     camera_2.start()
