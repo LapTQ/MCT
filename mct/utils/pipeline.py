@@ -13,7 +13,6 @@ import numpy as np
 
 from map_utils import map_timestamp, hungarian
 from filter import FilterBase, IQRFilter, GMMFilter
-from mct.utils.pipeline import Config
 
 
 logging.basicConfig(
@@ -206,8 +205,8 @@ class Camera(Pipeline):
                 self.stop()
                 break
             
-            for queue in self.output_queues:                    # type: ignore
-                queue.put(
+            for oq in self.output_queues:                    # type: ignore
+                oq.put(
                     {
                         'frame_img': frame,
                         'frame_id': frame_id,
@@ -218,7 +217,7 @@ class Camera(Pipeline):
                 )
             
                 t1 = time.time()
-                logging.debug(f"{self.name}:\t put to {queue.name}\t frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')} [{t1 - t0:.6f} seconds]")
+                logging.debug(f"{self.name}:\t put to {oq.name}\t frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')} [{t1 - t0:.6f} seconds]")
 
             # if reading from video on disk, then sleep according to fps to sync time.
             sleep = self.config.get('CAMERA_SLEEP') if self.meta is None else 0.01 / self.fps
@@ -339,19 +338,23 @@ class SCT(Pipeline):
 
             for item in items:
 
-                item['sct_output'] = self.tracker.infer(item['frame_img'], item['frame_id'])
-                item['sct_detection_mode'] = self.tracker.detection_mode
-                item['sct_tracking_mode'] = self.tracker.tracking_mode
+                dets = self.tracker.infer(item['frame_img'], item['frame_id'])
+                out_item = {
+                    'frame_id': item['frame_id'],
+                    'sct_output': dets,
+                    'sct_detection_mode': self.tracker.detection_mode,
+                    'sct_tracking_mode': self.tracker.tracking_mode
+                }
 
-                for queue in self.output_queues:                # type: ignore
-                    queue.put(
-                    item,
-                    block=self.config.get('QUEUE_GET_BLOCK'),
-                    timeout=self.config.get('QUEUE_TIMEOUT')
-                )
+                for oq in self.output_queues:                # type: ignore
+                    oq.put(
+                        out_item,
+                        block=self.config.get('QUEUE_GET_BLOCK'),
+                        timeout=self.config.get('QUEUE_TIMEOUT')
+                    )
             
                     t1 = time.time()
-                    logging.debug(f'{self.name}:\t put SCT result from {self.input_queue.name} to {queue.name}\t frame_id={item["frame_id"]}, frame_time={item["frame_time"]} [{t1 - t0:.6f} seconds]')
+                    logging.debug(f'{self.name}:\t put SCT result from {self.input_queue.name} to {oq.name}\t frame_id={item["frame_id"]}, frame_time={item["frame_time"]} [{t1 - t0:.6f} seconds]')
             
             logging.debug(f"{self.name}:\t sleep {self.config.get('SCT_TXT_SLEEP')}")
             time.sleep(self.config.get('SCT_TXT_SLEEP'))
@@ -362,6 +365,111 @@ class SCT(Pipeline):
             self.output_queues = []
         elif isinstance(self.output_queues, MyQueue):
             self.output_queues = [self.output_queues]
+
+
+class SyncFrame(Pipeline):
+
+    def __init__(
+            self, 
+            config: Config, 
+            input_queues: list[MyQueue],
+            output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            name='SyncFrame'
+    ) -> None:
+        super().__init__(config, name)
+
+        self.input_queues = input_queues
+        self._check_input_queues()
+        
+        self.output_queues = output_queues
+        self._check_output_queues()
+
+        self.wait_list = self._new_wait_list()
+
+        logging.debug(f'{self.name}:\t initialized')
+
+    
+    def _start(self) -> None:
+
+        while not self.is_stopped():
+
+            t0 = time.time()
+            
+            # load both the coming and waiting list
+            for c in range(len(self.input_queues)):
+                self.wait_list[c].extend(
+                    self.input_queues[c].get_many(
+                        size=self.config.get('QUEUE_GET_MANY_SIZE'),
+                        block=self.config.get('QUEUE_GET_BLOCK'),
+                        timeout=self.config.get('QUEUE_TIMEOUT')
+                    )
+                )
+            
+            # do not map if the number of pairs are so small
+            if min(len(self.wait_list[0]), len(self.wait_list[1])) < self.config.get('MIN_TIME_CORRESPONDENCES'):
+                logging.debug(f'{self.name}:\t wait list not enough for mapping time, waiting...')
+                continue
+
+            active_list = self.wait_list
+            self.wait_list = self._new_wait_list()
+
+            # reorganize items
+            adict = {
+                'frame_id': [],         # [[c1_f1, c1_f2,...], [c2_f1, c2_f2, ...]]
+                'frame_time': [],
+            }
+            for citems in active_list:
+                for k in adict:
+                    adict[k].append([])
+                for k in adict:
+                    for item in citems:
+                        adict[k][-1].append(item[k])
+            # each array in frame_time, frame_id should already been in increasing order of time
+
+            # match timestamps
+            c1_adict_matched, c2_adict_matched = map_timestamp(*adict['frame_time'], diff_thresh=self.config.get('TIME_DIFF_THRESH'), return_matrix=False)
+            c1_adict_matched = sorted(c1_adict_matched)
+            c2_adict_matched = sorted(c2_adict_matched)
+
+            # add un-processed items to wait list
+            if len(c1_adict_matched) > 0:
+                self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
+                self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
+            logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
+            logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.input_queues[1].name} to wait list')
+
+            for i, j in zip(c1_adict_matched, c2_adict_matched):
+
+                logging.debug(f"{self.name}:\t sync frame_id={adict['frame_id'][0][i]} ({datetime.fromtimestamp(adict['frame_time'][0][i]).strftime('%M-%S-%f')}) with frame_id={adict['frame_id'][1][j]} ({datetime.fromtimestamp(adict['frame_time'][1][j]).strftime('%M-%S-%f')})")
+
+                out_item = {
+                    'frame_id_match': (adict['frame_id'][0][i], adict['frame_id'][1][j])
+                }
+
+                for oq in self.output_queues:     # type: ignore
+                    oq.put(
+                        out_item,
+                        block=self.config.get('QUEUE_GET_BLOCK'),
+                        timeout=self.config.get('QUEUE_TIMEOUT')
+                    )
+            
+                    t1 = time.time()
+                    logging.debug(f'{self.name}:\t put synced frame pair from {", ".join([iq.name for iq in self.input_queues])} to {oq.name}\t frame_ids={out_item["frame_id_match"]} [{t1 - t0:.6f} seconds]')
+    
+
+    def _check_input_queues(self):
+        assert len(self.input_queues) == 2, f'currently support only bipartite mapping, got {len(self.input_queues)}'
+
+
+    def _check_output_queues(self):
+        if self.output_queues is None:
+            self.output_queues = []
+        elif isinstance(self.output_queues, MyQueue):
+            self.output_queues = [self.output_queues]
+
+    
+    def _new_wait_list(self):
+        return [[] for _ in range(len(self.input_queues))]
 
 
 class Display(Pipeline):
@@ -498,15 +606,15 @@ class StackFrames(Pipeline):
                     collage[H * row: H * (row + 1), W * col: W * (col + 1), :] = img
                 out_item['frame_img'] = collage
 
-                for output_queue in self.output_queues:     # type: ignore
-                    output_queue.put(
+                for oq in self.output_queues:     # type: ignore
+                    oq.put(
                     out_item,
                     block=self.config.get('QUEUE_GET_BLOCK'),
                     timeout=self.config.get('QUEUE_TIMEOUT')
                 )
             
                     t1 = time.time()
-                    logging.debug(f'{self.name}:\t put merged frames from {", ".join([input_queue.name for input_queue in self.input_queues])} to {output_queue.name}\t frame_id={out_item["frame_id"]}, frame_time={out_item["frame_time"]} [{t1 - t0:.6f} seconds]')
+                    logging.debug(f'{self.name}:\t put merged frames from {", ".join([input_queue.name for input_queue in self.input_queues])} to {oq.name}\t frame_id={out_item["frame_id"]}, frame_time={out_item["frame_time"]} [{t1 - t0:.6f} seconds]')
 
 
     def _check_input_queues(self):
@@ -606,14 +714,17 @@ class STA(Pipeline):
             self, 
             config: Config, 
             scenes: list[Scene],
-            input_queues: list[MyQueue],
+            sct_queues: list[MyQueue],
+            sync_queue: MyQueue,
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='STA'
     ) -> None:
         super().__init__(config, name)
 
-        self.input_queues = input_queues
-        self._check_input_queues()
+        self.sct_queues = sct_queues
+        self._check_sct_queues()
+
+        self.sync_queue = sync_queue
         
         self.output_queues = output_queues
         self._check_output_queues()
@@ -621,7 +732,7 @@ class STA(Pipeline):
         self.scenes = scenes
         self._check_scenes()
 
-        self.history = []       # [(frame_id_1, frame_time_1, frame_id_2, frame_time_2, ({id_1: loc_1, ...}, {id_2: loc_2, ...}), [(mid_1, mid_2), ...]), ...]
+        self.history = []       # [(frame_id_1, frame_id_2, ({id_1: loc_1, ...}, {id_2: loc_2, ...}), [(mid_1, mid_2), ...]), ...]
         self.distances = []     # record distances for FP elimination
         self.wait_list = self._new_wait_list()
 
@@ -634,71 +745,65 @@ class STA(Pipeline):
 
             t0 = time.time()
             
-            # load both the coming and waiting list
-            for c in range(len(self.input_queues)):
-                self.wait_list[c].extend(
-                    self.input_queues[c].get_many(
+            for wl, iq in zip(self.wait_list, self.sct_queues + [self.sync_queue]):
+                wl.extend(
+                    iq.get_many(
                         size=self.config.get('QUEUE_GET_MANY_SIZE'),
                         block=self.config.get('QUEUE_GET_BLOCK'),
                         timeout=self.config.get('QUEUE_TIMEOUT')
                     )
                 )
-            
-            # do not map if the number of pairs are so small
-            if min(len(self.wait_list[0]), len(self.wait_list[1])) < self.config.get('MIN_TIME_CORRESPONDENCES'):
-                logging.debug(f'{self.name}:\t wait list not enough, waiting...')
-                continue
 
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
 
             # TODO CHUYEN 1 SO FRAME CUOI VE WAITING LIST => WINDOW
+            # TODO thong ke toc do => realtime
 
             # reorganize items
             adict = {
-                'frame_img': [],            # [[c1_f1, c1_f2,...], [c2_f1, c2_f2, ...]]
-                'frame_id': [],
-                'frame_time': [],
+                'frame_id': [],             # [[c1_f1, c1_f2,...], [c2_f1, c2_f2, ...]]
                 'sct_output': [],
-                'sct_detection_mode': [],
-                'sct_tracking_mode': [],
             }
-            for items in active_list:
+            for citems in active_list[:2]:   # process items of sct_queue
                 for k in adict:
                     adict[k].append([])
                 for k in adict:
-                    for item in items:
+                    for item in citems:
                         adict[k][-1].append(item[k])
-            # each array in frame_time, frame_id should already been in increasing order of time
-
-            # match timestamps
-            c1_adict_matched, c2_adict_matched = map_timestamp(*adict['frame_time'], diff_thresh=self.config.get('TIME_DIFF_THRESH'), return_matrix=False)
-            c1_adict_matched = sorted(c1_adict_matched)
-            c2_adict_matched = sorted(c2_adict_matched)
+            adict['frame_id_match'] = []
+            for item in active_list[2]:     # process items of sync_queue
+                adict['frame_id_match'].append(item['frame_id_match'])
+            # each array in frame_id and frame_id_match should already been in increasing order of time
+            
+            c1_adict_matched, c2_adict_matched, sync_adict_matched = self._match_index(adict['frame_id'] + [adict['frame_id_match']])
+            
+            if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g Sync result comes slower), wo we need to wait more
+                self.wait_list = active_list
+                continue
 
             # add un-processed items to wait list
-            if len(c1_adict_matched) > 0:
-                self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
-                self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
-            logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
-            logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.input_queues[1].name} to wait list')
+            self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
+            self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
+            self.wait_list[2].extend(active_list[2][sync_adict_matched[-1] + 1:])
+            logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.sct_queues[0].name} to wait list')
+            logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.sct_queues[1].name} to wait list')
+            logging.debug(f'{self.name}:\t putting {len(self.wait_list[2])} of {self.sync_queue.name} to wait list')
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
             logging.debug(f'{self.name}:\t processing {T} pairs of frames')
+            del adict['frame_id_match']
             for k in adict:
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
                 adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
 
-            
             adict['in_roi'] = [[], []]
             for t in range(T):
                 self.history.append(
                     (
                         adict['frame_id'][0][t],
-                        adict['frame_time'][0][t],
                         adict['frame_id'][1][t],
-                        adict['frame_time'][1][t],
                         ({}, {}),
                         []
                     )
@@ -713,11 +818,11 @@ class STA(Pipeline):
                     dets_in_roi = dets[in_roi_idxs]
                     locs_in_roi = locs[in_roi_idxs]
                     adict['in_roi'][c].append(dets_in_roi)
-                    logging.info(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} ({datetime.fromtimestamp(adict["frame_time"][c][t]).strftime("%M-%S-%f")}) found {len(dets_in_roi)}/{len(dets)} objects in ROI')
+                    logging.info(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
                     # store history
                     assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
-                    self.history[-1][4][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi)})       # type: ignore
+                    self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi)})       # type: ignore
 
             matches = []
             for t in range(T):
@@ -765,20 +870,48 @@ class STA(Pipeline):
 
             for m in matches:
                 t = int(m[0].item())
-                self.history[t - T][5].append(m[1:3])    # correct only because t in [0, T-1]
+                self.history[t - T][3].append(m[1:3])    # correct only because t in [0, T-1]
 
             for out_item in self.history[-T:]:
-                for output_queue in self.output_queues:             # type: ignore
-                    output_queue.put(
+                for oq in self.output_queues:             # type: ignore
+                    oq.put(
                         out_item,
                         block=self.config.get('QUEUE_GET_BLOCK'),
                         timeout=self.config.get('QUEUE_TIMEOUT')
                     )
 
                     t1 = time.time()
-                    logging.debug(f'{self.name}:\t put STA result to {output_queue.name}\t {self.input_queues[0].name} frame={out_item[0]}, {self.input_queues[1].name} frame={out_item[2]} [{t1 - t0:.6f} seconds]')
+                    logging.debug(f'{self.name}:\t put STA result to {oq.name}\t {self.sct_queues[0].name} frame={out_item[0]}, {self.sct_queues[1].name} frame={out_item[2]} [{t1 - t0:.6f} seconds]')
 
 
+    def _match_index(self, active_list):
+        a, b, c = active_list
+        i, j, k = 0, 0, 0
+        li, lj, lk = [], [], []
+
+        while i < len(a) and j < len(b) and k < len(c):
+            
+            if a[i] == c[k][0] and b[j] == c[k][1]:
+                li.append(i)
+                lj.append(j)
+                lk.append(k)
+                i += 1
+                j += 1
+                k += 1
+            else:
+                if a[i] > c[k][0] or b[j] > c[k][1]:
+                    k += 1
+
+                else:
+                    if a[i] < c[k][0]:
+                        i += 1
+                    if b[j] < c[k][1]:
+                        j += 1
+        
+        return li, lj, lk
+
+
+    
     def _create_fp_filter(self) -> Union[FilterBase, None]:
 
         filter_type = self.config.get('FP_FILTER')
@@ -809,12 +942,12 @@ class STA(Pipeline):
         """
         assert window_size % 2 == 1, 'window size must be an odd number.'
         
-        locs = [self.history[t][4][0][c1_id]], [self.history[t][4][1][c2_id]]
+        locs = [self.history[t][2][0][c1_id]], [self.history[t][2][1][c2_id]]
         
         ns = [0, 0]     # counter for left, right
         slices = [
-            [self.history[j][4] for j in range(t - 1, t - 1 - window_boundary, -1)], 
-            [self.history[j][4] for j in range(t + 1, t + window_boundary + 1)]
+            [self.history[j][2] for j in range(t - 1, t - 1 - window_boundary, -1)], 
+            [self.history[j][2] for j in range(t + 1, t + window_boundary + 1)]
         ]
 
         for i, slice in enumerate(slices):
@@ -827,13 +960,13 @@ class STA(Pipeline):
                     locs[0].append(slice[j][0][c1_id])
                     locs[1].append(slice[j][1][c2_id])
                     ns[i] += 1
-        logging.info(f'{self.name}:\t window_size = {ns}')
+        logging.info(f'{self.name}:\t window nl, nr = {ns}')
 
         return np.array(locs[0]), np.array(locs[1])
 
                 
-    def _check_input_queues(self):
-        assert len(self.input_queues) == 2, f'currently support only bipartite mapping, got {len(self.input_queues)}'
+    def _check_sct_queues(self):
+        assert len(self.sct_queues) == 2, f'currently support only bipartite mapping, got {len(self.sct_queues)}'
 
 
     def _check_output_queues(self):
@@ -844,11 +977,12 @@ class STA(Pipeline):
 
     
     def _check_scenes(self):
-        assert len(self.scenes) == len(self.input_queues), 'the number of scenes must == number of input queues'
+        assert len(self.scenes) == len(self.sct_queues), 'the number of scenes must == number of SCT queues'
 
 
     def _new_wait_list(self):
-        return [[] for _ in range(len(self.input_queues))]
+        assert len(self.sct_queues) == 2, f'currently support only bipartite mapping, got {len(self.sct_queues)}'
+        return [[], [], []]     # the last list is for matches
 
 
 def load_roi(path, W, H) -> np.ndarray:
@@ -875,18 +1009,21 @@ if __name__ == '__main__':
     queue_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-1-Input-Queue')
     # queue_4 = MyQueue(config.get('QUEUE_MAXSIZE'), name='StackFrames-2-Input-Queue')
     queue_5 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-2-Input-Queue')
+    queue_9 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-1-Input-Queue')
+    queue_10 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-2-Input-Queue')
     
     # ONLY USE META IF CAPTURING VIDEOS
-    meta_1 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/41_00001_2023-04-05_08-30-00-000000.yaml', 'r'))
-    meta_2 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/42_00001_2023-04-05_08-30-00-000000.yaml', 'r'))
-    camera_1 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00001_2023-04-05_08-30-00-000000.avi', meta=meta_1, output_queues=[queue_2], name='Camera-1')
-    camera_2 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00001_2023-04-05_08-30-00-000000.avi', meta=meta_2, output_queues=[queue_5], name='Camera-2')
+    meta_1 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/41_00007_2023-04-11_08-30-00-000000.yaml', 'r'))
+    meta_2 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/42_00007_2023-04-11_08-30-00-000000.yaml', 'r'))
+    camera_1 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00007_2023-04-11_08-30-00-000000.avi', meta=meta_1, output_queues=[queue_2, queue_9], name='Camera-1')
+    camera_2 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00007_2023-04-11_08-30-00-000000.avi', meta=meta_2, output_queues=[queue_5, queue_10], name='Camera-2')
     
-    
-    queue_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-1-Input-Queue')
-    queue_6 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-2-Input-Queue')
-    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/41_00001_2023-04-05_08-30-00-000000.txt', name='Tracker-1')
-    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/42_00001_2023-04-05_08-30-00-000000.txt', name='Tracker-2')
+    queue_11 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-InputSync-Queue')
+    sync = SyncFrame(config, [queue_9, queue_10], queue_11)
+    queue_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-1-InputSCT-Queue')
+    queue_6 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-2-InputSCT-Queue')
+    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/41_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-1')
+    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/42_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-2')
     sct_1 = SCT(config, tracker=tracker1, input_queue=queue_2, output_queues=queue_3)
     sct_2 = SCT(config, tracker=tracker2, input_queue=queue_5, output_queues=queue_6)
     # queue_7 = MyQueue(config.get('QUEUE_MAXSIZE'), name='StackFrames-Output-Queue')
@@ -900,13 +1037,14 @@ if __name__ == '__main__':
     roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo))
     scene_1 = Scene(camera_1.width, camera_1.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
     scene_2 = Scene(camera_2.width, camera_2.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
-    sta = STA(config, [scene_1, scene_2], [queue_3, queue_6], queue_8)
+    sta = STA(config, [scene_1, scene_2], [queue_3, queue_6], queue_11, queue_8)
 
     camera_1.start()
     camera_2.start()
     # stackframes.start()
     # display_1.start()
     # display_2.start()
+    sync.start()
     sct_1.start()
     sct_2.start()
 
