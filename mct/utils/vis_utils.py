@@ -6,37 +6,121 @@ COLORS = [(51, 255, 221), (55, 250, 250), (255, 221, 21), (102, 255, 102), (83, 
 
 def plot_box(img, boxes, thickness=2):
     """
-    boxes: [[frame, id, x1, y1, x2, y2, conf],...]
+    boxes: [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
     """
     if not isinstance(boxes, np.ndarray):
-        boxes = np.squeeze(np.array(boxes))
+        boxes = np.array(boxes)
 
-    assert len(boxes.shape) == 2 and boxes.shape[1] == 7, "Invalid 'boxes' shape"
+    assert len(boxes.shape) == 2, "Invalid 'boxes' shape, must have dim == 2"
 
     img = img.copy()
     ids = np.int32(boxes[:, 1])
-    coords = np.int32(boxes[:, 2:6])
+    xyxys = np.int32(boxes[:, 2:6])
+    xyxys[:, 2:] += xyxys[:, :2]                    # type: ignore
     confs = boxes[:, 6]
-    # coords[:, 0] = np.clip(coords[:, 0], 0, img.shape[1])
-    # coords[:, 1] = np.clip(coords[:, 1], 0, img.shape[0])
-    # coords[:, 2] = np.clip(coords[:, 2], 0, img.shape[1])
-    # coords[:, 3] = np.clip(coords[:, 3], 0, img.shape[0])
+
+    xyxys[:, 0] = np.clip(xyxys[:, 0], 0, img.shape[1])     # type: ignore
+    xyxys[:, 1] = np.clip(xyxys[:, 1], 0, img.shape[0])     # type: ignore
+    xyxys[:, 2] = np.clip(xyxys[:, 2], 0, img.shape[1])     # type: ignore
+    xyxys[:, 3] = np.clip(xyxys[:, 3], 0, img.shape[0])     # type: ignore
 
     # TODO parallel
-    for i in range(boxes.shape[0]):
-        if ids[i] == -1:
+    for i in range(len(boxes)):
+        if ids[i] == -1:                            # type: ignore
             color = COLORS[3]
         else:
-            color = COLORS[ids[i] % len(COLORS)]
+            color = COLORS[ids[i] % len(COLORS)]    # type: ignore
             space = 5
             expected_text_H = 15
 
-            y_text = coords[i, 1] - space if coords[i, 1] - space - expected_text_H > 0 else coords[i, 1] + space + expected_text_H
-            x_text = coords[i, 0] + space
-            cv2.putText(img, str(ids[i]) + (f' ({int(confs[i] * 100)})' if confs[i] != -1 else ''), (x_text, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, thickness=thickness)
-        cv2.rectangle(img, coords[i, :2], coords[i, 2:4], color=color, thickness=thickness)
+            y_text = xyxys[i, 1] - space if xyxys[i, 1] - space - expected_text_H > 0 else xyxys[i, 1] + space + expected_text_H    # type: ignore
+            x_text = xyxys[i, 0] + space                                                                                            # type: ignore
+            cv2.putText(img, str(ids[i]) + (f' ({int(confs[i] * 100)})' if confs[i] != -1 else ''), (x_text, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, thickness=thickness)    # type: ignore
+        cv2.rectangle(img, xyxys[i, :2], xyxys[i, 2:4], color=color, thickness=thickness)                                           # type: ignore
 
     return img
+
+
+def plot_loc(img, locs, radius=6):
+    # locs: [[frame, id, x, y, ...],...]
+    if not isinstance(locs, np.ndarray):
+        locs = np.array(locs)
+
+    assert len(locs.shape) == 2, "Invalid 'locs' shape, must have dim == 2"
+
+    img = img.copy()
+    ids = np.int32(locs[:, 1])
+    xyxy = np.int32(locs[:, 2:4])
+
+    xyxy[:, 0] = np.clip(xyxy[:, 0], 0, img.shape[1])     # type: ignore
+    xyxy[:, 1] = np.clip(xyxy[:, 1], 0, img.shape[0])     # type: ignore
+
+    for i in range(len(locs)):
+        if ids[i] == -1:                            # type: ignore
+            color = COLORS[3]
+        else:
+            color = COLORS[ids[i] % len(COLORS)]    # type: ignore
+        
+        cv2.circle(img, xyxy[i], radius=radius, color=color, thickness=-1)
+    
+    return img
+
+
+def plot_roi(img, roi, thickness=2):
+    img = img.copy()
+    cv2.drawContours(img, [roi], -1, (255, 255, 255), thickness=thickness)
+    return img
+
+
+def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
+    #Plot the skeleton and keypointsfor coco datatset
+    palette = np.array([[255, 128, 0], [255, 153, 51], [255, 178, 102],
+                        [230, 230, 0], [255, 153, 255], [153, 204, 255],
+                        [255, 102, 255], [255, 51, 255], [102, 178, 255],
+                        [51, 153, 255], [255, 153, 153], [255, 102, 102],
+                        [255, 51, 51], [153, 255, 153], [102, 255, 102],
+                        [51, 255, 51], [0, 255, 0], [0, 0, 255], [255, 0, 0],
+                        [255, 255, 255]])
+
+    skeleton = [[16, 14], [14, 12], [17, 15], [15, 13], [12, 13], [6, 12],
+                [7, 13], [6, 7], [6, 8], [7, 9], [8, 10], [9, 11], [2, 3],
+                [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7]]
+
+    im = im.copy()
+    pose_limb_color = palette[[9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 16, 16]]
+    pose_kpt_color = palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
+    radius = 5
+    num_kpts = len(kpts) // steps
+
+    for kid in range(num_kpts):
+        r, g, b = pose_kpt_color[kid]
+        x_coord, y_coord = kpts[steps * kid], kpts[steps * kid + 1]
+        if not (x_coord % 640 == 0 or y_coord % 640 == 0):
+            if steps == 3:
+                conf = kpts[steps * kid + 2]
+                if conf < 0.5:
+                    continue
+            cv2.circle(im, (int(x_coord), int(y_coord)), radius, (int(r), int(g), int(b)), -1)
+
+
+    for sk_id, sk in enumerate(skeleton):
+        r, g, b = pose_limb_color[sk_id]
+        pos1 = (int(kpts[(sk[0]-1)*steps]), int(kpts[(sk[0]-1)*steps+1]))
+        pos2 = (int(kpts[(sk[1]-1)*steps]), int(kpts[(sk[1]-1)*steps+1]))
+        if steps == 3:
+            conf1 = kpts[(sk[0]-1)*steps+2]
+            conf2 = kpts[(sk[1]-1)*steps+2]
+            if conf1<0.5 or conf2<0.5:
+                continue
+        if pos1[0]%640 == 0 or pos1[1]%640==0 or pos1[0]<0 or pos1[1]<0:
+            continue
+        if pos2[0] % 640 == 0 or pos2[1] % 640 == 0 or pos2[0]<0 or pos2[1]<0:
+            continue
+        cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
+    
+    return im
+
+
 
 def draw_track(img, track, id, color, radius=2, **kwargs):
 

@@ -1,4 +1,3 @@
-
 from typing import Any, Union
 from queue import Queue
 from threading import Lock, Thread
@@ -12,8 +11,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 from map_utils import map_timestamp, hungarian
+from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
 from filter import FilterBase, IQRFilter, GMMFilter
-from mct.utils.pipeline import Config
 
 
 logging.basicConfig(
@@ -41,6 +40,7 @@ class Config:
             logging.debug(f'{self.name}:\t loading config at {config_path}')
 
         self.stopped = False
+        self.pausing = False
 
         self.lock = Lock()
         
@@ -57,8 +57,19 @@ class Config:
         logging.debug(f'{self.name}\t stop locked')
         self.lock.release()
 
+
     def is_stopped(self) -> bool:
         return self.stopped is True
+
+    
+    def switch_pausing(self) -> None:
+        self.lock.acquire()
+        self.pausing = not self.pausing
+        logging.debug(f'{self.name}\t pausing locked')
+        self.lock.release()
+
+    def is_pausing(self) -> bool:
+        return self.pausing
 
 
 class MyQueue:
@@ -134,24 +145,38 @@ class Pipeline(ABC):
         self.output_queues = output_queues
         self._check_output_queues()    
     
+
     @abstractmethod
     def _start(self) -> None:
         pass
     
+
     def start(self) -> None:
         self.thread.start()
+
 
     def stop(self) -> None:
         self.config.stop()
 
+
     def is_stopped(self) -> bool:
         return self.config.is_stopped() is True
-    
+
+
+    def trigger_pause(self):
+        while self.config.is_pausing():
+            pass
+
+
     def _check_output_queues(self) -> None:
         if self.output_queues is None:
             self.output_queues = []
         elif isinstance(self.output_queues, MyQueue):
             self.output_queues = [self.output_queues]
+
+
+    def switch_pausing(self):
+        self.config.switch_pausing()
 
 
 class Camera(Pipeline):
@@ -191,6 +216,8 @@ class Camera(Pipeline):
             frame_id = self.meta['start_frame_id'] - 1
 
         while not self.is_stopped():
+
+            self.trigger_pause()
 
             t0 = time.time()
 
@@ -294,7 +321,7 @@ class Tracker:
             assert  isinstance(frame_id, int), 'frame_id must be provided in mock test'
 
             # if detection_mode == 'box' => [[frame_id, track_id, x1, y1, w, h, -1, -1, -1, 0],...] (N x 10)
-            # if detection_mode == 'box' => [[frame_id, track_id, x1, y1, w, h, conf, -1, -1, -1, *[kpt_x, kpt_y, kpt_conf], ...]] (N x 61)
+            # if detection_mode == 'pose' => [[frame_id, track_id, x1, y1, w, h, conf, -1, -1, -1, *[kpt_x, kpt_y, kpt_conf], ...]] (N x 61)
             dets = self.seq[self.seq[:, 0] == frame_id]
 
             logging.debug(f'{self.name}:\t frame {frame_id} detected {len(dets)} people')
@@ -325,6 +352,8 @@ class SCT(Pipeline):
     def _start(self) -> None:
         
         while not self.is_stopped():
+
+            self.trigger_pause()
 
             t0 = time.time()
 
@@ -381,6 +410,8 @@ class SyncFrame(Pipeline):
     def _start(self) -> None:
 
         while not self.is_stopped():
+
+            self.trigger_pause()
 
             t0 = time.time()
             
@@ -462,7 +493,7 @@ class Display(Pipeline):
             input_queue: MyQueue,
             name='Display thread'
     ) -> None:
-        super().__init__(config, name)
+        super().__init__(config, None, name)
         
         self.input_queue = input_queue
 
@@ -473,6 +504,8 @@ class Display(Pipeline):
         self._setup_window()
 
         while not self.is_stopped():
+
+            self.trigger_pause()
 
             logging.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
             items = self.input_queue.get_many(
@@ -485,14 +518,17 @@ class Display(Pipeline):
 
                 frame_img = item['frame_img']
                 frame_id = item['frame_id']
-                frame_time = item['frame_time']
 
-                logging.debug(f'{self.name}:\t display from {self.input_queue.name}\t frame_id={frame_id} and frame_time={frame_time}')
+                logging.debug(f'{self.name}:\t display from {self.input_queue.name}\t frame_id={frame_id}')
                 cv2.imshow(self.name, frame_img)
                 key = cv2.waitKey(self.config.get('DISPLAY_FPS'))
                 if key == ord('q'):
                     self.stop()
                     break
+                elif key == ord(' '):                    
+                    self.switch_pausing()
+                    cv2.waitKey(0)
+                    self.switch_pausing()
             
         cv2.destroyAllWindows()
 
@@ -525,6 +561,8 @@ class StackFrames(Pipeline):
     def _start(self):
 
         while not self.is_stopped():
+
+            self.trigger_pause()
 
             t0 = time.time()
 
@@ -636,7 +674,10 @@ class Scene:
 
         self.width = width
         self.height = height
-        self.roi = np.int32(roi)    # type: ignore
+        
+        self.roi = roi   
+        self._check_roi()
+
         self.roi_test_offset = roi_test_offset
 
         self.name = name
@@ -644,13 +685,13 @@ class Scene:
         logging.debug(f'{self.name}:\t initialized')
     
 
-    def is_in_roi(self, x) -> Union[bool, np.ndarray]:
+    def is_in_roi(self, x: np.ndarray) -> Union[bool, np.ndarray]:
         not_np = False
         if not isinstance(x, np.ndarray):
             x = np.array(x)
             not_np = True
         
-        x = np.float32(x.reshape(-1, 2))
+        x = np.float32(x.reshape(-1, 2))    # type: ignore
 
         ret = [cv2.pointPolygonTest(self.roi, p, True) >= self.roi_test_offset for p in x]      # type: ignore
 
@@ -658,6 +699,10 @@ class Scene:
             return ret[0]
         else:
             return np.array(ret, dtype=bool)
+        
+    
+    def has_roi(self) -> bool:
+        return self.roi is not None
 
 
     def calc_position(
@@ -665,6 +710,9 @@ class Scene:
             x,
             loc_infer_mode,
     ) -> np.ndarray:
+        
+        # if detection_mode == 'box' => [[frame_id, track_id, x1, y1, w, h, -1, -1, -1, 0],...] (N x 10)
+        # if detection_mode == 'pose' => [[frame_id, track_id, x1, y1, w, h, conf, -1, -1, -1, *[kpt_x, kpt_y, kpt_conf], ...]] (N x 61)
         
         if not isinstance(x, np.ndarray):
             x = np.array(x)
@@ -679,6 +727,12 @@ class Scene:
             return x[:, 2:4]
         
         raise NotImplementedError()
+    
+
+    def _check_roi(self):
+        if self.roi is not None:
+            assert isinstance(self.roi, np.ndarray)
+            self.roi = np.int32(self.roi)   # type: ignore
 
 
 class STA(Pipeline):
@@ -713,6 +767,8 @@ class STA(Pipeline):
         
         while not self.is_stopped():
 
+            self.trigger_pause()
+
             t0 = time.time()
             
             for wl, iq in zip(self.wait_list, self.sct_queues + [self.sync_queue]):
@@ -728,7 +784,7 @@ class STA(Pipeline):
             self.wait_list = self._new_wait_list()
 
             # TODO CHUYEN 1 SO FRAME CUOI VE WAITING LIST => WINDOW
-            # TODO thong ke toc do => realtime
+            # TODO thong ke toc do => realtime + sleep sao cho memory usage on dinh
 
             # reorganize items
             adict = {
@@ -746,7 +802,7 @@ class STA(Pipeline):
                 adict['frame_id_match'].append(item['frame_id_match'])
             # each array in frame_id and frame_id_match should already been in increasing order of time
             
-            c1_adict_matched, c2_adict_matched, sync_adict_matched = self._match_index(adict['frame_id'] + [adict['frame_id_match']])
+            c1_adict_matched, c2_adict_matched, sync_adict_matched = self._match_index(*adict['frame_id'], adict['frame_id_match'])  # type: ignore
             
             if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g Sync result comes slower), wo we need to wait more
                 self.wait_list = active_list
@@ -788,7 +844,7 @@ class STA(Pipeline):
                     dets_in_roi = dets[in_roi_idxs]
                     locs_in_roi = locs[in_roi_idxs]
                     adict['in_roi'][c].append(dets_in_roi)
-                    logging.info(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
+                    logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
                     # store history
                     assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
@@ -820,7 +876,7 @@ class STA(Pipeline):
                 
                 mi1s, mi2s = hungarian(cost)
                 if len(mi1s) > 0:
-                    logging.info(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
+                    logging.debug(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
                 for i1, i2 in zip(mi1s, mi2s):
                     h1 = h1_ids[i1]
                     h2 = h2_ids[i2]
@@ -842,7 +898,13 @@ class STA(Pipeline):
                 t = int(m[0].item())
                 self.history[t - T][3].append(m[1:3])    # correct only because t in [0, T-1]
 
-            for out_item in self.history[-T:]:
+            for his in self.history[-T:]:
+                out_item = {
+                    'frame_id_1': his[0],
+                    'frame_id_2': his[1],
+                    'locs': his[2],
+                    'matches': his[3]
+                }
                 for oq in self.output_queues:             # type: ignore
                     oq.put(
                         out_item,
@@ -851,11 +913,10 @@ class STA(Pipeline):
                     )
 
                     t1 = time.time()
-                    logging.debug(f'{self.name}:\t put STA result to {oq.name}\t {self.sct_queues[0].name} frame={out_item[0]}, {self.sct_queues[1].name} frame={out_item[2]} [{t1 - t0:.6f} seconds]')
+                    logging.debug(f'{self.name}:\t put STA result to {oq.name}\t {self.sct_queues[0].name} frame={out_item["frame_id_1"]}, {self.sct_queues[1].name} frame={out_item["frame_id_1"]} [{t1 - t0:.6f} seconds]')
 
 
-    def _match_index(self, active_list):
-        a, b, c = active_list
+    def _match_index(self, a, b, c):
         i, j, k = 0, 0, 0
         li, lj, lk = [], [], []
 
@@ -952,17 +1013,180 @@ class Visualize(Pipeline):
     def __init__(
             self, 
             config: Config, 
+            mode: str,
             annot_queue: MyQueue,
             video_queue: Union[MyQueue, None] = None,
+            scene: Union[Scene, None] = None,
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='Visualizer'
     ) -> None:
         super().__init__(config, output_queues, name)
+        
+        self.mode = mode
+        self._check_mode()
 
         self.annot_queue = annot_queue
+        
         self.video_queue = video_queue
+        self._check_video_queue()
+
+        self.scene = scene
+
+        self.wait_list = self._new_wait_list()
 
         logging.debug(f'{self.name}:\t initialized')
+
+    
+    def _start(self):
+
+        while not self.is_stopped():
+
+            self.trigger_pause()
+
+            t0 = time.time()
+            
+            for wl, iq in zip(self.wait_list, [self.annot_queue, self.video_queue]):
+                wl.extend(
+                    iq.get_many(                                                # type: ignore
+                        size=self.config.get('QUEUE_GET_MANY_SIZE'),
+                        block=self.config.get('QUEUE_GET_BLOCK'),
+                        timeout=self.config.get('QUEUE_TIMEOUT')
+                    )
+                )
+
+            active_list = self.wait_list
+            self.wait_list = self._new_wait_list()
+
+            adict = {}
+
+            for i, al in enumerate(active_list):
+                for j, item in enumerate(al):
+                    for k, v in item.items():
+                        if k not in adict:
+                            adict[k] = [[], []]
+                        adict[k][i].append(v)
+            
+            if len(adict) == 0:
+                continue
+            
+            if self.mode == 'SCT':
+            
+                c1_adict_matched, c2_adict_matched = self._match_index(*adict['frame_id'])
+
+                if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g SCT result comes slower), wo we need to wait more
+                    self.wait_list = active_list
+                    continue
+
+                # add un-processed items to wait list
+                self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
+                self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
+                logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.annot_queue.name} to wait list')
+                logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.video_queue.name} to wait list')   # type: ignore
+
+                # using continuous indexes from 0 -> T-1 rather than discrete indexes
+                T = len(c1_adict_matched)
+                logging.info(f'{self.name}:\t processing {T} pairs of frames')
+                for k in adict:
+                    if len(adict[k][0]) > 0:
+                        adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
+                    if len(adict[k][1]) > 0:
+                        adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]                   
+                
+                for t in range(T):
+                    frame_img = adict['frame_img'][1][t]
+                    dets = adict['sct_output'][0][t]
+                    detection_mode = adict['sct_detection_mode'][0][t]
+
+                    # if scene is provided then plot roi and location point
+                    if self.scene is not None and self.scene.has_roi():
+                        frame_img = plot_roi(frame_img, self.scene.roi, self.config.get('VIS_ROI_THICKNESS'))
+
+                    if detection_mode == 'box':
+                        frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'))
+                    elif detection_mode == 'pose':
+                        frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'))
+                        for kpt in dets[:, 10:]:
+                            frame_img = plot_skeleton_kpts(frame_img, kpt.T, 3)
+                    else:
+                        raise NotImplementedError()
+                    
+                    if self.scene is not None:
+                        locs = self.scene.calc_position(dets, self.config.get('LOC_INFER_MODE'))
+                        frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
+
+                    
+                    out_item = {
+                        'frame_img': frame_img,                   # type: ignore
+                        'frame_id': adict['frame_id'][1][t]
+                    }
+
+                    for oq in self.output_queues:   # type: ignore
+                        oq.put(
+                            out_item,
+                            block=self.config.get('QUEUE_GET_BLOCK'),
+                            timeout=self.config.get('QUEUE_TIMEOUT')
+                        )
+
+                        t1 = time.time()
+                        logging.debug(f'{self.name}:\t put Visualized SCT result from {self.video_queue.name} and {self.annot_queue.name} to {oq.name}\t frame_id={out_item["frame_id"]} [{t1 - t0:.6f} seconds]')  # type: ignore
+            
+            elif self.mode == 'STA':
+                for k in adict:
+                    adict[k] = adict[k][0]
+                T = len(adict['frame_id_1'])
+                print(adict)
+
+                # TODO sua lai STA: 
+                # locs dang chua homo => Vis kieu gi?
+                # locs dang ko chua case ngoai ROI => Vis kieu gi, nhung neu them thi anh huong toi windows
+            
+
+            else:
+                raise NotImplementedError()
+            
+    
+            
+
+    
+    def _match_index(self, a, b):
+        i, j = 0, 0
+        li, lj = [], []
+
+        while i < len(a) and j < len(b):
+            
+            if a[i] == b[j]:
+                li.append(i)
+                lj.append(j)
+                i += 1
+                j += 1
+            elif a[i] < b[j]:
+                i += 1
+            else:
+                j += 1
+        
+        return li, lj
+
+            
+                            
+
+
+
+
+    def _new_wait_list(self):
+        return [[], []]
+
+
+    def _check_mode(self):
+        assert self.mode in ['SCT', 'STA']
+    
+    def _check_video_queue(self):
+        if self.mode == 'SCT':
+            assert isinstance(self.video_queue, MyQueue), f'visualizing SCT requires video input queue, got {type(self.video_queue)}'
+        elif self.mode == 'STA':
+            assert self.video_queue is None, 'visualizing STA does not require video input queue'
+            self.video_queue = MyQueue(maxsize=0, name='Mock-Video-Queue')
+
+
 
 
 
@@ -987,12 +1211,14 @@ if __name__ == '__main__':
 
     config = Config('/media/tran/003D94E1B568C6D11/Workingspace/MCT/mct/utils/config.yaml')
 
-    # queue_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='StackFrames-1-Input-Queue')
+    queue_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-1-Input-Queue')
     queue_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-1-Input-Queue')
-    # queue_4 = MyQueue(config.get('QUEUE_MAXSIZE'), name='StackFrames-2-Input-Queue')
+    queue_4 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-2-Input-Queue')
     queue_5 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-2-Input-Queue')
     queue_9 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-1-Input-Queue')
     queue_10 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-2-Input-Queue')
+    queue_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-1-InputVideo-Queue')
+    queue_13 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-2-InputVideo-Queue')
     
     # ONLY USE META IF CAPTURING VIDEOS
     meta_1 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/41_00007_2023-04-11_08-30-00-000000.yaml', 'r'))
@@ -1004,14 +1230,14 @@ if __name__ == '__main__':
     sync = SyncFrame(config, [queue_9, queue_10], queue_11)
     queue_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-1-InputSCT-Queue')
     queue_6 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-2-InputSCT-Queue')
-    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/41_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-1')
-    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct/42_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-2')
-    sct_1 = SCT(config, tracker=tracker1, input_queue=queue_2, output_queues=queue_3)
-    sct_2 = SCT(config, tracker=tracker2, input_queue=queue_5, output_queues=queue_6)
+    queue_14 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-1-InputAnnot-Queue')
+    queue_15 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-2-InputAnnot-Queue')
+    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose-pretrained-640-ByteTrack/sct/41_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-1')
+    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose-pretrained-640-ByteTrack/sct/42_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-2')
+    sct_1 = SCT(config, tracker=tracker1, input_queue=queue_2, output_queues=[queue_3])
+    sct_2 = SCT(config, tracker=tracker2, input_queue=queue_5, output_queues=[queue_6])
     # queue_7 = MyQueue(config.get('QUEUE_MAXSIZE'), name='StackFrames-Output-Queue')
     # stackframes = StackFrames(config, input_queues=[queue_1, queue_4], output_queues=queue_7, shape=(2,1))
-    # display_1 = Display(config, input_queue=queue_1, name='Display 1')
-    # display_2 = Display(config, input_queue=queue_4, name='Display 2')
 
     queue_8 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-Output-Queue')
     roi_2 = load_roi('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/roi_42.txt', camera_2.width, camera_2.height)
@@ -1021,15 +1247,28 @@ if __name__ == '__main__':
     scene_2 = Scene(camera_2.width, camera_2.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
     sta = STA(config, [scene_1, scene_2], [queue_3, queue_6], queue_11, queue_8)
 
+    vis_sct_1 = Visualize(config, mode='SCT', annot_queue=queue_14, video_queue=queue_12, scene=scene_1, output_queues=queue_1)
+    vis_sct_2 = Visualize(config, mode='SCT', annot_queue=queue_15, video_queue=queue_13, scene=scene_2, output_queues=queue_4)
+    
+    queue_16 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-Input-Queue')
+    vis_sta = Visualize(config, mode='STA', annot_queue=queue_8, video_queue=None, scene=scene_1, output_queues=queue_16)
+
+    display_1 = Display(config, input_queue=queue_16, name='Display 1')
+    # display_2 = Display(config, input_queue=queue_4, name='Display 2')
+
     camera_1.start()
     camera_2.start()
-    # stackframes.start()
-    # display_1.start()
-    # display_2.start()
+    
     sync.start()
     sct_1.start()
     sct_2.start()
 
     sta.start()
+    # vis_sct_1.start()
+    # vis_sct_2.start()
+    vis_sta.start()
+    
+    # display_1.start()
+    # display_2.start()
 
     
