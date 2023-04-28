@@ -32,9 +32,11 @@ TIME_DIFF_THRESH: null
 DIST_WINDOW_SIZE: 1
 DIST_WINDOW_BOUNDARY: 0
 
-
 # Scene
 ROI_TEST_OFFSET: -5
+
+# Visualizer
+
 
 # display pipeline
 DISPLAY_FPS: 1

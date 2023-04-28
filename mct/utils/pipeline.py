@@ -13,6 +13,7 @@ import numpy as np
 
 from map_utils import map_timestamp, hungarian
 from filter import FilterBase, IQRFilter, GMMFilter
+from mct.utils.pipeline import Config
 
 
 logging.basicConfig(
@@ -121,13 +122,17 @@ class Pipeline(ABC):
     @abstractmethod
     def __init__(
             self, 
-            config: Config, 
+            config: Config,
+            output_queues: Union[list[MyQueue], MyQueue, None] = None, 
             name='Pipeline component'
     ) -> None:
         
         self.config = config
         self.name = name
-        self.thread = Thread(target=self._start, args=(), name=self.name)    
+        self.thread = Thread(target=self._start, args=(), name=self.name)
+
+        self.output_queues = output_queues
+        self._check_output_queues()    
     
     @abstractmethod
     def _start(self) -> None:
@@ -141,6 +146,12 @@ class Pipeline(ABC):
 
     def is_stopped(self) -> bool:
         return self.config.is_stopped() is True
+    
+    def _check_output_queues(self) -> None:
+        if self.output_queues is None:
+            self.output_queues = []
+        elif isinstance(self.output_queues, MyQueue):
+            self.output_queues = [self.output_queues]
 
 
 class Camera(Pipeline):
@@ -153,16 +164,13 @@ class Camera(Pipeline):
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='Camera thread'
     ) -> None:
-        super().__init__(config, name)
+        super().__init__(config, output_queues, name)
         
         self.source = source
         self.cap = cv2.VideoCapture(self.source)
         
         self.meta = meta
         self._check_meta()
-        
-        self.output_queues = output_queues
-        self._check_output_queues()
 
         if self.config.get('CAMERA_FRAME_WIDTH') is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.get('CAMERA_FRAME_WIDTH'))
@@ -254,13 +262,6 @@ class Camera(Pipeline):
     def _check_meta(self) -> None:
         pass
         
-    
-    def _check_output_queues(self) -> None:
-        if self.output_queues is None:
-            self.output_queues = []
-        elif isinstance(self.output_queues, MyQueue):
-            self.output_queues = [self.output_queues]
-
 
 class Tracker:
 
@@ -314,13 +315,11 @@ class SCT(Pipeline):
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='SCT'
     ) -> None:
-        super().__init__(config, name)
+        super().__init__(config, output_queues, name)
 
         self.tracker = tracker
         
         self.input_queue = input_queue
-        self.output_queues = output_queues
-        self._check_output_queues()
 
     
     def _start(self) -> None:
@@ -360,13 +359,6 @@ class SCT(Pipeline):
             time.sleep(self.config.get('SCT_TXT_SLEEP'))
 
 
-    def _check_output_queues(self) -> None:
-        if self.output_queues is None:
-            self.output_queues = []
-        elif isinstance(self.output_queues, MyQueue):
-            self.output_queues = [self.output_queues]
-
-
 class SyncFrame(Pipeline):
 
     def __init__(
@@ -376,13 +368,10 @@ class SyncFrame(Pipeline):
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='SyncFrame'
     ) -> None:
-        super().__init__(config, name)
+        super().__init__(config, output_queues, name)
 
         self.input_queues = input_queues
         self._check_input_queues()
-        
-        self.output_queues = output_queues
-        self._check_output_queues()
 
         self.wait_list = self._new_wait_list()
 
@@ -461,13 +450,6 @@ class SyncFrame(Pipeline):
         assert len(self.input_queues) == 2, f'currently support only bipartite mapping, got {len(self.input_queues)}'
 
 
-    def _check_output_queues(self):
-        if self.output_queues is None:
-            self.output_queues = []
-        elif isinstance(self.output_queues, MyQueue):
-            self.output_queues = [self.output_queues]
-
-    
     def _new_wait_list(self):
         return [[] for _ in range(len(self.input_queues))]
 
@@ -529,12 +511,10 @@ class StackFrames(Pipeline):
             shape: Union[list[int], tuple[int], None] = None,
             name='StackFrames'
     ) -> None:
-        super().__init__(config, name)
+        super().__init__(config, output_queues, name)
 
         self.input_queues = input_queues
         self._check_input_queues()
-        self.output_queues = output_queues
-        self._check_output_queues()
 
         self.shape = shape
         self._check_shape()
@@ -619,13 +599,6 @@ class StackFrames(Pipeline):
 
     def _check_input_queues(self):
         assert len(self.input_queues) > 1, 'input_queues must have at least 2 elements'
-
-    
-    def _check_output_queues(self):
-        if self.output_queues is None:
-            self.output_queues = []
-        elif isinstance(self.output_queues, MyQueue):
-            self.output_queues = [self.output_queues]
 
     
     def _check_shape(self):
@@ -719,15 +692,12 @@ class STA(Pipeline):
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='STA'
     ) -> None:
-        super().__init__(config, name)
+        super().__init__(config, output_queues, name)
 
         self.sct_queues = sct_queues
         self._check_sct_queues()
 
         self.sync_queue = sync_queue
-        
-        self.output_queues = output_queues
-        self._check_output_queues()
 
         self.scenes = scenes
         self._check_scenes()
@@ -911,7 +881,6 @@ class STA(Pipeline):
         return li, lj, lk
 
 
-    
     def _create_fp_filter(self) -> Union[FilterBase, None]:
 
         filter_type = self.config.get('FP_FILTER')
@@ -969,13 +938,6 @@ class STA(Pipeline):
         assert len(self.sct_queues) == 2, f'currently support only bipartite mapping, got {len(self.sct_queues)}'
 
 
-    def _check_output_queues(self):
-        if self.output_queues is None:
-            self.output_queues = []
-        elif isinstance(self.output_queues, MyQueue):
-            self.output_queues = [self.output_queues]
-
-    
     def _check_scenes(self):
         assert len(self.scenes) == len(self.sct_queues), 'the number of scenes must == number of SCT queues'
 
@@ -983,6 +945,26 @@ class STA(Pipeline):
     def _new_wait_list(self):
         assert len(self.sct_queues) == 2, f'currently support only bipartite mapping, got {len(self.sct_queues)}'
         return [[], [], []]     # the last list is for matches
+
+
+class Visualize(Pipeline):
+
+    def __init__(
+            self, 
+            config: Config, 
+            annot_queue: MyQueue,
+            video_queue: Union[MyQueue, None] = None,
+            output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            name='Visualizer'
+    ) -> None:
+        super().__init__(config, output_queues, name)
+
+        self.annot_queue = annot_queue
+        self.video_queue = video_queue
+
+        logging.debug(f'{self.name}:\t initialized')
+
+
 
 
 def load_roi(path, W, H) -> np.ndarray:
