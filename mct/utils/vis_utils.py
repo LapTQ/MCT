@@ -41,12 +41,15 @@ def plot_box(img, boxes, thickness=2):
     return img
 
 
-def plot_loc(img, locs, radius=6):
+def plot_loc(img, locs, radius=6, texts=None, text_thickness=2):
     # locs: [[frame, id, x, y, ...],...]
     if not isinstance(locs, np.ndarray):
         locs = np.array(locs)
 
     assert len(locs.shape) == 2, "Invalid 'locs' shape, must have dim == 2"
+    
+    if texts is not None:
+        assert len(texts) == len(locs)
 
     img = img.copy()
     ids = np.int32(locs[:, 1])
@@ -61,7 +64,9 @@ def plot_loc(img, locs, radius=6):
         else:
             color = COLORS[ids[i] % len(COLORS)]    # type: ignore
         
-        cv2.circle(img, xyxy[i], radius=radius, color=color, thickness=-1)
+        cv2.circle(img, xyxy[i], radius=radius, color=color, thickness=-1)      # type: ignore
+        if texts is not None:
+            cv2.putText(img, texts[i], xyxy[i], cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, text_thickness)   # type: ignore
     
     return img
 

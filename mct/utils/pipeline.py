@@ -741,12 +741,16 @@ class STA(Pipeline):
             self, 
             config: Config, 
             scenes: list[Scene],
+            homo: np.ndarray,
             sct_queues: list[MyQueue],
             sync_queue: MyQueue,
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='STA'
     ) -> None:
         super().__init__(config, output_queues, name)
+        """
+        homo: tranform the view of scene[0] to scene[1]
+        """
 
         self.sct_queues = sct_queues
         self._check_sct_queues()
@@ -755,6 +759,8 @@ class STA(Pipeline):
 
         self.scenes = scenes
         self._check_scenes()
+
+        self.homo = homo
 
         self.history = []       # [(frame_id_1, frame_id_2, ({id_1: loc_1, ...}, {id_2: loc_2, ...}), [(mid_1, mid_2), ...]), ...]
         self.distances = []     # record distances for FP elimination
@@ -804,7 +810,7 @@ class STA(Pipeline):
             
             c1_adict_matched, c2_adict_matched, sync_adict_matched = self._match_index(*adict['frame_id'], adict['frame_id_match'])  # type: ignore
             
-            if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g Sync result comes slower), wo we need to wait more
+            if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g Sync result comes slower), so we need to wait more
                 self.wait_list = active_list
                 continue
 
@@ -830,7 +836,8 @@ class STA(Pipeline):
                     (
                         adict['frame_id'][0][t],
                         adict['frame_id'][1][t],
-                        ({}, {}),
+                        ({}, {}),   # locs
+                        ({}, {}),   # loc in ROI
                         []
                     )
                 )
@@ -843,12 +850,19 @@ class STA(Pipeline):
                     in_roi_idxs = scene.is_in_roi(locs)
                     dets_in_roi = dets[in_roi_idxs]
                     locs_in_roi = locs[in_roi_idxs]
+                    if c == 0:  # if cam 1, then transform to view of cam 2
+                        locs = cv2.perspectiveTransform(locs.reshape(-1, 1, 2), homo)
+                        locs = locs.reshape(-1, 2) if locs is not None else np.empty((0, 2))
+                        
+                        locs_in_roi = cv2.perspectiveTransform(locs_in_roi.reshape(-1, 1, 2), homo)
+                        locs_in_roi = locs_in_roi.reshape(-1, 2) if locs_in_roi  is not None else np.empty((0, 2))
                     adict['in_roi'][c].append(dets_in_roi)
                     logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
-                    # store history
+                    # store location history, both inside-only and inide-outside
                     assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
-                    self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi)})       # type: ignore
+                    self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets[:, 1]), locs)})                     # type: ignore
+                    self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi)})       # type: ignore
 
             matches = []
             for t in range(T):
@@ -896,14 +910,15 @@ class STA(Pipeline):
 
             for m in matches:
                 t = int(m[0].item())
-                self.history[t - T][3].append(m[1:3])    # correct only because t in [0, T-1]
+                self.history[t - T][4].append(m[1:3])    # correct only because t in [0, T-1]
 
             for his in self.history[-T:]:
                 out_item = {
                     'frame_id_1': his[0],
                     'frame_id_2': his[1],
                     'locs': his[2],
-                    'matches': his[3]
+                    'locs_in_roi': his[3],
+                    'matches': his[4]
                 }
                 for oq in self.output_queues:             # type: ignore
                     oq.put(
@@ -1134,12 +1149,55 @@ class Visualize(Pipeline):
                 for k in adict:
                     adict[k] = adict[k][0]
                 T = len(adict['frame_id_1'])
-                print(adict)
+                
+                for t in range(T):
+                    frame_id_1 = adict['frame_id_1'][t]
+                    frame_id_2 = adict['frame_id_2'][t]
+                    frame_img = np.zeros((self.scene.height, self.scene.width), dtype='uint8')              # type: ignore
+                    frame_img = plot_roi(frame_img, self.scene.roi, self.config.get('VIS_ROI_THICKNESS'))   # type: ignore
 
-                # TODO sua lai STA: 
-                # locs dang chua homo => Vis kieu gi?
-                # locs dang ko chua case ngoai ROI => Vis kieu gi, nhung neu them thi anh huong toi windows
+                    cv2.putText(frame_img, f"frames=({frame_id_1, frame_id_2})", (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), thickness=self.config.get('VIS_SCT_LOC_TEXTTHICKNESS'))
+
+                    # plot points
+                    for c in range(2):
+                        for id, (x, y) in adict['locs'][t][c].items():
+                            frame_img = plot_loc(
+                                frame_img, 
+                                [[-1, id, x, y]], 
+                                self.config.get('VIS_SCT_LOC_RADIUS'), 
+                                [f'{id} ({c})'], 
+                                self.config.get('VIS_SCT_LOC_TEXTTHICKNESS')
+                            )
+                    
+                    # plot matches
+                    for (id1, id2) in adict['matches'][t]:
+                        cv2.line(
+                            frame_img,
+                            adict['locs'][t][0][id1],
+                            adict['locs'][t][1][id2],
+                            color=(0, 255, 0),
+                            thickness=self.config.get('VIS_STA_MATCH_THICKNESS')
+                        )
+                    
+                    out_item = {
+                        'frame_img': frame_img,                   # type: ignore
+                        'frame_id': (frame_id_1, frame_id_2),
+                    }
+
+                    for oq in self.output_queues:   # type: ignore
+                        oq.put(
+                            out_item,
+                            block=self.config.get('QUEUE_GET_BLOCK'),
+                            timeout=self.config.get('QUEUE_TIMEOUT')
+                        )
+
+                        t1 = time.time()
+                        logging.debug(f'{self.name}:\t put Visualized STA result from {self.annot_queue.name} to {oq.name}\t frame_ids=({frame_id_1, frame_id_2}) [{t1 - t0:.6f} seconds]')  # type: ignore
             
+
+
+
+
 
             else:
                 raise NotImplementedError()
@@ -1245,13 +1303,13 @@ if __name__ == '__main__':
     roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo))
     scene_1 = Scene(camera_1.width, camera_1.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
     scene_2 = Scene(camera_2.width, camera_2.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
-    sta = STA(config, [scene_1, scene_2], [queue_3, queue_6], queue_11, queue_8)
+    sta = STA(config, [scene_1, scene_2], homo, [queue_3, queue_6], queue_11, queue_8)
 
     vis_sct_1 = Visualize(config, mode='SCT', annot_queue=queue_14, video_queue=queue_12, scene=scene_1, output_queues=queue_1)
     vis_sct_2 = Visualize(config, mode='SCT', annot_queue=queue_15, video_queue=queue_13, scene=scene_2, output_queues=queue_4)
     
     queue_16 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-Input-Queue')
-    vis_sta = Visualize(config, mode='STA', annot_queue=queue_8, video_queue=None, scene=scene_1, output_queues=queue_16)
+    vis_sta = Visualize(config, mode='STA', annot_queue=queue_8, video_queue=None, scene=scene_2, output_queues=queue_16)
 
     display_1 = Display(config, input_queue=queue_16, name='Display 1')
     # display_2 = Display(config, input_queue=queue_4, name='Display 2')
@@ -1268,7 +1326,7 @@ if __name__ == '__main__':
     # vis_sct_2.start()
     vis_sta.start()
     
-    # display_1.start()
+    display_1.start()
     # display_2.start()
 
     
