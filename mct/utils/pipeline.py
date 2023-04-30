@@ -37,7 +37,7 @@ class Config:
 
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
-            logging.debug(f'{self.name}:\t loading config at {config_path}')
+            logging.info(f'{self.name}:\t loading config at {config_path}')
 
         self.stopped = False
         self.pausing = False
@@ -54,7 +54,7 @@ class Config:
     def stop(self) -> None:
         self.lock.acquire()
         self.stopped = True
-        logging.debug(f'{self.name}\t stop locked')
+        logging.info(f'{self.name}\t stop locked')
         self.lock.release()
 
 
@@ -65,7 +65,7 @@ class Config:
     def switch_pausing(self) -> None:
         self.lock.acquire()
         self.pausing = not self.pausing
-        logging.debug(f'{self.name}\t pausing locked')
+        logging.info(f'{self.name}\t pausing switched')
         self.lock.release()
 
     def is_pausing(self) -> bool:
@@ -205,7 +205,7 @@ class Camera(Pipeline):
             assert self.meta is None, 'camera_fps must not be set when capturing videos from disk'
             self.cap.set(cv2.CAP_PROP_FPS, self.config.get('CAMERA_FPS'))
         
-        logging.debug(f'Initilized {self.name}')
+        logging.info(f'Initilized {self.name}')
 
     
     def _start(self) -> None:
@@ -255,7 +255,7 @@ class Camera(Pipeline):
                 logging.debug(f"{self.name}:\t put to {oq.name}\t frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')} [{t1 - t0:.6f} seconds]")
 
             # if reading from video on disk, then sleep according to fps to sync time.
-            sleep = self.config.get('CAMERA_SLEEP') if self.meta is None else 0.01 / self.fps
+            sleep = self.config.get('CAMERA_SLEEP') + (0 if self.meta is None else 0.01 / self.fps)
             logging.debug(f"{self.name}:\t sleep {sleep}")
             time.sleep(sleep)
         
@@ -308,11 +308,11 @@ class Tracker:
         # if using offline mock tracking result
         if txt_path is not None:
             self.seq = np.loadtxt(txt_path)
-            logging.debug(f'{self.name}:\t load tracking result from .txt at {txt_path}')
+            logging.info(f'{self.name}:\t load tracking result from .txt at {txt_path}')
         
         self.name = name
 
-        logging.debug(f'{self.name}:\t initialized with detection_mode={self.detection_mode}, tracking_mode={self.tracking_mode}')
+        logging.info(f'{self.name}:\t initialized with detection_mode={self.detection_mode}, tracking_mode={self.tracking_mode}')
         
     
     def infer(self, img: Union[np.ndarray, None], frame_id: Union[int, None] = None) -> np.ndarray:
@@ -347,6 +347,8 @@ class SCT(Pipeline):
         self.tracker = tracker
         
         self.input_queue = input_queue
+
+        logging.info(f'{self.name}:\t initialized')
 
     
     def _start(self) -> None:
@@ -386,6 +388,10 @@ class SCT(Pipeline):
             
             logging.debug(f"{self.name}:\t sleep {self.config.get('SCT_TXT_SLEEP')}")
             time.sleep(self.config.get('SCT_TXT_SLEEP'))
+
+            if len(items) > 0:
+                t2 = time.time()
+                logging.debug(f'{self.name}:\t time = {t2-t0:.6f}/{len(items)} = {(t2-t0)/len(items):.6f}')
 
 
 class SyncFrame(Pipeline):
@@ -475,6 +481,11 @@ class SyncFrame(Pipeline):
             
                     t1 = time.time()
                     logging.debug(f'{self.name}:\t put synced frame pair from {", ".join([iq.name for iq in self.input_queues])} to {oq.name}\t frame_ids={out_item["frame_id_match"]} [{t1 - t0:.6f} seconds]')
+
+            
+            if len(active_list[0]) > 0:
+                t2 = time.time()
+                logging.debug(f'{self.name}:\t time = {t2 - t0:.6f}/{len(active_list[0])} (or {len(active_list[1])}) = {(t2 - t0)/len(active_list[0])}')
     
 
     def _check_input_queues(self):
@@ -497,7 +508,7 @@ class Display(Pipeline):
         
         self.input_queue = input_queue
 
-        logging.debug(f'{self.name}:\t initilized')
+        logging.info(f'{self.name}:\t initilized')
     
     def _start(self) -> None:
 
@@ -766,7 +777,7 @@ class STA(Pipeline):
         self.distances = []     # record distances for FP elimination
         self.wait_list = self._new_wait_list()
 
-        logging.debug(f'{self.name}:\t initialized')
+        logging.info(f'{self.name}:\t initialized')
 
 
     def _start(self) -> None:
@@ -929,6 +940,11 @@ class STA(Pipeline):
 
                     t1 = time.time()
                     logging.debug(f'{self.name}:\t put STA result to {oq.name}\t {self.sct_queues[0].name} frame={out_item["frame_id_1"]}, {self.sct_queues[1].name} frame={out_item["frame_id_1"]} [{t1 - t0:.6f} seconds]')
+            
+
+            if len(active_list[0]) > 0:
+                t2 = time.time()
+                logging.debug(f'{self.name}:\t time = {t2 - t0:.6f}/{len(active_list[0])} (or {len(active_list[1])}) = {(t2 - t0)/len(active_list[0])}')
 
 
     def _match_index(self, a, b, c):
@@ -1005,7 +1021,7 @@ class STA(Pipeline):
                     locs[0].append(slice[j][0][c1_id])
                     locs[1].append(slice[j][1][c2_id])
                     ns[i] += 1
-        logging.info(f'{self.name}:\t window nl, nr = {ns}')
+        logging.debug(f'{self.name}:\t window size for ID pairs {c1_id, c2_id}: nl, nr = {ns}')
 
         return np.array(locs[0]), np.array(locs[1])
 
@@ -1072,14 +1088,21 @@ class Visualize(Pipeline):
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
 
-            adict = {}
+            if len(active_list[0]) > 0:
+                t3 = time.time()
+                logging.info(f't3 = {t3 - t0}')
 
+            adict = {}
             for i, al in enumerate(active_list):
                 for j, item in enumerate(al):
                     for k, v in item.items():
                         if k not in adict:
                             adict[k] = [[], []]
                         adict[k][i].append(v)
+
+            if len(active_list[0]) > 0:
+                t4 = time.time()
+                logging.info(f't4 = {t4 - t3}')
             
             if len(adict) == 0:
                 continue
@@ -1100,7 +1123,7 @@ class Visualize(Pipeline):
 
                 # using continuous indexes from 0 -> T-1 rather than discrete indexes
                 T = len(c1_adict_matched)
-                logging.info(f'{self.name}:\t processing {T} pairs of frames')
+                logging.debug(f'{self.name}:\t processing {T} pairs of frames')
                 for k in adict:
                     if len(adict[k][0]) > 0:
                         adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
@@ -1150,13 +1173,18 @@ class Visualize(Pipeline):
                     adict[k] = adict[k][0]
                 T = len(adict['frame_id_1'])
                 
+                t5 = 0
+                
                 for t in range(T):
+                    
+                    t6 = time.time()
+                    
                     frame_id_1 = adict['frame_id_1'][t]
                     frame_id_2 = adict['frame_id_2'][t]
-                    frame_img = np.zeros((self.scene.height, self.scene.width), dtype='uint8')              # type: ignore
+                    frame_img = np.zeros((self.scene.height, self.scene.width, 3), dtype='uint8')              # type: ignore
                     frame_img = plot_roi(frame_img, self.scene.roi, self.config.get('VIS_ROI_THICKNESS'))   # type: ignore
 
-                    cv2.putText(frame_img, f"frames=({frame_id_1, frame_id_2})", (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), thickness=self.config.get('VIS_SCT_LOC_TEXTTHICKNESS'))
+                    cv2.putText(frame_img, f"frames={frame_id_1, frame_id_2}", (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), thickness=self.config.get('VIS_SCT_LOC_TEXTTHICKNESS'))
 
                     # plot points
                     for c in range(2):
@@ -1173,8 +1201,8 @@ class Visualize(Pipeline):
                     for (id1, id2) in adict['matches'][t]:
                         cv2.line(
                             frame_img,
-                            adict['locs'][t][0][id1],
-                            adict['locs'][t][1][id2],
+                            np.int32(adict['locs'][t][0][id1]),
+                            np.int32(adict['locs'][t][1][id2]),
                             color=(0, 255, 0),
                             thickness=self.config.get('VIS_STA_MATCH_THICKNESS')
                         )
@@ -1183,6 +1211,9 @@ class Visualize(Pipeline):
                         'frame_img': frame_img,                   # type: ignore
                         'frame_id': (frame_id_1, frame_id_2),
                     }
+
+                    
+                    t5 = 0.5 * t5 + 0.5 * (time.time() - t6)
 
                     for oq in self.output_queues:   # type: ignore
                         oq.put(
@@ -1194,17 +1225,16 @@ class Visualize(Pipeline):
                         t1 = time.time()
                         logging.debug(f'{self.name}:\t put Visualized STA result from {self.annot_queue.name} to {oq.name}\t frame_ids=({frame_id_1, frame_id_2}) [{t1 - t0:.6f} seconds]')  # type: ignore
             
-
-
-
-
-
+                logging.info(f't5 = {t5}')
+            
             else:
                 raise NotImplementedError()
-            
-    
-            
 
+            
+            if len(active_list[0]) > 0:
+                t2 = time.time()
+                logging.debug(f'{self.name}:\t time = {t2 - t0:.6f}/{len(active_list[0])} (or {len(active_list[1])}) = {(t2 - t0)/len(active_list[0])}')
+            
     
     def _match_index(self, a, b):
         i, j = 0, 0
@@ -1224,11 +1254,6 @@ class Visualize(Pipeline):
         
         return li, lj
 
-            
-                            
-
-
-
 
     def _new_wait_list(self):
         return [[], []]
@@ -1237,16 +1262,13 @@ class Visualize(Pipeline):
     def _check_mode(self):
         assert self.mode in ['SCT', 'STA']
     
+
     def _check_video_queue(self):
         if self.mode == 'SCT':
             assert isinstance(self.video_queue, MyQueue), f'visualizing SCT requires video input queue, got {type(self.video_queue)}'
         elif self.mode == 'STA':
             assert self.video_queue is None, 'visualizing STA does not require video input queue'
             self.video_queue = MyQueue(maxsize=0, name='Mock-Video-Queue')
-
-
-
-
 
 
 def load_roi(path, W, H) -> np.ndarray:
