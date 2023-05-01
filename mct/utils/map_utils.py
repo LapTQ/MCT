@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from tqdm import tqdm
 
 
 def hungarian(cost, gate=None):
@@ -23,48 +24,45 @@ def hungarian(cost, gate=None):
     return i_matches_new, j_matches_new
 
 
-def map_timestamp(ATT, BTT, diff_thresh=None, return_matrix=True):
-    """Heuristic mapping function.
+def map_mono(A, B, diff_thresh=None):
+    """Monotonic mapping function.
 
-    all params must be of the same time unit (i.e all are in second, or all are in milisecond)
+    All params must be of the same time unit (i.e all are in second, or all are in milisecond)
     """
 
-    T1 = len(ATT)
-    T2 = len(BTT)
+    if not isinstance(A, np.ndarray):
+        A = np.array(A)
+    if not isinstance(B, np.ndarray):
+        B = np.array(B)
+
+    assert len(A.shape) == len(B.shape) == 1, 'Invalid seq dimension, must be array rank 0 (N,)'
 
     if diff_thresh is None:
         diff_thresh = float('inf')
 
-    if not isinstance(ATT, np.ndarray):
-        ATT = np.array(ATT)
-    if not isinstance(BTT, np.ndarray):
-        BTT = np.array(BTT)
+    n1 = len(A)
+    n2 = len(B)
 
-    assert len(ATT.shape) == len(BTT.shape) == 1, 'Invalid seq dimension, must be array rank 0 (N,)'
-
-    X = np.zeros((T1, T2), dtype='int32')
-
-    valid_pairs = [(abs(ATT[i] - BTT[j]), i, j)
-                   for i in range(T1)
-                   for j in range(T2)
-                   if abs(ATT[i] - BTT[j]) <= diff_thresh]
-    valid_pairs = sorted(valid_pairs)
     M1 = []
     M2 = []
+    D = []
 
-    def _is_crossing(i, j):
-        for i_optimal, j_optimal in zip(*np.where(X)):
-            if (ATT[i] - ATT[i_optimal])*(BTT[j] - BTT[j_optimal]) <= 0:
-                return True
-        return False
+    Ai = np.int32(np.round(np.interp(A, B, np.arange(n2))))
 
-    for _, i, j in valid_pairs:
-        if not np.any(X[i, :]) and not np.any(X[:, j]) and not _is_crossing(i, j):
-            X[i, j] = 1
-            M1.append(i)
-            M2.append(j)
+    for i1 in range(n1):
+        i2 = Ai[i1]             # type: ignore
+        d = abs(A[i1] - B[i2])
+        
+        if len(M2) == 0 or i2 != M2[-1]:
+            M1.append(i1)
+            M2.append(i2)
+            D.append(d)
+        elif d < D[-1]:
+            M1[-1] = i1
+            D[-1] = d
     
-    if return_matrix:
-        return X
-    else:
-        return M1, M2
+    idx = np.array(D) <= diff_thresh
+    M1 = np.array(M1)[idx]
+    M2 = np.array(M2)[idx]
+
+    return M1, M2
