@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 from general import load_roi, load_homo, calc_loc
-from map_utils import map_timestamp, hungarian
+from map_utils import hungarian, map_mono
 from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
 from filter import FilterBase, IQRFilter, GMMFilter
 
@@ -60,7 +60,7 @@ class Config:
 
 
     def is_stopped(self) -> bool:
-        return self.stopped is True
+        return self.stopped
 
     
     def switch_pausing(self) -> None:
@@ -144,8 +144,10 @@ class Pipeline(ABC):
         self.thread = Thread(target=self._start, args=(), name=self.name)
 
         self.output_queues = output_queues
-        self._check_output_queues()    
-    
+        self._check_output_queues()   
+
+        self.lock = Lock()
+            
 
     @abstractmethod
     def _start(self) -> None:
@@ -154,6 +156,10 @@ class Pipeline(ABC):
 
     def start(self) -> None:
         self.thread.start()
+    
+
+    def join(self) -> None:
+        self.thread.join()
 
 
     def stop(self) -> None:
@@ -178,6 +184,17 @@ class Pipeline(ABC):
 
     def switch_pausing(self):
         self.config.switch_pausing()
+
+    
+    def _put_to_output_queues(self, item, msg=None):
+        for oq in self.output_queues:                    # type: ignore
+            oq.put(
+                item,
+                block=self.config.get('QUEUE_GET_BLOCK'),
+                timeout=self.config.get('QUEUE_TIMEOUT')
+            )
+        
+            logging.info(f"{self.name}:\t put to {oq.name} with message: {msg}")
 
 
 class Camera(Pipeline):
@@ -206,7 +223,7 @@ class Camera(Pipeline):
             assert self.meta is None, 'camera_fps must not be set when capturing videos from disk'
             self.cap.set(cv2.CAP_PROP_FPS, self.config.get('CAMERA_FPS'))
         
-        logging.info(f'Initilized {self.name}')
+        logging.info(f'{self.name}:\t initilized')
 
     
     def _start(self) -> None:
@@ -220,13 +237,24 @@ class Camera(Pipeline):
 
             self.trigger_pause()
 
-            t0 = time.time()
-
             if not self.cap.isOpened():
-                logging.info(f'{self.name}:\t disconnected from {self.source}')
+                logging.info(f'{self.name}:\t problem connecting to {self.source}')
                 self.stop()
                 break
 
+            if self.config.get('RUNNING_MODE') != 'offline':
+                ret, frame = self.cap.read()
+            else:
+                ret, frame = True, None
+                if frame_id == self.cap.get(cv2.CAP_PROP_FRAME_COUNT):
+                    ret = False
+
+            if not ret:
+                logging.info(f'{self.name}:\t disconnected from {self.source}')
+                if self.config.get('RUNNING_MODE') != 'offline':
+                    self.stop()
+                break
+            
             frame_id += 1
 
             if self.meta is None:
@@ -234,26 +262,13 @@ class Camera(Pipeline):
             else:   # if reading from video on disk
                 frame_time = datetime.strptime(self.meta['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (frame_id - self.meta['start_frame_id']) / self.fps
             
-            ret, frame = self.cap.read()
-
-            if not ret:
-                logging.info(f'{self.name}:\t disconnected from {self.source}')
-                self.stop()
-                break
+            out_item = {
+                'frame_img': frame,
+                'frame_id': frame_id,
+                'frame_time': frame_time
+            }
             
-            for oq in self.output_queues:                    # type: ignore
-                oq.put(
-                    {
-                        'frame_img': frame,
-                        'frame_id': frame_id,
-                        'frame_time': frame_time
-                    },
-                    block=self.config.get('QUEUE_GET_BLOCK'),
-                    timeout=self.config.get('QUEUE_TIMEOUT')
-                )
-            
-                t1 = time.time()
-                logging.debug(f"{self.name}:\t put to {oq.name}\t frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')} [{t1 - t0:.6f} seconds]")
+            self._put_to_output_queues(out_item, f"frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')}")
 
             # if reading from video on disk, then sleep according to fps to sync time.
             sleep = self.config.get('CAMERA_SLEEP') + (0 if self.meta is None else 0.01 / self.fps)
@@ -358,18 +373,17 @@ class SCT(Pipeline):
 
             self.trigger_pause()
 
-            t0 = time.time()
-
-            logging.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
             items = self.input_queue.get_many(
                 size=self.config.get('QUEUE_GET_MANY_SIZE'),
                 block=self.config.get('QUEUE_GET_BLOCK'),
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
 
+            logging.debug(f'{self.name}:\t processing {len(items)} frames')
+            
             for item in items:
-
                 dets = self.tracker.infer(item['frame_img'], item['frame_id'])
+                
                 out_item = {
                     'frame_id': item['frame_id'],
                     'sct_output': dets,
@@ -377,18 +391,13 @@ class SCT(Pipeline):
                     'sct_tracking_mode': self.tracker.tracking_mode
                 }
 
-                for oq in self.output_queues:                # type: ignore
-                    oq.put(
-                        out_item,
-                        block=self.config.get('QUEUE_GET_BLOCK'),
-                        timeout=self.config.get('QUEUE_TIMEOUT')
-                    )
-            
-                    t1 = time.time()
-                    logging.debug(f'{self.name}:\t put SCT result from {self.input_queue.name} to {oq.name}\t frame_id={item["frame_id"]}, frame_time={item["frame_time"]} [{t1 - t0:.6f} seconds]')
+                self._put_to_output_queues(out_item, f"frame_id={item['frame_id']}, sct shape={dets.shape}")
             
             logging.debug(f"{self.name}:\t sleep {self.config.get('SCT_TXT_SLEEP')}")
             time.sleep(self.config.get('SCT_TXT_SLEEP'))
+
+            if self.config.get('RUNNING_MODE') == 'offline':
+                break
 
 
 class SyncFrame(Pipeline):
@@ -415,8 +424,6 @@ class SyncFrame(Pipeline):
         while not self.is_stopped():
 
             self.trigger_pause()
-
-            t0 = time.time()
             
             # load both the coming and waiting list
             for c in range(len(self.input_queues)):
@@ -432,7 +439,7 @@ class SyncFrame(Pipeline):
             if min(len(self.wait_list[0]), len(self.wait_list[1])) < self.config.get('MIN_TIME_CORRESPONDENCES'):
                 logging.debug(f'{self.name}:\t wait list not enough for mapping time, waiting...')
                 continue
-
+            
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
 
@@ -450,12 +457,11 @@ class SyncFrame(Pipeline):
             # each array in frame_time, frame_id should already been in increasing order of time
 
             # match timestamps
-            c1_adict_matched, c2_adict_matched = map_timestamp(*adict['frame_time'], diff_thresh=self.config.get('TIME_DIFF_THRESH'), return_matrix=False)
-            c1_adict_matched = sorted(c1_adict_matched)
-            c2_adict_matched = sorted(c2_adict_matched)
+            c1_adict_matched, c2_adict_matched = map_mono(*adict['frame_time'], diff_thresh=self.config.get('TIME_DIFF_THRESH'))
 
             # add un-processed items to wait list
             if len(c1_adict_matched) > 0:
+                logging.info(f'{self.name}:\t processing {len(c1_adict_matched)} pairs of frames')
                 self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
                 self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
@@ -469,20 +475,10 @@ class SyncFrame(Pipeline):
                     'frame_id_match': (adict['frame_id'][0][i], adict['frame_id'][1][j])
                 }
 
-                for oq in self.output_queues:     # type: ignore
-                    oq.put(
-                        out_item,
-                        block=self.config.get('QUEUE_GET_BLOCK'),
-                        timeout=self.config.get('QUEUE_TIMEOUT')
-                    )
+                self._put_to_output_queues(out_item, f'frame_ids={out_item["frame_id_match"]}')
             
-                    t1 = time.time()
-                    logging.debug(f'{self.name}:\t put synced frame pair from {", ".join([iq.name for iq in self.input_queues])} to {oq.name}\t frame_ids={out_item["frame_id_match"]} [{t1 - t0:.6f} seconds]')
-
-            
-            if len(active_list[0]) > 0:
-                t2 = time.time()
-                logging.debug(f'{self.name}:\t time = {t2 - t0:.6f}/{len(active_list[0])} (or {len(active_list[1])}) = {(t2 - t0)/len(active_list[0])}')
+            if self.config.get('RUNNING_MODE') == 'offline':
+                break
     
 
     def _check_input_queues(self):
@@ -533,8 +529,6 @@ class Display(Pipeline):
 
                 logging.debug(f'{self.name}:\t display from {self.input_queue.name}\t frame_id={frame_id}')
                 cv2.imshow(self.name, frame_img)
-
-
 
                 key = cv2.waitKey(self.config.get('DISPLAY_FPS'))
                 if key == ord('q'):
@@ -608,7 +602,7 @@ class StackFrames(Pipeline):
 
             # TODO THIS PART MIGHT NEED IMPROVEMENT (slowness of map_timestamp, take the 1st queue as benchmark)
             # #### take the first queue's result as benchmark
-            maps = [map_timestamp(adict['frame_time'][0], adict['frame_time'][i], return_matrix=False) 
+            maps = [map_mono(adict['frame_time'][0], adict['frame_time'][i], return_matrix=False) 
                     for i in range(1, len(adict['frame_time']))]
             dict_map = {}
             for j, (idx0_ls, idxi_ls) in enumerate(maps):
@@ -643,15 +637,10 @@ class StackFrames(Pipeline):
                     collage[H * row: H * (row + 1), W * col: W * (col + 1), :] = img
                 out_item['frame_img'] = collage
 
-                for oq in self.output_queues:     # type: ignore
-                    oq.put(
-                    out_item,
-                    block=self.config.get('QUEUE_GET_BLOCK'),
-                    timeout=self.config.get('QUEUE_TIMEOUT')
-                )
+                self._put_to_output_queues(out_item)
             
-                    t1 = time.time()
-                    logging.debug(f'{self.name}:\t put merged frames from {", ".join([input_queue.name for input_queue in self.input_queues])} to {oq.name}\t frame_id={out_item["frame_id"]}, frame_time={out_item["frame_time"]} [{t1 - t0:.6f} seconds]')
+            if self.config.get('RUNNING_MODE') == 'offline':
+                break
 
 
     def _check_input_queues(self):
@@ -805,7 +794,7 @@ class STA(Pipeline):
             
             c1_adict_matched, c2_adict_matched, sync_adict_matched = self._match_index(*adict['frame_id'], adict['frame_id_match'])  # type: ignore
             
-            if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g Sync result comes slower), so we need to wait more
+            if len(c1_adict_matched) <= self.config.get('DIST_WINDOW_BOUNDARY'):  # critical because there might be no matches (e.g Sync result comes slower), so we need to wait more
                 self.wait_list = active_list
                 continue
 
@@ -819,7 +808,7 @@ class STA(Pipeline):
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
+            logging.info(f'{self.name}:\t processing {T} pairs of frames')
             del adict['frame_id_match']
             for k in adict:
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
@@ -852,7 +841,7 @@ class STA(Pipeline):
                         locs_in_roi = cv2.perspectiveTransform(locs_in_roi.reshape(-1, 1, 2), homo)
                         locs_in_roi = locs_in_roi.reshape(-1, 2) if locs_in_roi  is not None else np.empty((0, 2))
                     adict['in_roi'][c].append(dets_in_roi)
-                    logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
+                    logging.info(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
                     # store location history, both inside-only and inide-outside
                     assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
@@ -885,7 +874,7 @@ class STA(Pipeline):
                 
                 mi1s, mi2s = hungarian(cost)
                 if len(mi1s) > 0:
-                    logging.debug(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
+                    logging.info(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
                 for i1, i2 in zip(mi1s, mi2s):
                     h1 = h1_ids[i1]
                     h2 = h2_ids[i2]
@@ -915,20 +904,11 @@ class STA(Pipeline):
                     'locs_in_roi': his[3],
                     'matches': his[4]
                 }
-                for oq in self.output_queues:             # type: ignore
-                    oq.put(
-                        out_item,
-                        block=self.config.get('QUEUE_GET_BLOCK'),
-                        timeout=self.config.get('QUEUE_TIMEOUT')
-                    )
+                
+                self._put_to_output_queues(out_item, f'frame_ids={his[0], his[1]}, #matches={len(his[4])}')
 
-                    t1 = time.time()
-                    logging.debug(f'{self.name}:\t put STA result to {oq.name}\t {self.sct_queues[0].name} frame={out_item["frame_id_1"]}, {self.sct_queues[1].name} frame={out_item["frame_id_1"]} [{t1 - t0:.6f} seconds]')
-            
-
-            if len(active_list[0]) > 0:
-                t2 = time.time()
-                logging.debug(f'{self.name}:\t time = {t2 - t0:.6f}/{len(active_list[0])} (or {len(active_list[1])}) = {(t2 - t0)/len(active_list[0])}')
+            if self.config.get('RUNNING_MODE') == 'offline':
+                break
 
 
     def _match_index(self, a, b, c):
@@ -1134,15 +1114,7 @@ class Visualize(Pipeline):
                         'frame_id': adict['frame_id'][1][t]
                     }
 
-                    for oq in self.output_queues:   # type: ignore
-                        oq.put(
-                            out_item,
-                            block=self.config.get('QUEUE_GET_BLOCK'),
-                            timeout=self.config.get('QUEUE_TIMEOUT')
-                        )
-
-                        t1 = time.time()
-                        logging.debug(f'{self.name}:\t put Visualized SCT result from {self.video_queue.name} and {self.annot_queue.name} to {oq.name}\t frame_id={out_item["frame_id"]} [{t1 - t0:.6f} seconds]')  # type: ignore
+                    self._put_to_output_queues(out_item, f"frame_id={adict['frame_id'][1][t]}")
             
             elif self.mode == 'STA':
                 for k in adict:
@@ -1190,26 +1162,13 @@ class Visualize(Pipeline):
                     
                     t5 = 0.5 * t5 + 0.5 * (time.time() - t6)
 
-                    for oq in self.output_queues:   # type: ignore
-                        oq.put(
-                            out_item,
-                            block=self.config.get('QUEUE_GET_BLOCK'),
-                            timeout=self.config.get('QUEUE_TIMEOUT')
-                        )
-
-                        t1 = time.time()
-                        logging.debug(f'{self.name}:\t put Visualized STA result from {self.annot_queue.name} to {oq.name}\t frame_ids=({frame_id_1, frame_id_2}) [{t1 - t0:.6f} seconds]')  # type: ignore
+                    self._put_to_output_queues(out_item, f'frame_ids={frame_id_1, frame_id_2}')
             
                 logging.info(f't5 = {t5}')
             
             else:
                 raise NotImplementedError()
 
-            
-            if len(active_list[0]) > 0:
-                t2 = time.time()
-                logging.debug(f'{self.name}:\t time = {t2 - t0:.6f}/{len(active_list[0])} (or {len(active_list[1])}) = {(t2 - t0)/len(active_list[0])}')
-            
     
     def _match_index(self, a, b):
         i, j = 0, 0
@@ -1289,25 +1248,34 @@ if __name__ == '__main__':
     vis_sct_1 = Visualize(config, mode='SCT', annot_queue=queue_14, video_queue=queue_12, scene=scene_1, output_queues=queue_1)
     vis_sct_2 = Visualize(config, mode='SCT', annot_queue=queue_15, video_queue=queue_13, scene=scene_2, output_queues=queue_4)
     
-    queue_16 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-Input-Queue')
-    vis_sta = Visualize(config, mode='STA', annot_queue=queue_8, video_queue=None, scene=scene_2, output_queues=queue_16)
+    # queue_16 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-Input-Queue')
+    # vis_sta = Visualize(config, mode='STA', annot_queue=queue_8, video_queue=None, scene=scene_2, output_queues=queue_16)
 
-    display_1 = Display(config, input_queue=queue_16, name='Display 1')
+    # display_1 = Display(config, input_queue=queue_16, name='Display 1')
     # display_2 = Display(config, input_queue=queue_4, name='Display 2')
 
     camera_1.start()
     camera_2.start()
+
+    camera_1.join()
+    camera_2.join()
     
     sync.start()
     sct_1.start()
     sct_2.start()
 
+    sync.join()
+    sct_1.join()
+    sct_2.join()
+
     sta.start()
+
     # vis_sct_1.start()
     # vis_sct_2.start()
-    vis_sta.start()
+    # vis_sta.start()
     
-    display_1.start()
+    # display_1.start()
     # display_2.start()
 
+    config.stop()
     

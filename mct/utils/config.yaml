@@ -1,5 +1,4 @@
-RUNNING_MODE: 'offline' # 'offline', 'online'
-
+RUNNING_MODE: 'offline'   # 'offline' or 'online'
 
 # queue
 QUEUE_MAXSIZE: 0
@@ -28,7 +27,7 @@ FP_GMM_STD_COEF: 3
 FP_IQR_LOWER: 30
 FP_IQR_UPPER: 70
 MIN_TIME_CORRESPONDENCES: 10
-TIME_DIFF_THRESH: null
+TIME_DIFF_THRESH: 0.5    # null
 DIST_WINDOW_SIZE: 1
 DIST_WINDOW_BOUNDARY: 0
 
