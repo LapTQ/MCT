@@ -68,4 +68,3 @@ def map_timestamp(ATT, BTT, diff_thresh=None, return_matrix=True):
         return X
     else:
         return M1, M2
-

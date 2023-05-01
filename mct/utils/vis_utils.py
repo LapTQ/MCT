@@ -63,9 +63,6 @@ def plot_loc(img, locs, radius=6, texts=None, text_thickness=2):
     ids = np.int32(locs[:, 1])
     xyxy = np.int32(locs[:, 2:4])
 
-    # xyxy[:, 0] = np.clip(xyxy[:, 0], 0, img.shape[1])     # type: ignore
-    # xyxy[:, 1] = np.clip(xyxy[:, 1], 0, img.shape[0])     # type: ignore
-
     for i in range(len(locs)):
         if ids[i] == -1:                            # type: ignore
             color = COLORS[3]

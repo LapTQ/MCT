@@ -10,6 +10,7 @@ import yaml
 from abc import ABC, abstractmethod
 import numpy as np
 
+from general import load_roi, load_homo, calc_loc
 from map_utils import map_timestamp, hungarian
 from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
 from filter import FilterBase, IQRFilter, GMMFilter
@@ -389,10 +390,6 @@ class SCT(Pipeline):
             logging.debug(f"{self.name}:\t sleep {self.config.get('SCT_TXT_SLEEP')}")
             time.sleep(self.config.get('SCT_TXT_SLEEP'))
 
-            if len(items) > 0:
-                t2 = time.time()
-                logging.debug(f'{self.name}:\t time = {t2-t0:.6f}/{len(items)} = {(t2-t0)/len(items):.6f}')
-
 
 class SyncFrame(Pipeline):
 
@@ -514,9 +511,13 @@ class Display(Pipeline):
 
         self._setup_window()
 
+        spf = 0
+
         while not self.is_stopped():
 
             self.trigger_pause()
+
+            t0 = time.time()
 
             logging.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
             items = self.input_queue.get_many(
@@ -532,6 +533,9 @@ class Display(Pipeline):
 
                 logging.debug(f'{self.name}:\t display from {self.input_queue.name}\t frame_id={frame_id}')
                 cv2.imshow(self.name, frame_img)
+
+
+
                 key = cv2.waitKey(self.config.get('DISPLAY_FPS'))
                 if key == ord('q'):
                     self.stop()
@@ -540,6 +544,10 @@ class Display(Pipeline):
                     self.switch_pausing()
                     cv2.waitKey(0)
                     self.switch_pausing()
+            
+            if len(items) > 0:
+                spf = spf * 0.5 + (time.time() - t0) / len(items) * 0.5
+                logging.debug(f'{self.name}:\t FPS = {1/spf:.3f}')
             
         cv2.destroyAllWindows()
 
@@ -714,30 +722,6 @@ class Scene:
     
     def has_roi(self) -> bool:
         return self.roi is not None
-
-
-    def calc_position(
-            self, 
-            x,
-            loc_infer_mode,
-    ) -> np.ndarray:
-        
-        # if detection_mode == 'box' => [[frame_id, track_id, x1, y1, w, h, -1, -1, -1, 0],...] (N x 10)
-        # if detection_mode == 'pose' => [[frame_id, track_id, x1, y1, w, h, conf, -1, -1, -1, *[kpt_x, kpt_y, kpt_conf], ...]] (N x 61)
-        
-        if not isinstance(x, np.ndarray):
-            x = np.array(x)
-
-        x = x.copy()
-        assert len(x.shape) == 2, 'Invalid x shape, must be (N, M)'
-
-        # TODO
-        if loc_infer_mode == 1:     # box, midpoint of bottom edge
-            x[:, 2] += x[:, 4] / 2
-            x[:, 3] += x[:, 5]
-            return x[:, 2:4]
-        
-        raise NotImplementedError()
     
 
     def _check_roi(self):
@@ -752,7 +736,7 @@ class STA(Pipeline):
             self, 
             config: Config, 
             scenes: list[Scene],
-            homo: np.ndarray,
+            homo: Union[np.ndarray, None],
             sct_queues: list[MyQueue],
             sync_queue: MyQueue,
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
@@ -855,13 +839,13 @@ class STA(Pipeline):
                 for c in range(2):
                     scene = self.scenes[c]
                     dets = adict['sct_output'][c][t]
-                    locs = scene.calc_position(dets, self.config.get('LOC_INFER_MODE'))
+                    locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
                     
                     # filter in ROI
                     in_roi_idxs = scene.is_in_roi(locs)
                     dets_in_roi = dets[in_roi_idxs]
                     locs_in_roi = locs[in_roi_idxs]
-                    if c == 0:  # if cam 1, then transform to view of cam 2
+                    if c == 0 and homo is not None:  # if cam 1, then transform to view of cam 2
                         locs = cv2.perspectiveTransform(locs.reshape(-1, 1, 2), homo)
                         locs = locs.reshape(-1, 2) if locs is not None else np.empty((0, 2))
                         
@@ -1088,10 +1072,6 @@ class Visualize(Pipeline):
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
 
-            if len(active_list[0]) > 0:
-                t3 = time.time()
-                logging.info(f't3 = {t3 - t0}')
-
             adict = {}
             for i, al in enumerate(active_list):
                 for j, item in enumerate(al):
@@ -1099,10 +1079,6 @@ class Visualize(Pipeline):
                         if k not in adict:
                             adict[k] = [[], []]
                         adict[k][i].append(v)
-
-            if len(active_list[0]) > 0:
-                t4 = time.time()
-                logging.info(f't4 = {t4 - t3}')
             
             if len(adict) == 0:
                 continue
@@ -1149,7 +1125,7 @@ class Visualize(Pipeline):
                         raise NotImplementedError()
                     
                     if self.scene is not None:
-                        locs = self.scene.calc_position(dets, self.config.get('LOC_INFER_MODE'))
+                        locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
                         frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
 
                     
@@ -1211,7 +1187,6 @@ class Visualize(Pipeline):
                         'frame_img': frame_img,                   # type: ignore
                         'frame_id': (frame_id_1, frame_id_2),
                     }
-
                     
                     t5 = 0.5 * t5 + 0.5 * (time.time() - t6)
 
@@ -1269,22 +1244,6 @@ class Visualize(Pipeline):
         elif self.mode == 'STA':
             assert self.video_queue is None, 'visualizing STA does not require video input queue'
             self.video_queue = MyQueue(maxsize=0, name='Mock-Video-Queue')
-
-
-def load_roi(path, W, H) -> np.ndarray:
-    roi = np.loadtxt(path)
-    roi[:, 0] *= W
-    roi[:, 1] *= H
-    roi = roi.reshape(-1, 1, 2)
-    return roi
-
-
-def load_homo(matches_path) -> np.ndarray:
-    """matches_path: path to file containing matching points"""
-    matches = np.int32(np.loadtxt(matches_path))
-    src, dst = matches[:, :2], matches[:, 2:]       # type: ignore
-    H, mask = cv2.findHomography(src, dst)      # cv2.RANSAC
-    return H
 
 
 if __name__ == '__main__':

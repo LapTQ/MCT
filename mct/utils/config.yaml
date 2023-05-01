@@ -1,4 +1,4 @@
-
+RUNNING_MODE: 'offline' # 'offline', 'online'
 
 
 # queue
@@ -9,7 +9,7 @@ QUEUE_TIMEOUT: null
 QUEUE_GET_MANY_SIZE: 'all' # 100, 'all'
 
 # camera pipeline
-CAMERA_SLEEP: 0.1
+CAMERA_SLEEP: 0
 CAMERA_FRAME_WIDTH: null
 CAMERA_FRAME_HEIGHT: null
 CAMERA_FPS: null
@@ -18,9 +18,9 @@ CAMERA_FPS: null
 SCT_TXT_SLEEP: 0
 DETECTION_MODE: 'pose'
 TRACKING_MODE: 'bytetrack'
-LOC_INFER_MODE: 1
 
 # STA pipeline
+LOC_INFER_MODE: 1
 FP_FILTER: null   # null, 'gmm', 'iqr'
 MIN_SAMPLE_SIZE_TO_FP_FILTER: 15
 FP_GMM_N_COMPONENTS: 2
