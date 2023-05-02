@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 HERE = Path(__file__).parent.resolve()
-DIR = '2d_v4'
+DIR = '2d_v3'
 
 def run(vid_path):
     vid_path = str(vid_path)
@@ -20,7 +20,9 @@ def run(vid_path):
         'start_time': '_'.join(vid_basename.split('_')[2:]),
         'start_frame_id': 1
     }
-    with open(os.path.join(parent, '../meta', vid_basename + '.yaml'), 'w') as f:
+    out_dir = os.path.join(parent, '../meta')
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, vid_basename + '.yaml'), 'w') as f:
         f.write('\n'.join([f'{k}: {v}' for k, v in info.items()]))
 
 

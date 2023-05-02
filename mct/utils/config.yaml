@@ -8,14 +8,14 @@ QUEUE_TIMEOUT: null
 QUEUE_GET_MANY_SIZE: 'all' # 100, 'all'
 
 # camera pipeline
-CAMERA_SLEEP: 0
+CAMERA_SLEEP: 0.03
 CAMERA_FRAME_WIDTH: null
 CAMERA_FRAME_HEIGHT: null
 CAMERA_FPS: null
 
 # SCT pipeline
 SCT_TXT_SLEEP: 0
-DETECTION_MODE: 'pose'
+DETECTION_MODE: 'box'   # 'box', 'pose'
 TRACKING_MODE: 'bytetrack'
 
 # STA pipeline
@@ -43,6 +43,6 @@ VIS_STA_MATCH_THICKNESS: 2
 VIS_OFFLINE_PUT_SLEEP: 0.03
 
 # display pipeline
-DISPLAY_MODE: 'save'  # 'show', 'save'
+DISPLAY_MODE: 'show'  # 'show', 'save'
 DISPLAY_WIDTH: null
 DISPLAY_HEIGHT: null

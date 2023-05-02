@@ -198,6 +198,7 @@ class Pipeline(ABC):
 
 
     def stop(self) -> None:
+        logging.info(f'{self.name}:\t triggering config stop...')
         self.config.stop()
 
 
@@ -292,7 +293,7 @@ class Camera(Pipeline):
 
             if not ret:
                 logging.info(f'{self.name}:\t disconnected from {self.source}')
-                if self.config.get('RUNNING_MODE') == 'online':
+                if self.config.get('RUNNING_MODE') == 'online' or self.ret_img:
                     self.stop()
                 break
             
@@ -737,8 +738,6 @@ class STA(Pipeline):
         while not self.is_stopped():
 
             self.trigger_pause()
-
-            t0 = time.time()
             
             for wl, iq in zip(self.wait_list, self.sct_queues + [self.sync_queue]):
                 wl.extend(
@@ -820,7 +819,7 @@ class STA(Pipeline):
                         locs_in_roi = cv2.perspectiveTransform(locs_in_roi.reshape(-1, 1, 2), homo)
                         locs_in_roi = locs_in_roi.reshape(-1, 2) if locs_in_roi  is not None else np.empty((0, 2))
                     adict['in_roi'][c].append(dets_in_roi)
-                    logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
+                    logging.info(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
                     # store location history, both inside-only and inide-outside
                     assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
@@ -1039,6 +1038,8 @@ class Visualize(Pipeline):
             
             if len(adict) == 0:
                 continue
+
+            # TODO Toc do visualize cham qua
             
             if self.mode == 'SCT':
             
@@ -1098,7 +1099,6 @@ class Visualize(Pipeline):
 
                     self._put_to_output_queues(out_item, f"frame_id={adict['frame_id'][1][t]}")
 
-            # TODO Toc do visualize cham qua
             
             elif self.mode == 'STA':
                 for k in adict:
@@ -1150,14 +1150,13 @@ class Visualize(Pipeline):
                         time.sleep(self.config.get('VIS_OFFLINE_PUT_SLEEP'))
 
                     self._put_to_output_queues(out_item, f'frame_ids={frame_id_1, frame_id_2}')
-                        
+
+                if self.config.get('RUNNING_MODE') == 'offline':
+                    self.stop()
+
             else:
                 raise NotImplementedError()
             
-            if self.config.get('RUNNING_MODE') == 'offline':
-                self.stop()
-                break
-
     
     def _match_index(self, a, b):
         i, j = 0, 0
@@ -1199,7 +1198,6 @@ class Display(Pipeline):
     def __init__(
             self,
             config: Config,
-            mode: str,
             input_queue: MyQueue,
             width: Union[int, None] = None,
             height: Union[int, None] = None,
@@ -1211,8 +1209,9 @@ class Display(Pipeline):
         
         self.input_queue = input_queue
         
-        self.mode = mode
+        self.mode = self.config.get('DISPLAY_MODE')
         self.path = path
+        self._check_mode()
         
         self.width = width
         self.height = height
@@ -1261,7 +1260,7 @@ class Display(Pipeline):
 
                 frame_img = cv2.resize(frame_img, (self.width, self.height))
 
-                logging.info(f'{self.name}:\t {self.mode} from {self.input_queue.name}\t frame_id={frame_id}')
+                logging.debug(f'{self.name}:\t {self.mode} from {self.input_queue.name}\t frame_id={frame_id}')
                 
                 if self.mode == 'show':
                     cv2.imshow(self.name, frame_img)
@@ -1329,22 +1328,22 @@ if __name__ == '__main__':
     iq_dis_sta = MyQueue(config.get('QUEUE_MAXSIZE'), name='DisSTA-Input-Queue')
 
     # ONLY USE META IF CAPTURING VIDEOS
-    meta_1 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/41_00007_2023-04-11_08-30-00-000000.yaml', 'r'))
-    meta_2 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/42_00007_2023-04-11_08-30-00-000000.yaml', 'r'))
-    pl_camera_1_retimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00007_2023-04-11_08-30-00-000000.avi', meta=meta_1, output_queues=[iq_vis_sct_vid_1], ret_img=True, name='Camera-1-RetImg')
-    pl_camera_2_retimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00007_2023-04-11_08-30-00-000000.avi', meta=meta_2, output_queues=[iq_vis_sct_vid_2], ret_img=True, name='Camera-2-RetImg')
-    pl_camera_1_noretimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00007_2023-04-11_08-30-00-000000.avi', meta=meta_1, output_queues=[iq_sct_1, iq_sync_1], ret_img=False, name='Camera-1-NoRetImg')
-    pl_camera_2_noretimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00007_2023-04-11_08-30-00-000000.avi', meta=meta_2, output_queues=[iq_sct_2, iq_sync_2], ret_img=False, name='Camera-2-NoRetImg')
+    meta_1 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/meta/121_00004_2023-02-28_18-00-00-000000.yaml', 'r'))
+    meta_2 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/meta/127_00004_2023-02-28_18-00-00-000000.yaml', 'r'))
+    pl_camera_1_retimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/121_00004_2023-02-28_18-00-00-000000.avi', meta=meta_1, output_queues=[iq_vis_sct_vid_1], ret_img=True, name='Camera-1-RetImg')
+    pl_camera_2_retimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/127_00004_2023-02-28_18-00-00-000000.avi', meta=meta_2, output_queues=[iq_vis_sct_vid_2], ret_img=True, name='Camera-2-RetImg')
+    pl_camera_1_noretimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/121_00004_2023-02-28_18-00-00-000000.avi', meta=meta_1, output_queues=[iq_sct_1, iq_sync_1], ret_img=False, name='Camera-1-NoRetImg')
+    pl_camera_2_noretimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/127_00004_2023-02-28_18-00-00-000000.avi', meta=meta_2, output_queues=[iq_sct_2, iq_sync_2], ret_img=False, name='Camera-2-NoRetImg')
     
-    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose-pretrained-640-ByteTrack/sct/41_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-1')
-    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose-pretrained-640-ByteTrack/sct/42_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-2')
+    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-640-ByteTrack/sct/121_00004_2023-02-28_18-00-00-000000.txt', name='Tracker-1')
+    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-640-ByteTrack/sct/127_00004_2023-02-28_18-00-00-000000.txt', name='Tracker-2')
     pl_sct_1 = SCT(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_1, iq_vis_sct_annot_1])
     pl_sct_2 = SCT(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_2, iq_vis_sct_annot_2])
     
     pl_sync = SyncFrame(config, [iq_sync_1, iq_sync_2], iq_sta_sync)
     
-    roi_2 = load_roi('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/roi_42.txt', pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
-    homo = load_homo('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/matches_41_to_42.txt')
+    roi_2 = load_roi('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/roi_127.txt', pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
+    homo = load_homo('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/matches_121_to_127.txt')
     roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo))
     scene_1 = Scene(pl_camera_1_noretimg.width, pl_camera_1_noretimg.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
     scene_2 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
@@ -1354,9 +1353,9 @@ if __name__ == '__main__':
     pl_vis_sct_2 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_2, video_queue=iq_vis_sct_vid_2, scene=scene_2, output_queues=iq_dis_sct_2, name='VisSCT-2')
     pl_vis_sta = Visualize(config, mode='STA', annot_queue=iq_vis_sta_annot, video_queue=None, scene=scene_2, output_queues=iq_dis_sta, name='VisSTA')
 
-    pl_dis_sct_1 = Display(config, mode=config.get('DISPLAY_MODE'), input_queue=iq_dis_sct_1, fps=pl_camera_1_retimg.fps, name='DisSCT-1')
-    pl_dis_sct_2 = Display(config, mode=config.get('DISPLAY_MODE'), input_queue=iq_dis_sct_2, fps=pl_camera_2_retimg.fps, name='DisSCT-2')
-    pl_dis_sta = Display(config, mode=config.get('DISPLAY_MODE'), input_queue=iq_dis_sta, fps=pl_camera_1_noretimg.fps, path='test.avi', name='DisSTA')
+    pl_dis_sct_1 = Display(config, input_queue=iq_dis_sct_1, fps=pl_camera_1_retimg.fps, path='test.avi', name='DisSCT-1')
+    pl_dis_sct_2 = Display(config, input_queue=iq_dis_sct_2, fps=pl_camera_2_retimg.fps, path='test.avi', name='DisSCT-2')
+    pl_dis_sta = Display(config, input_queue=iq_dis_sta, fps=pl_camera_1_noretimg.fps, path='test.avi', name='DisSTA')
 
     # start
     pl_camera_1_noretimg.start()
@@ -1380,8 +1379,8 @@ if __name__ == '__main__':
 
     # pl_vis_sct_1.start()
     # pl_vis_sct_2.start()
-    pl_vis_sta.start()
+    # pl_vis_sta.start()
 
     # pl_dis_sct_1.start()
     # pl_dis_sct_2.start()
-    pl_dis_sta.start()
+    # pl_dis_sta.start()
