@@ -39,6 +39,7 @@ class Config:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
             logging.info(f'{self.name}:\t loading config at {config_path}')
+        self._check_config()
 
         self.stopped = False
         self.pausing = False
@@ -69,8 +70,38 @@ class Config:
         logging.info(f'{self.name}\t pausing switched')
         self.lock.release()
 
+
     def is_pausing(self) -> bool:
         return self.pausing
+
+    
+    def _check_config(self):
+        assert self.config.get('RUNNING_MODE') in ['online', 'offline']
+        
+        # queue
+        assert self.config.get('QUEUE_MAXSIZE') >= 0
+        assert isinstance(self.config.get('QUEUE_GET_BLOCK'), bool)
+        assert isinstance(self.config.get('QUEUE_PUT_BLOCK'), bool)
+        assert isinstance(self.config.get('QUEUE_TIMEOUT'), (float, int)) or self.config.get('QUEUE_TIMEOUT') is None
+        assert isinstance(self.config.get('QUEUE_GET_MANY_SIZE'), int) or self.config.get('QUEUE_GET_MANY_SIZE') == 'all'
+
+        # camera pipeline
+        
+        # SCT pipeline
+        assert self.config.get('DETECTION_MODE') in ['pose', 'box']
+        assert self.config.get('TRACKING_MODE') in ['bytetrack']
+        
+        # STA pipeline
+        assert self.config.get('LOC_INFER_MODE') in [1]
+        assert self.config.get('FP_FILTER') in [None, 'gmm', 'iqr']
+        assert self.config.get('MIN_SAMPLE_SIZE_TO_FP_FILTER') >= 1
+        assert self.config.get('MIN_TIME_CORRESPONDENCES') >= 1
+        assert isinstance(self.config.get('TIME_DIFF_THRESH'), (float, int)) or self.config.get('TIME_DIFF_THRESH') is None
+        assert self.config.get('DIST_WINDOW_SIZE') >= 1 and self.config.get('DIST_WINDOW_SIZE') % 2 == 1
+        assert self.config.get('DIST_WINDOW_BOUNDARY') >= 0
+
+        # display pipeline
+        assert self.config.get('DISPLAY_MODE') in ['show', 'save']
 
 
 class MyQueue:
@@ -88,18 +119,22 @@ class MyQueue:
 
         logging.debug(f'{self.name}:\t initilized')
     
+
     def get(self, block=True, timeout=None):
         ret = self.queue.get(block, timeout)
         logging.debug(f'{self.name}:\t dequeue 1 item, containing {self.queue.qsize()}')
         return ret
     
+
     def put(self, item, block=True, timeout=None) -> None:
         self.queue.put(item, block, timeout)
         logging.debug(f'{self.name}:\t enqueue 1 item, containing {self.queue.qsize()}')
 
+
     def empty(self) -> bool:
         return self.queue.empty()
-    
+
+
     def get_many(self, size='all', block=True, timeout=None) -> list:
         
         ret = []
@@ -194,7 +229,7 @@ class Pipeline(ABC):
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
         
-            logging.info(f"{self.name}:\t put to {oq.name} with message: {msg}")
+            logging.debug(f"{self.name}:\t put to {oq.name} with message: {msg}")
 
 
 class Camera(Pipeline):
@@ -205,6 +240,7 @@ class Camera(Pipeline):
             source: Union[int, str],
             meta: Union[dict, None] = None, 
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            ret_img: bool = True,
             name='Camera thread'
     ) -> None:
         super().__init__(config, output_queues, name)
@@ -214,6 +250,8 @@ class Camera(Pipeline):
         
         self.meta = meta
         self._check_meta()
+
+        self.ret_img = ret_img
 
         if self.config.get('CAMERA_FRAME_WIDTH') is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.get('CAMERA_FRAME_WIDTH'))
@@ -242,16 +280,19 @@ class Camera(Pipeline):
                 self.stop()
                 break
 
-            if self.config.get('RUNNING_MODE') != 'offline':
+            if self.ret_img:
+                # handle out-of-memory exclusively for offline
+                if self.config.get('RUNNING_MODE') == 'offline':
+                    time.sleep(self.config.get('VIS_OFFLINE_PUT_SLEEP'))
                 ret, frame = self.cap.read()
             else:
-                ret, frame = True, None
+                ret, frame = True, None     # for running offline without visualizing
                 if frame_id == self.cap.get(cv2.CAP_PROP_FRAME_COUNT):
                     ret = False
 
             if not ret:
                 logging.info(f'{self.name}:\t disconnected from {self.source}')
-                if self.config.get('RUNNING_MODE') != 'offline':
+                if self.config.get('RUNNING_MODE') == 'online':
                     self.stop()
                 break
             
@@ -379,7 +420,7 @@ class SCT(Pipeline):
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
 
-            logging.debug(f'{self.name}:\t processing {len(items)} frames')
+            logging.info(f'{self.name}:\t processing {len(items)} frames')
             
             for item in items:
                 dets = self.tracker.infer(item['frame_img'], item['frame_id'])
@@ -489,67 +530,6 @@ class SyncFrame(Pipeline):
         return [[] for _ in range(len(self.input_queues))]
 
 
-class Display(Pipeline):
-
-    def __init__(
-            self,
-            config: Config,
-            input_queue: MyQueue,
-            name='Display thread'
-    ) -> None:
-        super().__init__(config, None, name)
-        
-        self.input_queue = input_queue
-
-        logging.info(f'{self.name}:\t initilized')
-    
-    def _start(self) -> None:
-
-        self._setup_window()
-
-        spf = 0
-
-        while not self.is_stopped():
-
-            self.trigger_pause()
-
-            t0 = time.time()
-
-            logging.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
-            items = self.input_queue.get_many(
-                size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                block=self.config.get('QUEUE_GET_BLOCK'),
-                timeout=self.config.get('QUEUE_TIMEOUT')
-            )
-
-            for item in items:
-
-                frame_img = item['frame_img']
-                frame_id = item['frame_id']
-
-                logging.debug(f'{self.name}:\t display from {self.input_queue.name}\t frame_id={frame_id}')
-                cv2.imshow(self.name, frame_img)
-
-                key = cv2.waitKey(self.config.get('DISPLAY_FPS'))
-                if key == ord('q'):
-                    self.stop()
-                    break
-                elif key == ord(' '):                    
-                    self.switch_pausing()
-                    cv2.waitKey(0)
-                    self.switch_pausing()
-            
-            if len(items) > 0:
-                spf = spf * 0.5 + (time.time() - t0) / len(items) * 0.5
-                logging.debug(f'{self.name}:\t FPS = {1/spf:.3f}')
-            
-        cv2.destroyAllWindows()
-
-    
-    def _setup_window(self) -> None:
-        cv2.namedWindow(self.name, cv2.WINDOW_NORMAL)
-
-
 class StackFrames(Pipeline):
 
     def __init__(
@@ -600,9 +580,8 @@ class StackFrames(Pipeline):
                         adict[k][-1].append(item[k])
             # each array in frame_time, frame_id should be in increasing order of time
 
-            # TODO THIS PART MIGHT NEED IMPROVEMENT (slowness of map_timestamp, take the 1st queue as benchmark)
             # #### take the first queue's result as benchmark
-            maps = [map_mono(adict['frame_time'][0], adict['frame_time'][i], return_matrix=False) 
+            maps = [map_mono(adict['frame_time'][0], adict['frame_time'][i]) 
                     for i in range(1, len(adict['frame_time']))]
             dict_map = {}
             for j, (idx0_ls, idxi_ls) in enumerate(maps):
@@ -841,7 +820,7 @@ class STA(Pipeline):
                         locs_in_roi = cv2.perspectiveTransform(locs_in_roi.reshape(-1, 1, 2), homo)
                         locs_in_roi = locs_in_roi.reshape(-1, 2) if locs_in_roi  is not None else np.empty((0, 2))
                     adict['in_roi'][c].append(dets_in_roi)
-                    logging.info(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
+                    logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
                     # store location history, both inside-only and inide-outside
                     assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
@@ -874,7 +853,7 @@ class STA(Pipeline):
                 
                 mi1s, mi2s = hungarian(cost)
                 if len(mi1s) > 0:
-                    logging.info(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
+                    logging.debug(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
                 for i1, i2 in zip(mi1s, mi2s):
                     h1 = h1_ids[i1]
                     h2 = h2_ids[i2]
@@ -1037,8 +1016,6 @@ class Visualize(Pipeline):
         while not self.is_stopped():
 
             self.trigger_pause()
-
-            t0 = time.time()
             
             for wl, iq in zip(self.wait_list, [self.annot_queue, self.video_queue]):
                 wl.extend(
@@ -1054,7 +1031,7 @@ class Visualize(Pipeline):
 
             adict = {}
             for i, al in enumerate(active_list):
-                for j, item in enumerate(al):
+                for item in al:
                     for k, v in item.items():
                         if k not in adict:
                             adict[k] = [[], []]
@@ -1087,6 +1064,12 @@ class Visualize(Pipeline):
                         adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]                   
                 
                 for t in range(T):
+
+                    # handle out-of-memory for exclusively offline
+                    self.trigger_pause()
+                    if self.is_stopped():
+                        break
+
                     frame_img = adict['frame_img'][1][t]
                     dets = adict['sct_output'][0][t]
                     detection_mode = adict['sct_detection_mode'][0][t]
@@ -1107,7 +1090,6 @@ class Visualize(Pipeline):
                     if self.scene is not None:
                         locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
                         frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
-
                     
                     out_item = {
                         'frame_img': frame_img,                   # type: ignore
@@ -1115,22 +1097,25 @@ class Visualize(Pipeline):
                     }
 
                     self._put_to_output_queues(out_item, f"frame_id={adict['frame_id'][1][t]}")
+
+            # TODO Toc do visualize cham qua
             
             elif self.mode == 'STA':
                 for k in adict:
                     adict[k] = adict[k][0]
                 T = len(adict['frame_id_1'])
-                
-                t5 = 0
-                
+                                
                 for t in range(T):
                     
-                    t6 = time.time()
-                    
+                    # handle out-of-memory for exclusively offline
+                    self.trigger_pause()
+                    if self.is_stopped():
+                        break
+                                        
                     frame_id_1 = adict['frame_id_1'][t]
                     frame_id_2 = adict['frame_id_2'][t]
-                    frame_img = np.zeros((self.scene.height, self.scene.width, 3), dtype='uint8')              # type: ignore
-                    frame_img = plot_roi(frame_img, self.scene.roi, self.config.get('VIS_ROI_THICKNESS'))   # type: ignore
+                    frame_img = np.zeros((self.scene.height, self.scene.width, 3), dtype='uint8')               # type: ignore
+                    frame_img = plot_roi(frame_img, self.scene.roi, self.config.get('VIS_ROI_THICKNESS'))       # type: ignore
 
                     cv2.putText(frame_img, f"frames={frame_id_1, frame_id_2}", (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), thickness=self.config.get('VIS_SCT_LOC_TEXTTHICKNESS'))
 
@@ -1160,14 +1145,18 @@ class Visualize(Pipeline):
                         'frame_id': (frame_id_1, frame_id_2),
                     }
                     
-                    t5 = 0.5 * t5 + 0.5 * (time.time() - t6)
+                    # handle out-of-memory for exclusively offline
+                    if self.config.get('RUNNING_MODE') == 'offline':
+                        time.sleep(self.config.get('VIS_OFFLINE_PUT_SLEEP'))
 
                     self._put_to_output_queues(out_item, f'frame_ids={frame_id_1, frame_id_2}')
-            
-                logging.info(f't5 = {t5}')
-            
+                        
             else:
                 raise NotImplementedError()
+            
+            if self.config.get('RUNNING_MODE') == 'offline':
+                self.stop()
+                break
 
     
     def _match_index(self, a, b):
@@ -1205,77 +1194,194 @@ class Visualize(Pipeline):
             self.video_queue = MyQueue(maxsize=0, name='Mock-Video-Queue')
 
 
+class Display(Pipeline):
+
+    def __init__(
+            self,
+            config: Config,
+            mode: str,
+            input_queue: MyQueue,
+            width: Union[int, None] = None,
+            height: Union[int, None] = None,
+            fps: Union[int, None] = None,
+            path: Union[str, None] = None,
+            name='Display thread'
+    ) -> None:
+        super().__init__(config, None, name)
+        
+        self.input_queue = input_queue
+        
+        self.mode = mode
+        self.path = path
+        
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self._check_fps()
+        
+
+        logging.info(f'{self.name}:\t initilized')
+    
+    def _start(self) -> None:
+
+        if self.mode == 'show':
+            self._setup_window()
+        elif self.mode == 'save':
+            writer_created = False
+
+        while not self.is_stopped():
+
+            self.trigger_pause()
+
+            logging.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
+            items = self.input_queue.get_many(
+                size=self.config.get('QUEUE_GET_MANY_SIZE'),
+                block=self.config.get('QUEUE_GET_BLOCK'),
+                timeout=self.config.get('QUEUE_TIMEOUT')
+            )
+
+            for item in items:
+
+                frame_img = item['frame_img']
+                frame_id = item['frame_id']
+
+                if self.height is None:
+                    self.height = frame_img.shape[0]
+                if self.width is None:
+                    self.width = frame_img.shape[1]
+
+                if self.mode == 'save' and not writer_created:  # type: ignore
+                    writer = cv2.VideoWriter(
+                        self.path,
+                        cv2.VideoWriter_fourcc(*'XVID'),
+                        self.fps,
+                        (self.width, self.height)
+                    )
+                    writer_created = True
+
+                frame_img = cv2.resize(frame_img, (self.width, self.height))
+
+                logging.info(f'{self.name}:\t {self.mode} from {self.input_queue.name}\t frame_id={frame_id}')
+                
+                if self.mode == 'show':
+                    cv2.imshow(self.name, frame_img)
+                    key = cv2.waitKey(1)
+                    if key == ord('q'):
+                        self.stop()
+                        break
+                    elif key == ord(' '):                    
+                        self.switch_pausing()
+                        cv2.waitKey(0)
+                        self.switch_pausing()
+                elif self.mode == 'save':
+                    writer.write(frame_img)     # type: ignore
+            
+        if self.mode == 'show':
+            cv2.destroyAllWindows()
+        elif self.mode == 'save':
+            writer.release()      # type: ignore
+
+    
+    def _setup_window(self) -> None:
+        cv2.namedWindow(self.name, cv2.WINDOW_NORMAL)
+
+    
+    def _check_fps(self):
+        assert self.fps is not None
+        self.fps = float(self.fps)
+
+    
+    def _check_mode(self):
+        if self.mode == 'save':
+            assert self.path is not None
+
+
+
+class Export:
+
+    pass
+
+
 if __name__ == '__main__':
 
     config = Config('/media/tran/003D94E1B568C6D11/Workingspace/MCT/mct/utils/config.yaml')
 
-    queue_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-1-Input-Queue')
-    queue_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-1-Input-Queue')
-    queue_4 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-2-Input-Queue')
-    queue_5 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-2-Input-Queue')
-    queue_9 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-1-Input-Queue')
-    queue_10 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-2-Input-Queue')
-    queue_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-1-InputVideo-Queue')
-    queue_13 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-2-InputVideo-Queue')
+    # input queues
+    iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-1-Input-Queue')
+    iq_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-2-Input-Queue')
     
+    iq_sync_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-1-Input-Queue')
+    iq_sync_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-2-Input-Queue')
+    
+    
+    iq_sta_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-1-InputSCT-Queue')
+    iq_sta_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-2-InputSCT-Queue')
+    iq_sta_sync = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-InputSync-Queue')
+    
+    iq_vis_sct_annot_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-1-InputAnnot-Queue')
+    iq_vis_sct_annot_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-2-InputAnnot-Queue')
+    iq_vis_sct_vid_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-1-InputVideo-Queue')
+    iq_vis_sct_vid_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-2-InputVideo-Queue')
+    iq_vis_sta_annot = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSTA-InputAnnot-Queue')
+
+    iq_dis_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='DisSCT-1-Input-Queue')
+    iq_dis_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='DisSCT-2-Input-Queue')
+    iq_dis_sta = MyQueue(config.get('QUEUE_MAXSIZE'), name='DisSTA-Input-Queue')
+
     # ONLY USE META IF CAPTURING VIDEOS
     meta_1 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/41_00007_2023-04-11_08-30-00-000000.yaml', 'r'))
     meta_2 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/42_00007_2023-04-11_08-30-00-000000.yaml', 'r'))
-    camera_1 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00007_2023-04-11_08-30-00-000000.avi', meta=meta_1, output_queues=[queue_2, queue_9], name='Camera-1')
-    camera_2 = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00007_2023-04-11_08-30-00-000000.avi', meta=meta_2, output_queues=[queue_5, queue_10], name='Camera-2')
+    pl_camera_1_retimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00007_2023-04-11_08-30-00-000000.avi', meta=meta_1, output_queues=[iq_vis_sct_vid_1], ret_img=True, name='Camera-1-RetImg')
+    pl_camera_2_retimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00007_2023-04-11_08-30-00-000000.avi', meta=meta_2, output_queues=[iq_vis_sct_vid_2], ret_img=True, name='Camera-2-RetImg')
+    pl_camera_1_noretimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/41_00007_2023-04-11_08-30-00-000000.avi', meta=meta_1, output_queues=[iq_sct_1, iq_sync_1], ret_img=False, name='Camera-1-NoRetImg')
+    pl_camera_2_noretimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/videos/42_00007_2023-04-11_08-30-00-000000.avi', meta=meta_2, output_queues=[iq_sct_2, iq_sync_2], ret_img=False, name='Camera-2-NoRetImg')
     
-    queue_11 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-InputSync-Queue')
-    sync = SyncFrame(config, [queue_9, queue_10], queue_11)
-    queue_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-1-InputSCT-Queue')
-    queue_6 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-2-InputSCT-Queue')
-    queue_14 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-1-InputAnnot-Queue')
-    queue_15 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-2-InputAnnot-Queue')
     tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose-pretrained-640-ByteTrack/sct/41_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-1')
     tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose-pretrained-640-ByteTrack/sct/42_00007_2023-04-11_08-30-00-000000.txt', name='Tracker-2')
-    sct_1 = SCT(config, tracker=tracker1, input_queue=queue_2, output_queues=[queue_3])
-    sct_2 = SCT(config, tracker=tracker2, input_queue=queue_5, output_queues=[queue_6])
-    # queue_7 = MyQueue(config.get('QUEUE_MAXSIZE'), name='StackFrames-Output-Queue')
-    # stackframes = StackFrames(config, input_queues=[queue_1, queue_4], output_queues=queue_7, shape=(2,1))
-
-    queue_8 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-Output-Queue')
-    roi_2 = load_roi('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/roi_42.txt', camera_2.width, camera_2.height)
+    pl_sct_1 = SCT(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_1, iq_vis_sct_annot_1])
+    pl_sct_2 = SCT(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_2, iq_vis_sct_annot_2])
+    
+    pl_sync = SyncFrame(config, [iq_sync_1, iq_sync_2], iq_sta_sync)
+    
+    roi_2 = load_roi('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/roi_42.txt', pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
     homo = load_homo('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/matches_41_to_42.txt')
     roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo))
-    scene_1 = Scene(camera_1.width, camera_1.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
-    scene_2 = Scene(camera_2.width, camera_2.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
-    sta = STA(config, [scene_1, scene_2], homo, [queue_3, queue_6], queue_11, queue_8)
+    scene_1 = Scene(pl_camera_1_noretimg.width, pl_camera_1_noretimg.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
+    scene_2 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
+    pl_sta = STA(config, [scene_1, scene_2], homo, [iq_sta_sct_1, iq_sta_sct_2], iq_sta_sync, iq_vis_sta_annot, name='STA')
 
-    vis_sct_1 = Visualize(config, mode='SCT', annot_queue=queue_14, video_queue=queue_12, scene=scene_1, output_queues=queue_1)
-    vis_sct_2 = Visualize(config, mode='SCT', annot_queue=queue_15, video_queue=queue_13, scene=scene_2, output_queues=queue_4)
+    pl_vis_sct_1 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_1, video_queue=iq_vis_sct_vid_1, scene=scene_1, output_queues=iq_dis_sct_1, name='VisSCT-1')
+    pl_vis_sct_2 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_2, video_queue=iq_vis_sct_vid_2, scene=scene_2, output_queues=iq_dis_sct_2, name='VisSCT-2')
+    pl_vis_sta = Visualize(config, mode='STA', annot_queue=iq_vis_sta_annot, video_queue=None, scene=scene_2, output_queues=iq_dis_sta, name='VisSTA')
+
+    pl_dis_sct_1 = Display(config, mode=config.get('DISPLAY_MODE'), input_queue=iq_dis_sct_1, fps=pl_camera_1_retimg.fps, name='DisSCT-1')
+    pl_dis_sct_2 = Display(config, mode=config.get('DISPLAY_MODE'), input_queue=iq_dis_sct_2, fps=pl_camera_2_retimg.fps, name='DisSCT-2')
+    pl_dis_sta = Display(config, mode=config.get('DISPLAY_MODE'), input_queue=iq_dis_sta, fps=pl_camera_1_noretimg.fps, path='test.avi', name='DisSTA')
+
+    # start
+    pl_camera_1_noretimg.start()
+    pl_camera_2_noretimg.start()
+    pl_camera_1_noretimg.join()     # offline
+    pl_camera_1_noretimg.join()     # offline
     
-    # queue_16 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Display-Input-Queue')
-    # vis_sta = Visualize(config, mode='STA', annot_queue=queue_8, video_queue=None, scene=scene_2, output_queues=queue_16)
+    pl_sct_1.start()
+    pl_sct_2.start()
+    pl_sync.start()
+    pl_sct_1.join()                 # offline
+    pl_sct_2.join()                 # offline
+    pl_sync.join()                  # offline
 
-    # display_1 = Display(config, input_queue=queue_16, name='Display 1')
-    # display_2 = Display(config, input_queue=queue_4, name='Display 2')
+    pl_sta.start()
+    pl_sta.join()                   # offline
 
-    camera_1.start()
-    camera_2.start()
+    # visualize and display
+    # pl_camera_1_retimg.start()
+    # pl_camera_2_retimg.start()
 
-    camera_1.join()
-    camera_2.join()
-    
-    sync.start()
-    sct_1.start()
-    sct_2.start()
+    # pl_vis_sct_1.start()
+    # pl_vis_sct_2.start()
+    pl_vis_sta.start()
 
-    sync.join()
-    sct_1.join()
-    sct_2.join()
-
-    sta.start()
-
-    # vis_sct_1.start()
-    # vis_sct_2.start()
-    # vis_sta.start()
-    
-    # display_1.start()
-    # display_2.start()
-
-    config.stop()
-    
+    # pl_dis_sct_1.start()
+    # pl_dis_sct_2.start()
+    pl_dis_sta.start()

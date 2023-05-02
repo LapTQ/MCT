@@ -1,14 +1,13 @@
 import numpy as np
 import cv2
 
-COLORS = [(51, 255, 221), (55, 250, 250), (255, 221, 21), (102, 255, 102), (83, 50, 250), (209, 240, 170), (83, 179, 36), (240, 120, 240), (51, 153, 204), (187, 125, 250), (51, 204, 255)]
-
 
 COLORS = [
     # RED, YELLO, BLUE, GREEN, PUPLE
-    (53, 57, 229), (45, 192, 251), (229, 155, 3), (71, 160, 67), (176, 39, 156),
+    (83, 50, 250), (55, 250, 250), (255, 221, 21), (102, 255, 102), (240, 120, 240),
+    (83, 179, 36), (240, 120, 240), (51, 153, 204), (187, 125, 250), (51, 204, 255),
     (80, 83, 239), (59, 235, 255), (247, 195, 79), (132, 199, 129), (200, 104, 186),
-    (154, 154, 239), (118, 241, 255), (252, 229, 179), (87, 225, 212), (216, 147, 206)
+    (53, 57, 229), (45, 192, 251), (229, 155, 3), (71, 160, 67), (176, 39, 156),
 ]
 
 
@@ -71,7 +70,7 @@ def plot_loc(img, locs, radius=6, texts=None, text_thickness=2):
         
         cv2.circle(img, xyxy[i], radius=radius, color=color, thickness=-1)      # type: ignore
         if texts is not None:
-            cv2.putText(img, texts[i], xyxy[i] + [3, -3], cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, text_thickness)   # type: ignore
+            cv2.putText(img, texts[i], xyxy[i] + [4, -4], cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, text_thickness)   # type: ignore
     
     return img
 
