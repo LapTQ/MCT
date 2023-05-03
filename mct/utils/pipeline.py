@@ -11,7 +11,7 @@ import yaml
 from abc import ABC, abstractmethod
 import numpy as np
 
-from general import load_roi, load_homo, calc_loc
+from general import load_roi, load_homo, calc_loc                   # type: ignore
 from map_utils import hungarian, map_mono
 from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
 from filter import FilterBase, IQRFilter, GMMFilter
@@ -93,7 +93,7 @@ class Config:
         assert self.config.get('TRACKING_MODE') in ['bytetrack']
         
         # STA pipeline
-        assert self.config.get('LOC_INFER_MODE') in [1]
+        assert self.config.get('LOC_INFER_MODE') in [1, 2]
         assert self.config.get('FP_FILTER') in [None, 'gmm', 'iqr']
         assert self.config.get('MIN_SAMPLE_SIZE_TO_FP_FILTER') >= 1
         assert self.config.get('MIN_TIME_CORRESPONDENCES') >= 1
@@ -368,7 +368,10 @@ class Tracker:
         
         # if using offline mock tracking result
         if txt_path is not None:
-            self.seq = np.loadtxt(txt_path)
+            try:
+                self.seq = np.loadtxt(txt_path)
+            except:
+                self.seq = np.loadtxt(txt_path, delimiter=',')
             logging.info(f'{self.name}:\t load tracking result from .txt at {txt_path}')
         
         self.name = name
@@ -691,23 +694,23 @@ class STA(Pipeline):
                 for c in range(2):
                     scene = self.scenes[c]
                     dets = adict['sct_output'][c][t]
-                    locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
+                    locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'), (scene.width / 2, scene.height))   # type: ignore
                     
                     # filter in ROI
                     in_roi_idxs = scene.is_in_roi(locs)
                     dets_in_roi = dets[in_roi_idxs]
                     locs_in_roi = locs[in_roi_idxs]
-                    if c == 0 and homo is not None:  # if cam 1, then transform to view of cam 2
-                        locs = cv2.perspectiveTransform(locs.reshape(-1, 1, 2), homo)
+                    if c == 0 and self.homo is not None:  # if cam 1, then transform to view of cam 2
+                        locs = cv2.perspectiveTransform(locs.reshape(-1, 1, 2), self.homo)
                         locs = locs.reshape(-1, 2) if locs is not None else np.empty((0, 2))
                         
-                        locs_in_roi = cv2.perspectiveTransform(locs_in_roi.reshape(-1, 1, 2), homo)
+                        locs_in_roi = cv2.perspectiveTransform(locs_in_roi.reshape(-1, 1, 2), self.homo)
                         locs_in_roi = locs_in_roi.reshape(-1, 2) if locs_in_roi  is not None else np.empty((0, 2))
                     adict['in_roi'][c].append(dets_in_roi)
                     logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
                     # store location history, both inside-only and inide-outside
-                    assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
+                    assert dets_in_roi.shape[1] in (10, 61, 9), 'expect track_id is of index 1' # ATTENTION: 9 is for output of CVAT only @@
                     self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets[:, 1]), locs.tolist())})                     # type: ignore
                     self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi.tolist())})       # type: ignore
 
@@ -1230,9 +1233,9 @@ class Export(Pipeline):
             os.makedirs(parent)
 
 
-if __name__ == '__main__':
+def main(kwargs):
 
-    config = Config('/media/tran/003D94E1B568C6D11/Workingspace/MCT/mct/utils/config.yaml')
+    config = Config(kwargs['config'])
 
     # input queues
     iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-1-Input-Queue')
@@ -1259,56 +1262,65 @@ if __name__ == '__main__':
     iq_dis_sta = MyQueue(config.get('QUEUE_MAXSIZE'), name='DisSTA-Input-Queue')
 
     # ONLY USE META IF CAPTURING VIDEOS
-    meta_1 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/meta/121_00004_2023-02-28_18-00-00-000000.yaml', 'r'))
-    meta_2 = yaml.safe_load(open('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/meta/127_00004_2023-02-28_18-00-00-000000.yaml', 'r'))
-    pl_camera_1_retimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/121_00004_2023-02-28_18-00-00-000000.avi', meta=meta_1, output_queues=[iq_vis_sct_vid_1], ret_img=True, name='Camera-1-RetImg')
-    pl_camera_2_retimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/127_00004_2023-02-28_18-00-00-000000.avi', meta=meta_2, output_queues=[iq_vis_sct_vid_2], ret_img=True, name='Camera-2-RetImg')
-    pl_camera_1_noretimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/121_00004_2023-02-28_18-00-00-000000.avi', meta=meta_1, output_queues=[iq_sct_1, iq_sync_1], ret_img=False, name='Camera-1-NoRetImg')
-    pl_camera_2_noretimg = Camera(config, '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/127_00004_2023-02-28_18-00-00-000000.avi', meta=meta_2, output_queues=[iq_sct_2, iq_sync_2], ret_img=False, name='Camera-2-NoRetImg')
+    meta_1 = yaml.safe_load(open(kwargs['meta_1'], 'r'))
+    meta_2 = yaml.safe_load(open(kwargs['meta_2'], 'r'))
+    pl_camera_1_retimg = Camera(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_vis_sct_vid_1], ret_img=True, name='Camera-1-RetImg')
+    pl_camera_2_retimg = Camera(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_vis_sct_vid_2], ret_img=True, name='Camera-2-RetImg')
+    pl_camera_1_noretimg = Camera(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_sct_1, iq_sync_1], ret_img=False, name='Camera-1-NoRetImg')
+    pl_camera_2_noretimg = Camera(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_sct_2, iq_sync_2], ret_img=False, name='Camera-2-NoRetImg')
     
-    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-640-ByteTrack/sct/121_00004_2023-02-28_18-00-00-000000.txt', name='Tracker-1')
-    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path='/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-640-ByteTrack/sct/127_00004_2023-02-28_18-00-00-000000.txt', name='Tracker-2')
+    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_1'], name='Tracker-1')
+    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_2'], name='Tracker-2')
     pl_sct_1 = SCT(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_1, iq_vis_sct_annot_1])
     pl_sct_2 = SCT(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_2, iq_vis_sct_annot_2])
     
     pl_sync = SyncFrame(config, [iq_sync_1, iq_sync_2], iq_sta_sync)
     
-    roi_2 = load_roi('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/roi_127.txt', pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
-    homo = load_homo('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/matches_121_to_127.txt')
-    roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo))
+    roi_2 = load_roi(kwargs['roi'], pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
+    if kwargs['camera_1'] == kwargs['camera_2']:
+        if kwargs['matches'] is not None:   # pairs of camera 1
+            homo = load_homo(kwargs['matches'])
+            roi_2 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo)) # type: ignore
+        roi_1 = roi_2
+        homo = None
+    else:   # 2 different cameras
+        homo = load_homo(kwargs['matches'])
+        roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo)) # type: ignore
     scene_1 = Scene(pl_camera_1_noretimg.width, pl_camera_1_noretimg.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
     scene_2 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
     pl_sta = STA(config, [scene_1, scene_2], homo, [iq_sta_sct_1, iq_sta_sct_2], iq_sta_sync, [iq_vis_sta_annot, iq_exp_sta], name='STA')
 
-    pl_exp = Export(config, iq_exp_sta, 'test.txt')
+    pl_exp = Export(config, iq_exp_sta, kwargs['out_sta_txt'])
 
     pl_vis_sct_1 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_1, video_queue=iq_vis_sct_vid_1, scene=scene_1, output_queues=iq_dis_sct_1, name='VisSCT-1')
     pl_vis_sct_2 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_2, video_queue=iq_vis_sct_vid_2, scene=scene_2, output_queues=iq_dis_sct_2, name='VisSCT-2')
     pl_vis_sta = Visualize(config, mode='STA', annot_queue=iq_vis_sta_annot, video_queue=None, scene=scene_2, output_queues=iq_dis_sta, name='VisSTA')
 
-    pl_dis_sct_1 = Display(config, input_queue=iq_dis_sct_1, fps=pl_camera_1_retimg.fps, path='test.avi', name='DisSCT-1')
-    pl_dis_sct_2 = Display(config, input_queue=iq_dis_sct_2, fps=pl_camera_2_retimg.fps, path='test.avi', name='DisSCT-2')
-    pl_dis_sta = Display(config, input_queue=iq_dis_sta, fps=pl_camera_1_noretimg.fps, path='test.avi', name='DisSTA')
+    pl_dis_sct_1 = Display(config, input_queue=iq_dis_sct_1, fps=pl_camera_1_retimg.fps, path=kwargs['out_sct_vid_1'], name='DisSCT-1')
+    pl_dis_sct_2 = Display(config, input_queue=iq_dis_sct_2, fps=pl_camera_2_retimg.fps, path=kwargs['out_sct_vid_2'], name='DisSCT-2')
+    pl_dis_sta = Display(config, input_queue=iq_dis_sta, fps=pl_camera_1_noretimg.fps, path=kwargs['out_sta_vid'], name='DisSTA')
 
     # start
     pl_camera_1_noretimg.start()
     pl_camera_2_noretimg.start()
-    pl_camera_1_noretimg.join()     # offline
-    pl_camera_1_noretimg.join()     # offline
+    if config.get('RUNNING_MODE') == 'offline':
+        pl_camera_1_noretimg.join()     # offline
+        pl_camera_1_noretimg.join()     # offline
     
     pl_sct_1.start()
     pl_sct_2.start()
     pl_sync.start()
-    pl_sct_1.join()                 # offline
-    pl_sct_2.join()                 # offline
-    pl_sync.join()                  # offline
+    if config.get('RUNNING_MODE') == 'offline':
+        pl_sct_1.join()                 # offline
+        pl_sct_2.join()                 # offline
+        pl_sync.join()                  # offline
 
     pl_sta.start()
-    pl_sta.join()                   # offline
+    if config.get('RUNNING_MODE') == 'offline':
+        pl_sta.join()                   # offline
 
     # export
     pl_exp.start()
-    pl_exp.join()                   # offline
 
     # visualize and display
     # pl_camera_1_retimg.start()
@@ -1321,3 +1333,30 @@ if __name__ == '__main__':
     # pl_dis_sct_1.start()
     # pl_dis_sct_2.start()
     # pl_dis_sta.start()
+
+
+if __name__ == '__main__':
+
+    kwargs = {
+        'config': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/mct/utils/config.yaml',
+        
+        'meta_1': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/meta/121_00004_2023-02-28_18-00-00-000000.yaml',
+        'meta_2': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/meta/127_00004_2023-02-28_18-00-00-000000.yaml',
+        'camera_1': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/121_00004_2023-02-28_18-00-00-000000.avi',
+        'camera_2': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/videos/127_00004_2023-02-28_18-00-00-000000.avi',
+        
+        'sct_1': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-640-ByteTrack/sct/121_00004_2023-02-28_18-00-00-000000.txt',
+        'sct_2': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOv8l_pretrained-640-ByteTrack/sct/127_00004_2023-02-28_18-00-00-000000.txt',
+
+        'roi': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/roi_127.txt',
+        'matches': '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/matches_121_to_127.txt',
+
+        'out_sta_txt': 'test.txt',
+        'out_sct_vid_1': 'test.avi',
+        'out_sct_vid_2': 'test.avi',
+        'out_sta_vid': 'test.avi'
+
+    }
+    main(kwargs)
+
+    
