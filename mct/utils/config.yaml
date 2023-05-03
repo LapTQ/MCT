@@ -1,4 +1,5 @@
 RUNNING_MODE: 'offline'   # 'offline' or 'online'
+ONLINE_SLEEP_BEFORE_STOP: 14
 
 # queue
 QUEUE_MAXSIZE: 0
@@ -8,7 +9,7 @@ QUEUE_TIMEOUT: null
 QUEUE_GET_MANY_SIZE: 'all' # 100, 'all'
 
 # camera pipeline
-CAMERA_SLEEP: 0.03
+CAMERA_SLEEP: 0
 CAMERA_FRAME_WIDTH: null
 CAMERA_FRAME_HEIGHT: null
 CAMERA_FPS: null
@@ -18,6 +19,10 @@ SCT_TXT_SLEEP: 0
 DETECTION_MODE: 'box'   # 'box', 'pose'
 TRACKING_MODE: 'bytetrack'
 
+# Sync
+MIN_TIME_CORRESPONDENCES: 10
+TIME_DIFF_THRESH: 0.1    # null
+
 # STA pipeline
 LOC_INFER_MODE: 1
 FP_FILTER: null   # null, 'gmm', 'iqr'
@@ -26,8 +31,6 @@ FP_GMM_N_COMPONENTS: 2
 FP_GMM_STD_COEF: 3
 FP_IQR_LOWER: 30
 FP_IQR_UPPER: 70
-MIN_TIME_CORRESPONDENCES: 10
-TIME_DIFF_THRESH: 0.5    # null
 DIST_WINDOW_SIZE: 1
 DIST_WINDOW_BOUNDARY: 0
 

@@ -2,6 +2,7 @@ from typing import Any, Union
 from queue import Queue
 from threading import Lock, Thread
 from datetime import datetime
+import os
 import time
 import cv2
 import logging
@@ -294,6 +295,8 @@ class Camera(Pipeline):
             if not ret:
                 logging.info(f'{self.name}:\t disconnected from {self.source}')
                 if self.config.get('RUNNING_MODE') == 'online' or self.ret_img:
+                    logging.info(f'{self.name}:\t sleeping a few second before stop all')
+                    time.sleep(self.config.get('ONLINE_SLEEP_BEFORE_STOP'))
                     self.stop()
                 break
             
@@ -421,7 +424,7 @@ class SCT(Pipeline):
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
 
-            logging.info(f'{self.name}:\t processing {len(items)} frames')
+            logging.debug(f'{self.name}:\t processing {len(items)} frames')
             
             for item in items:
                 dets = self.tracker.infer(item['frame_img'], item['frame_id'])
@@ -503,7 +506,7 @@ class SyncFrame(Pipeline):
 
             # add un-processed items to wait list
             if len(c1_adict_matched) > 0:
-                logging.info(f'{self.name}:\t processing {len(c1_adict_matched)} pairs of frames')
+                logging.debug(f'{self.name}:\t processing {len(c1_adict_matched)} pairs of frames')
                 self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
                 self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
@@ -529,124 +532,6 @@ class SyncFrame(Pipeline):
 
     def _new_wait_list(self):
         return [[] for _ in range(len(self.input_queues))]
-
-
-class StackFrames(Pipeline):
-
-    def __init__(
-            self, 
-            config: Config, 
-            input_queues: list[MyQueue],
-            output_queues: Union[list[MyQueue], MyQueue, None] = None,
-            shape: Union[list[int], tuple[int], None] = None,
-            name='StackFrames'
-    ) -> None:
-        super().__init__(config, output_queues, name)
-
-        self.input_queues = input_queues
-        self._check_input_queues()
-
-        self.shape = shape
-        self._check_shape()
-
-        logging.info(f'{self.name}:\t initialized')
-
-    
-    def _start(self):
-
-        while not self.is_stopped():
-
-            self.trigger_pause()
-
-            t0 = time.time()
-
-            items_2D = []
-            for queue in self.input_queues:
-                items_2D.append(queue.get_many(
-                    size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                    block=self.config.get('QUEUE_GET_BLOCK'),
-                    timeout=self.config.get('QUEUE_TIMEOUT')
-                ))
-
-            adict = {
-                'frame_img': [],
-                'frame_id': [],
-                'frame_time': []
-            }
-            for items in items_2D:
-                for k in adict:
-                    adict[k].append([])
-                for k in adict:
-                    for item in items:
-                        adict[k][-1].append(item[k])
-            # each array in frame_time, frame_id should be in increasing order of time
-
-            # #### take the first queue's result as benchmark
-            maps = [map_mono(adict['frame_time'][0], adict['frame_time'][i]) 
-                    for i in range(1, len(adict['frame_time']))]
-            dict_map = {}
-            for j, (idx0_ls, idxi_ls) in enumerate(maps):
-                for idx0, idxi in zip(idx0_ls, idxi_ls):
-                    if idx0 not in dict_map:
-                        dict_map[idx0] = [idx0]
-                    if j + 1 > len(dict_map[idx0]):
-                        dict_map[idx0].append(None)
-                    dict_map[idx0].append(idxi)
-            maps = sorted(list(dict_map.values()))
-            # maps should be in increasing order of time
-            ###############################################
-
-            for map in maps:
-                out_item = {
-                    'frame_img': [(adict['frame_img'][j][idx] if idx is not None else None) for j, idx in enumerate(map)],
-                    'frame_id': [adict['frame_id'][j][idx] for j, idx in enumerate(map)],
-                    'frame_time': [adict['frame_time'][j][idx] for j, idx in enumerate(map)]
-                }
-
-                frame_img = out_item['frame_img']
-                ncols, nrows = self.shape                   # type: ignore
-                frame_img.extend([None for _ in range(ncols * nrows - len(frame_img))])
-                H, W = frame_img[0].shape[:2]
-                collage = np.empty((H * nrows, W * ncols, 3), dtype='uint8')
-                for i, img in enumerate(frame_img):
-                    if img is None:
-                        img = np.zeros((H, W), dtype='uint8')
-                    elif i > 0:
-                        img = cv2.resize(img, (W, H))
-                    col, row = i % ncols, i // ncols
-                    collage[H * row: H * (row + 1), W * col: W * (col + 1), :] = img
-                out_item['frame_img'] = collage
-
-                self._put_to_output_queues(out_item)
-            
-            if self.config.get('RUNNING_MODE') == 'offline':
-                break
-
-
-    def _check_input_queues(self):
-        assert len(self.input_queues) > 1, 'input_queues must have at least 2 elements'
-
-    
-    def _check_shape(self):
-        n_queues = len(self.input_queues)
-        if self.shape is not None:
-            assert isinstance(self.shape, (list, tuple)), 'shape must be list or tuple'
-            assert len(self.shape) == 2, 'shape must have 2 elements for width and height'
-            assert self.shape[0] * self.shape[1] == n_queues, 'shape[0] * shape[1] must equal number of input queues'
-        else:
-            import math
-            ncols, nrows = 1, n_queues
-            while True:
-                
-                if n_queues % ncols == 0:
-                    nrows = n_queues // ncols
-                
-                if ncols >= nrows:
-                    break
-
-                ncols += 1
-            self.shape = (ncols, nrows)
-            logging.debug(f'{self.name}:\t calculate grid shape = {self.shape}')
 
 
 class Scene:
@@ -786,7 +671,7 @@ class STA(Pipeline):
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logging.info(f'{self.name}:\t processing {T} pairs of frames')
+            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
             del adict['frame_id_match']
             for k in adict:
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
@@ -819,12 +704,12 @@ class STA(Pipeline):
                         locs_in_roi = cv2.perspectiveTransform(locs_in_roi.reshape(-1, 1, 2), homo)
                         locs_in_roi = locs_in_roi.reshape(-1, 2) if locs_in_roi  is not None else np.empty((0, 2))
                     adict['in_roi'][c].append(dets_in_roi)
-                    logging.info(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
+                    logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
                     # store location history, both inside-only and inide-outside
                     assert dets_in_roi.shape[1] in (10, 61), 'expect track_id is of index 1'
-                    self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets[:, 1]), locs)})                     # type: ignore
-                    self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi)})       # type: ignore
+                    self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets[:, 1]), locs.tolist())})                     # type: ignore
+                    self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi.tolist())})       # type: ignore
 
             matches = []
             for t in range(T):
@@ -872,7 +757,7 @@ class STA(Pipeline):
 
             for m in matches:
                 t = int(m[0].item())
-                self.history[t - T][4].append(m[1:3])    # correct only because t in [0, T-1]
+                self.history[t - T][4].append(np.int32(m[1:3]).tolist())    # correct only because t in [0, T-1]
 
             for his in self.history[-T:]:
                 out_item = {
@@ -1218,7 +1103,6 @@ class Display(Pipeline):
         self.fps = fps
         self._check_fps()
         
-
         logging.info(f'{self.name}:\t initilized')
     
     def _start(self) -> None:
@@ -1295,10 +1179,55 @@ class Display(Pipeline):
             assert self.path is not None
 
 
+class Export(Pipeline):
 
-class Export:
+    def __init__(
+            self,
+            config: Config,
+            input_queue: MyQueue,
+            path: str, 
+            name='Export'
+    ) -> None:
+        super().__init__(config, None, name)  # type: ignore
 
-    pass
+        self.input_queue = input_queue
+
+        self.path = path
+        self._check_path()
+
+        logging.info(f'{self.name}:\t initialized')
+
+
+    def _start(self) -> None:
+
+        f = open(self.path, 'w')
+        
+        while not self.is_stopped():
+
+            items = self.input_queue.get_many(
+                size=self.config.get('QUEUE_GET_MANY_SIZE'),
+                block=self.config.get('QUEUE_GET_BLOCK'),
+                timeout=self.config.get('QUEUE_TIMEOUT')
+            )
+
+            logging.debug(f'{self.name}:\t processing {len(items)} frames')
+
+            for i, item in enumerate(items):
+                if i > 0:
+                    f.write('\n')
+                f.write(str(item))
+            
+            if self.config.get('RUNNING_MODE') == 'offline':
+                self.stop()
+        
+        f.close()
+
+    
+    def _check_path(self):
+        parent, filename = os.path.split(self.path)
+        if not os.path.exists(parent) and parent != '':
+            logging.debug(f'{self.name}:\t create directory {parent}')
+            os.makedirs(parent)
 
 
 if __name__ == '__main__':
@@ -1316,6 +1245,8 @@ if __name__ == '__main__':
     iq_sta_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-1-InputSCT-Queue')
     iq_sta_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-2-InputSCT-Queue')
     iq_sta_sync = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-InputSync-Queue')
+
+    iq_exp_sta = MyQueue(config.get('QUEUE_MAXSIZE'), name='ExportSTA-Input-Queue')
     
     iq_vis_sct_annot_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-1-InputAnnot-Queue')
     iq_vis_sct_annot_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='VisSCT-2-InputAnnot-Queue')
@@ -1347,7 +1278,9 @@ if __name__ == '__main__':
     roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo))
     scene_1 = Scene(pl_camera_1_noretimg.width, pl_camera_1_noretimg.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
     scene_2 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
-    pl_sta = STA(config, [scene_1, scene_2], homo, [iq_sta_sct_1, iq_sta_sct_2], iq_sta_sync, iq_vis_sta_annot, name='STA')
+    pl_sta = STA(config, [scene_1, scene_2], homo, [iq_sta_sct_1, iq_sta_sct_2], iq_sta_sync, [iq_vis_sta_annot, iq_exp_sta], name='STA')
+
+    pl_exp = Export(config, iq_exp_sta, 'test.txt')
 
     pl_vis_sct_1 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_1, video_queue=iq_vis_sct_vid_1, scene=scene_1, output_queues=iq_dis_sct_1, name='VisSCT-1')
     pl_vis_sct_2 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_2, video_queue=iq_vis_sct_vid_2, scene=scene_2, output_queues=iq_dis_sct_2, name='VisSCT-2')
@@ -1372,6 +1305,10 @@ if __name__ == '__main__':
 
     pl_sta.start()
     pl_sta.join()                   # offline
+
+    # export
+    pl_exp.start()
+    pl_exp.join()                   # offline
 
     # visualize and display
     # pl_camera_1_retimg.start()
