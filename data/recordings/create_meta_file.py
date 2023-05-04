@@ -14,11 +14,13 @@ def run(vid_path):
     info = {
         'name': vid_name,
         'cam_id': vid_basename.split('_')[0],
+        'video_id': int(vid_basename.split('_')[1]),
         'fps': cap.get(cv2.CAP_PROP_FPS),
         'width': cap.get(cv2.CAP_PROP_FRAME_WIDTH),
         'height': cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
         'start_time': '_'.join(vid_basename.split('_')[2:]),
-        'start_frame_id': 1
+        'start_frame_id': 1,
+        'frame_count': int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     }
     out_dir = os.path.join(parent, '../meta')
     os.makedirs(out_dir, exist_ok=True)

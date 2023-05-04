@@ -1,7 +1,9 @@
 name: 127_00008_2023-02-28_18-00-00-000000.avi
 cam_id: 127
+video_id: 8
 fps: 29.903
 width: 1920.0
 height: 1080.0
 start_time: 2023-02-28_18-00-00-000000
 start_frame_id: 1
+frame_count: 222

@@ -1,7 +1,9 @@
 name: 41_00009_2023-04-13_08-30-00-000000.avi
 cam_id: 41
+video_id: 9
 fps: 30.0
 width: 1920.0
 height: 1080.0
 start_time: 2023-04-13_08-30-00-000000
 start_frame_id: 1
+frame_count: 2667

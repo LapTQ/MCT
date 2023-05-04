@@ -1,7 +1,9 @@
 name: 121_00003_2023-02-28_18-00-00-000000.avi
 cam_id: 121
+video_id: 3
 fps: 30.01
 width: 1920.0
 height: 1080.0
 start_time: 2023-02-28_18-00-00-000000
 start_frame_id: 1
+frame_count: 178

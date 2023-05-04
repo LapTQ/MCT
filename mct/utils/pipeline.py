@@ -427,7 +427,7 @@ class SCT(Pipeline):
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
 
-            logging.debug(f'{self.name}:\t processing {len(items)} frames')
+            logging.info(f'{self.name}:\t processing {len(items)} frames')
             
             for item in items:
                 dets = self.tracker.infer(item['frame_img'], item['frame_id'])
@@ -509,7 +509,7 @@ class SyncFrame(Pipeline):
 
             # add un-processed items to wait list
             if len(c1_adict_matched) > 0:
-                logging.debug(f'{self.name}:\t processing {len(c1_adict_matched)} pairs of frames')
+                logging.info(f'{self.name}:\t processing {len(c1_adict_matched)} pairs of frames')
                 self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
                 self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
@@ -674,7 +674,7 @@ class STA(Pipeline):
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
+            logging.info(f'{self.name}:\t processing {T} pairs of frames')
             del adict['frame_id_match']
             for k in adict:
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
@@ -1271,8 +1271,8 @@ def main(kwargs):
     
     tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_1'], name='Tracker-1')
     tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_2'], name='Tracker-2')
-    pl_sct_1 = SCT(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_1, iq_vis_sct_annot_1])
-    pl_sct_2 = SCT(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_2, iq_vis_sct_annot_2])
+    pl_sct_1 = SCT(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_1, iq_vis_sct_annot_1], name='SCT-1')
+    pl_sct_2 = SCT(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_2, iq_vis_sct_annot_2], name='SCT-2')
     
     pl_sync = SyncFrame(config, [iq_sync_1, iq_sync_2], iq_sta_sync)
     
@@ -1305,7 +1305,7 @@ def main(kwargs):
     pl_camera_2_noretimg.start()
     if config.get('RUNNING_MODE') == 'offline':
         pl_camera_1_noretimg.join()     # offline
-        pl_camera_1_noretimg.join()     # offline
+        pl_camera_2_noretimg.join()     # offline
     
     pl_sct_1.start()
     pl_sct_2.start()
@@ -1321,6 +1321,8 @@ def main(kwargs):
 
     # export
     pl_exp.start()
+    if config.get('RUNNING_MODE') == 'offline':
+        pl_exp.join()                   # offline
 
     # visualize and display
     # pl_camera_1_retimg.start()
