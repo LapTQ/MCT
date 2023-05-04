@@ -306,7 +306,7 @@ class Camera(Pipeline):
                 frame_time = datetime.now().timestamp()
             else:   # if reading from video on disk
                 frame_time = datetime.strptime(self.meta['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (frame_id - self.meta['start_frame_id']) / self.fps
-            
+
             out_item = {
                 'frame_img': frame,
                 'frame_id': frame_id,
@@ -342,9 +342,9 @@ class Camera(Pipeline):
     @property
     def fps(self):
         if self.meta is not None:
-            return int(self.meta['fps'])
+            return float(self.meta['fps'])
         else:
-            return int(self.cap.get(cv2.CAP_PROP_FPS))
+            return float(self.cap.get(cv2.CAP_PROP_FPS))
 
 
     def _check_meta(self) -> None:
@@ -376,7 +376,7 @@ class Tracker:
         
         self.name = name
 
-        logging.info(f'{self.name}:\t initialized with detection_mode={self.detection_mode}, tracking_mode={self.tracking_mode}')
+        logging.info(f'{self.name}:\t initialized with DETECTION_MODE={self.detection_mode}, TRACKING_MODE={self.tracking_mode}')
         
     
     def infer(self, img: Union[np.ndarray, None], frame_id: Union[int, None] = None) -> np.ndarray:
@@ -502,14 +502,14 @@ class SyncFrame(Pipeline):
                 for k in adict:
                     for item in citems:
                         adict[k][-1].append(item[k])
-            # each array in frame_time, frame_id should already been in increasing order of time
+            # each array in frame_time, frame_id should already been in increasing order of time            
 
             # match timestamps
             c1_adict_matched, c2_adict_matched = map_mono(*adict['frame_time'], diff_thresh=self.config.get('TIME_DIFF_THRESH'))
 
             # add un-processed items to wait list
             if len(c1_adict_matched) > 0:
-                logging.info(f'{self.name}:\t processing {len(c1_adict_matched)} pairs of frames')
+                logging.debug(f'{self.name}:\t processing {len(c1_adict_matched)} pairs of frames')
                 self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
                 self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
@@ -674,12 +674,13 @@ class STA(Pipeline):
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logging.info(f'{self.name}:\t processing {T} pairs of frames')
+            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
             del adict['frame_id_match']
             for k in adict:
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
                 adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
 
+            logging.info(f"{self.name}:\t infer location from detection with LOC_INFER_MODE={self.config.get('LOC_INFER_MODE')}")
             adict['in_roi'] = [[], []]
             for t in range(T):
                 self.history.append(
@@ -700,7 +701,8 @@ class STA(Pipeline):
                     in_roi_idxs = scene.is_in_roi(locs)
                     dets_in_roi = dets[in_roi_idxs]
                     locs_in_roi = locs[in_roi_idxs]
-                    if c == 0 and self.homo is not None:  # if cam 1, then transform to view of cam 2
+                    if (c == 0 and (not self.config.get('STA_PSEUDO_SAME_CAMERA') or self.homo is not None)) \
+                        or (c == 1 and self.config.get('STA_PSEUDO_SAME_CAMERA') and self.homo is not None) :  # if cam 1, then transform to view of cam 2
                         locs = cv2.perspectiveTransform(locs.reshape(-1, 1, 2), self.homo)
                         locs = locs.reshape(-1, 2) if locs is not None else np.empty((0, 2))
                         
@@ -715,6 +717,7 @@ class STA(Pipeline):
                     self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi.tolist())})       # type: ignore
 
             matches = []
+            logging.info(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.config.get('DIST_WINDOW_SIZE')}, WINDOW_BOUNDARY={self.config.get('DIST_WINDOW_BOUNDARY')}")
             for t in range(T):
                 
                 h1_ids = adict['in_roi'][0][t][:, 1]
@@ -755,6 +758,8 @@ class STA(Pipeline):
                 filter = self._create_fp_filter()
                 ub = filter(np.array(d).reshape(-1, 1))             # type: ignore
                 matches = matches[matches[:, 3] <= ub]
+
+                logging.info(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
             
             self.distances.extend(matches[:, 3].tolist())
 
@@ -878,6 +883,7 @@ class Visualize(Pipeline):
             annot_queue: MyQueue,
             video_queue: Union[MyQueue, None] = None,
             scene: Union[Scene, None] = None,
+            homo: Union[np.ndarray, None] = None,
             output_queues: Union[list[MyQueue], MyQueue, None] = None,
             name='Visualizer'
     ) -> None:
@@ -892,6 +898,7 @@ class Visualize(Pipeline):
         self._check_video_queue()
 
         self.scene = scene
+        self.homo = homo
 
         self.wait_list = self._new_wait_list()
 
@@ -1003,7 +1010,11 @@ class Visualize(Pipeline):
                     frame_id_1 = adict['frame_id_1'][t]
                     frame_id_2 = adict['frame_id_2'][t]
                     frame_img = np.zeros((self.scene.height, self.scene.width, 3), dtype='uint8')               # type: ignore
-                    frame_img = plot_roi(frame_img, self.scene.roi, self.config.get('VIS_ROI_THICKNESS'))       # type: ignore
+                    if self.config.get('STA_PSEUDO_SAME_CAMERA') and self.homo is not None:
+                        roi = cv2.perspectiveTransform(np.float32(self.scene.roi), self.homo).astype('int32')   # type: ignore
+                    else:
+                        roi = self.scene.roi                # type: ignore
+                    frame_img = plot_roi(frame_img, roi, self.config.get('VIS_ROI_THICKNESS'))       # type: ignore
 
                     cv2.putText(frame_img, f"frames={frame_id_1, frame_id_2}", (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), thickness=self.config.get('VIS_SCT_LOC_TEXTTHICKNESS'))
 
@@ -1221,7 +1232,7 @@ class Export(Pipeline):
                 f.write(str(item))
             
             if self.config.get('RUNNING_MODE') == 'offline':
-                self.stop()
+                break
         
         f.close()
 
@@ -1278,11 +1289,13 @@ def main(kwargs):
     
     roi_2 = load_roi(kwargs['roi'], pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
     if kwargs['camera_1'] == kwargs['camera_2']:
-        if kwargs['matches'] is not None:   # pairs of camera 1
+        if kwargs['matches'] is not None:   # pair of camera 1
             homo = load_homo(kwargs['matches'])
             roi_2 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo)) # type: ignore
+        else:   # pair of camera 2
+            homo = None
         roi_1 = roi_2
-        homo = None
+        
     else:   # 2 different cameras
         homo = load_homo(kwargs['matches'])
         roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo)) # type: ignore
@@ -1294,11 +1307,11 @@ def main(kwargs):
 
     pl_vis_sct_1 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_1, video_queue=iq_vis_sct_vid_1, scene=scene_1, output_queues=iq_dis_sct_1, name='VisSCT-1')
     pl_vis_sct_2 = Visualize(config, mode='SCT', annot_queue=iq_vis_sct_annot_2, video_queue=iq_vis_sct_vid_2, scene=scene_2, output_queues=iq_dis_sct_2, name='VisSCT-2')
-    pl_vis_sta = Visualize(config, mode='STA', annot_queue=iq_vis_sta_annot, video_queue=None, scene=scene_2, output_queues=iq_dis_sta, name='VisSTA')
+    pl_vis_sta = Visualize(config, mode='STA', annot_queue=iq_vis_sta_annot, video_queue=None, scene=scene_2, homo=homo, output_queues=iq_dis_sta, name='VisSTA')
 
-    pl_dis_sct_1 = Display(config, input_queue=iq_dis_sct_1, fps=pl_camera_1_retimg.fps, path=kwargs['out_sct_vid_1'], name='DisSCT-1')
-    pl_dis_sct_2 = Display(config, input_queue=iq_dis_sct_2, fps=pl_camera_2_retimg.fps, path=kwargs['out_sct_vid_2'], name='DisSCT-2')
-    pl_dis_sta = Display(config, input_queue=iq_dis_sta, fps=pl_camera_1_noretimg.fps, path=kwargs['out_sta_vid'], name='DisSTA')
+    pl_dis_sct_1 = Display(config, input_queue=iq_dis_sct_1, fps=pl_camera_1_retimg.fps, path=kwargs['out_sct_vid_1'], name='DisSCT-1') # type: ignore
+    pl_dis_sct_2 = Display(config, input_queue=iq_dis_sct_2, fps=pl_camera_2_retimg.fps, path=kwargs['out_sct_vid_2'], name='DisSCT-2') # type: ignore
+    pl_dis_sta = Display(config, input_queue=iq_dis_sta, fps=pl_camera_1_noretimg.fps, path=kwargs['out_sta_vid'], name='DisSTA')       # type: ignore
 
     # start
     pl_camera_1_noretimg.start()
@@ -1359,6 +1372,7 @@ if __name__ == '__main__':
         'out_sta_vid': 'test.avi'
 
     }
+    
     main(kwargs)
 
     

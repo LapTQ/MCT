@@ -38,17 +38,17 @@ def plot_box(img, boxes, thickness=2):
         else:
             color = COLORS[ids[i] % len(COLORS)]    # type: ignore
             space = 5
-            expected_text_H = 15
+            expected_text_H = 30
 
             y_text = xyxys[i, 1] - space if xyxys[i, 1] - space - expected_text_H > 0 else xyxys[i, 1] + space + expected_text_H    # type: ignore
             x_text = xyxys[i, 0] + space                                                                                            # type: ignore
-            cv2.putText(img, str(ids[i]) + (f' ({int(confs[i] * 100)})' if confs[i] != -1 else ''), (x_text, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, thickness=thickness)    # type: ignore
+            cv2.putText(img, str(ids[i]) + (f' ({int(confs[i] * 100)})' if confs[i] != -1 else ''), (x_text, y_text), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, thickness=thickness)    # type: ignore
         cv2.rectangle(img, xyxys[i, :2], xyxys[i, 2:4], color=color, thickness=thickness)                                           # type: ignore
 
     return img
 
 
-def plot_loc(img, locs, radius=6, texts=None, text_thickness=2):
+def plot_loc(img, locs, radius=8, texts=None, text_thickness=2):
     # locs: [[frame, id, x, y, ...],...]
     if not isinstance(locs, np.ndarray):
         locs = np.array(locs)
@@ -70,13 +70,14 @@ def plot_loc(img, locs, radius=6, texts=None, text_thickness=2):
         
         cv2.circle(img, xyxy[i], radius=radius, color=color, thickness=-1)      # type: ignore
         if texts is not None:
-            cv2.putText(img, texts[i], xyxy[i] + [4, -4], cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, text_thickness)   # type: ignore
+            cv2.putText(img, texts[i], xyxy[i] + [4, -4], cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, text_thickness)   # type: ignore
     
     return img
 
 
 def plot_roi(img, roi, thickness=2):
     img = img.copy()
+    roi = np.int32(roi)
     cv2.drawContours(img, [roi], -1, (255, 255, 255), thickness=thickness)
     return img
 

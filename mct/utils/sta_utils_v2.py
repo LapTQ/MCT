@@ -6,10 +6,12 @@ import os
 import time
 import sys
 import logging
-from pipeline import main as main
+from pipeline import *
 import yaml
 from map_utils import map_mono
 from datetime import datetime
+from vis_utils import plot_box, plot_loc, plot_roi, plot_skeleton_kpts
+from general import load_roi, load_homo
 
 sys.path.append(sys.path[0] + '/../..')
 
@@ -67,12 +69,12 @@ def make_pseudotrue_mct_trackertracker(
     frame_ids_1 = np.arange(meta_1['start_frame_id'], meta_1['start_frame_id'] + meta_1['frame_count'])
     frame_ids_2 = np.arange(meta_2['start_frame_id'], meta_2['start_frame_id'] + meta_2['frame_count'])
 
-    frame_times_1 = np.array([datetime.strptime(meta_1['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (i - meta_1['start_frame_id']) / meta_1['fps'] for i in frame_ids_1])
-    frame_times_2 = np.array([datetime.strptime(meta_2['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (i - meta_2['start_frame_id']) / meta_2['fps'] for i in frame_ids_2])
+    frame_times_1 = [datetime.strptime(meta_1['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (i - meta_1['start_frame_id']) / meta_1['fps'] for i in frame_ids_1]
+    frame_times_2 = [datetime.strptime(meta_2['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (i - meta_2['start_frame_id']) / meta_2['fps'] for i in frame_ids_2]
 
     idx1, idx2 = map_mono(frame_times_1, frame_times_2, diff_thresh=0.1)
-    frame_ids_1 = frame_ids_1[idx1]
-    frame_ids_2 = frame_ids_2[idx2]
+    frame_ids_1 = np.array(frame_ids_1)[idx1]
+    frame_ids_2 = np.array(frame_ids_2)[idx2]
 
     parent, _ = os.path.split(out_path)
     if parent and not os.path.exists(parent):
@@ -100,8 +102,252 @@ def make_pseudotrue_mct_trackertracker(
     f.close()
 
 
+def validate_pred_mct_trackertracker(
+        pseudotrue_mct_trackertracker_path,
+        pred_mct_trackertracker_path,
+        out_path
+):
+    with open(pseudotrue_mct_trackertracker_path, 'r') as f:
+        pseudotrue = f.read().strip().split('\n')
+        pseudotrue = [eval(i) for i in pseudotrue]
 
+    with open(pred_mct_trackertracker_path, 'r') as f:
+        pred = f.read().strip().split('\n')
+        pred = [eval(i) for i in pred]
+
+    parent, _ = os.path.split(out_path)
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
+    f = open(out_path, 'w')
+
+    for i, (T, P) in enumerate(zip(pseudotrue, pred)):
+        assert T['frame_id_1'] == P['frame_id_1'] and T['frame_id_2'] == P['frame_id_2']
+
+        out_item = {
+            'frame_id_1': P['frame_id_1'],
+            'frame_id_2': P['frame_id_2'],
+            'locs': P['locs'],
+            'locs_in_roi': P['locs_in_roi'],
+            'matches': {
+                'TP': [],
+                'FP': [],
+                'FN': []
+            }
+        }
+
+        t = set((id1, id2) for id1, id2 in T['matches'])
+        p = set((id1, id2) for id1, id2 in P['matches'])
+
+        out_item['matches']['TP'].extend(list(t.intersection(p)))
+        out_item['matches']['FP'].extend(list(p.difference(t)))
+        out_item['matches']['FN'].extend(list(t.difference(p)))
+
+        if i > 0:
+            f.write('\n')
+        f.write(str(out_item))
+
+
+def prf(
+        paths,
+        out_path
+):
     
+    parent, _ = os.path.split(out_path)
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
+    f = open(out_path, 'w')
+
+    STP = 0
+    SFP = 0
+    SFN = 0
+
+    for i, (validate_path, msg) in enumerate(paths):
+
+        if i > 0:
+            f.write('\n\n\n')
+
+        f.write(f'==================== {msg} ===================\n')
+
+        TP = 0
+        FP = 0
+        FN = 0
+
+        with open(validate_path, 'r') as ff:
+            result = ff.read().strip().split('\n')
+            result = [eval(i) for i in result]
+
+        for P in result:
+            TP += len(P['matches']['TP'])
+            FP += len(P['matches']['FP'])
+            FN += len(P['matches']['FN'])
+        
+        pre = TP / (TP + FP)
+        rec = TP / (TP + FN)
+        F1 = 2 * pre * rec / (pre + rec)
+
+        f.write(f'TP: {TP}\n')
+        f.write(f'FP: {FP}\n')
+        f.write(f'FN: {FN}\n')
+        f.write(f'Pre: {pre}\n')
+        f.write(f'Rec: {rec}\n')
+        f.write(f'F1: {F1}\n')
+
+        STP += TP
+        SFP += FP
+        SFN += FN
+    
+    f.write('\n\n\n============== IN TOTAL ==============\n')
+
+    pre = STP / (STP + SFP)
+    rec = STP / (STP + SFN)
+    F1 = 2 * pre * rec / (pre + rec)
+            
+    f.write(f'TP: {STP}\n')
+    f.write(f'FP: {SFP}\n')
+    f.write(f'FN: {SFN}\n')
+    f.write(f'Pre: {pre}\n')
+    f.write(f'Rec: {rec}\n')
+    f.write(f'F1: {F1}\n')
+
+    f.close()
+
+
+def visualize_sta_result(
+        cam_1_path,
+        cam_2_path,
+        sct_1_path,
+        sct_2_path,
+        validate_sta_path,
+        roi_path,
+        matches_path,
+        out_path
+):
+    cap_1 = cv2.VideoCapture(cam_1_path)
+    cap_2 = cv2.VideoCapture(cam_2_path)
+
+    fps = cap_1.get(cv2.CAP_PROP_FPS)
+
+    sct_1 = np.loadtxt(sct_1_path)
+    sct_2 = np.loadtxt(sct_2_path)
+
+    with open(validate_sta_path, 'r') as f:
+        sta = f.read().strip().split('\n')
+        sta = [eval(i) for i in sta]
+
+    H, W = int(cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap_2.get(cv2.CAP_PROP_FRAME_WIDTH))
+    roi_2 = load_roi(roi_path, W, H)
+    homo = load_homo(matches_path)
+    homo_inv = np.linalg.inv(homo)
+    roi_1 = cv2.perspectiveTransform(roi_2, homo_inv)
+
+    parent, _ = os.path.split(out_path)
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
+    writer_created = False
+    
+    fid_1 = 1
+    fid_2 = 1
+    p = 0
+    while True:
+
+        if fid_1 > sta[p]['frame_id_1'] or fid_2 > sta[p]['frame_id_2']:
+            p += 1
+            continue
+        elif fid_1 < sta[p]['frame_id_1']:
+            fid_1 += 1
+            cap_1.read()
+        elif fid_2 < sta[p]['frame_id_2']:
+            fid_2 += 1
+            cap_2.read()
+        
+        ret_1, fim_1 = cap_1.read()
+        if not ret_1:
+            break
+
+        ret_2, fim_2 = cap_2.read()
+        if not ret_2:
+            break
+
+        if not writer_created:
+            writer = cv2.VideoWriter(
+                out_path,
+                cv2.VideoWriter_fourcc(*'XVID'),
+                fps,
+                (2*W, 2*H)
+            )
+            writer_created = True
+
+        black = np.zeros_like(fim_2)
+        
+        fim_1 = plot_roi(fim_1, roi_1)
+        fim_2 = plot_roi(fim_2, roi_2)
+        black = plot_roi(black, roi_2)
+
+        dets_1 = sct_1[sct_1[:, 0] == fid_1]
+        dets_2 = sct_2[sct_2[:, 0] == fid_2]
+
+        fim_1 = plot_box(fim_1, dets_1)
+        fim_2 = plot_box(fim_2, dets_2)
+
+        if dets_1.shape[0] == 61:
+            kpts_1 = dets_1[:, 10:]
+            kpts_2 = dets_2[:, 10:]
+
+            for kpt in kpts_1:
+                fim_1 = plot_skeleton_kpts(fim_1, kpt.T, 3)
+            for kpt in kpts_2:
+                fim_2 = plot_skeleton_kpts(fim_2, kpt.T, 3)
+        
+        locs_1 = np.array([[-1, k, x, y] for k, (x, y) in sta[p]['locs'][0].items()]).reshape(-1, 4)    # type: ignore
+        locs_2 = np.array([[-1, k, x, y] for k, (x, y) in sta[p]['locs'][1].items()]).reshape(-1, 4)    # type: ignore
+        locs_1_ori = np.concatenate([locs_1[:, :2], cv2.perspectiveTransform(locs_1[:, 2:].reshape(-1, 1, 2), homo_inv).reshape(-1, 2)], axis=1)
+        texts_1 = [f'{k} (0)' for k in sta[p]['locs'][0]]
+        texts_2 = [f'{k} (1)' for k in sta[p]['locs'][1]]
+        fim_1 = plot_loc(fim_1, locs_1_ori)
+        fim_2 = plot_loc(fim_2, locs_2)
+        black = plot_loc(black, locs_1, texts=texts_1)
+        black = plot_loc(black, locs_2, texts=texts_2)
+
+        for k, v in sta[p]['matches'].items():
+            if k == 'TP':
+                color = (0, 255, 0)
+            elif k == 'FP':
+                color = (0, 0, 255)
+            else:
+                color = (11, 185, 255)
+            for id_1, id_2 in v:
+                cv2.line(
+                    black,
+                    np.int32(sta[p]['locs'][0][id_1]),
+                    np.int32(sta[p]['locs'][1][id_2]),
+                    color=color,
+                    thickness=3
+                )
+
+        fim_1 = cv2.resize(fim_1, (W, H))
+        collage = np.concatenate(
+            [
+                np.concatenate([fim_1, fim_2], axis=1),
+                np.concatenate([black, np.zeros_like(black)], axis=1)
+            ],
+            axis=0
+        )
+
+        if writer_created:
+            writer.write(collage)   # type: ignore
+
+        fid_1 += 1
+        fid_2 += 1
+        p += 1
+
+        if p == len(sta):
+            break
+    
+    if writer_created:
+        writer.release()    # type: ignore
+
+
+        
 
 
 
@@ -130,15 +376,22 @@ if __name__ == '__main__':
     ]
     
 
-    video_set = '2d_v3'
+    video_set = '2d_v4'
     tracker_name = 'YOLOv8l_pretrained-640-ByteTrack'
-    config_pred_option = 0
+    config_pred_option = 3
 
     
     video_set_dir = VIDEO_SET[video_set]['video_set_dir']
     cam1_id = VIDEO_SET[video_set]['cam_id1']
     cam2_id = VIDEO_SET[video_set]['cam_id2']
     range_ = VIDEO_SET[video_set]['range_']
+
+    true_mct_gtgt_path = str(Path(video_set_dir) / 'true_mct_gtgt.txt')
+    config_true_path = str(Path(video_set_dir) / tracker_name / 'config_pseudotrue_sct_gttracker.yaml')
+    config_pred_path = str(Path(video_set_dir) / tracker_name / f'config_pred_mct_trackertracker_{config_pred_option}.yaml')
+    out_eval_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_eval.txt')
+
+    paths = []
 
     for video_id in tqdm(range_):
 
@@ -165,10 +418,7 @@ if __name__ == '__main__':
         roi_path = str(Path(video_set_dir) / f'roi_{cam2_id}.txt')
         matches_path = str(Path(video_set_dir) / f'matches_{cam1_id}_to_{cam2_id}.txt')
 
-        true_mct_gtgt_path = str(Path(video_set_dir) / 'true_mct_gtgt.txt')
         
-        config_true_path = str(Path(video_set_dir) / tracker_name / 'config_pseudotrue_sct_gttracker.yaml')
-        config_pred_path = str(Path(video_set_dir) / tracker_name / f'config_pred_mct_trackertracker_{config_pred_option}.yaml')
         ###############################################
 
         ################# make ground truth ##################
@@ -248,6 +498,27 @@ if __name__ == '__main__':
             'out_sta_vid': None
         })
 
+        # find TP, FP, FN
+        out_validate_pred_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.txt')
+        validate_pred_mct_trackertracker(
+            out_pseudotrue_mct_trackertracker_path,
+            out_pred_mct_trackertracker_path,
+            out_validate_pred_mct_trackertracker_path
+        )
 
+        # export video
+        out_video_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.avi')
+        # visualize_sta_result(
+        #     vid1_path,
+        #     vid2_path,
+        #     tracker_txt1_path,
+        #     tracker_txt2_path,
+        #     out_validate_pred_mct_trackertracker_path,
+        #     roi_path,
+        #     matches_path,
+        #     out_video_path
+        # )
 
-        ###############################################
+        paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
+
+    prf(paths, out_path=out_eval_path)

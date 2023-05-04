@@ -15,7 +15,7 @@ CAMERA_FRAME_HEIGHT: null
 CAMERA_FPS: null
 
 # SCT pipeline
-DETECTION_MODE: 'box'   # 'box', 'pose'
+DETECTION_MODE: 'box'   # 'box', 'pose'         # tune
 TRACKING_MODE: 'bytetrack'
 SCT_TXT_SLEEP: 0
 
@@ -25,15 +25,15 @@ TIME_DIFF_THRESH: 0.1    # null
 
 # STA pipeline
 STA_PSEUDO_SAME_CAMERA: false
-LOC_INFER_MODE: 1   # 1, 2
-FP_FILTER: null   # null, 'gmm', 'iqr'
+LOC_INFER_MODE: 1   # 1, 2                      # tune
+FP_FILTER: 'iqr'   # null, 'gmm', 'iqr'         # tune
 MIN_SAMPLE_SIZE_TO_FP_FILTER: 15
-FP_GMM_N_COMPONENTS: 2
-FP_GMM_STD_COEF: 3
-FP_IQR_LOWER: 30
-FP_IQR_UPPER: 70
-DIST_WINDOW_SIZE: 1
-DIST_WINDOW_BOUNDARY: 0
+FP_GMM_N_COMPONENTS: 2                          # tune
+FP_GMM_STD_COEF: 3                              # tune
+FP_IQR_LOWER: 25                                # tune
+FP_IQR_UPPER: 75                                # tune
+DIST_WINDOW_SIZE: 1                             # tune
+DIST_WINDOW_BOUNDARY: 0                         # tune
 
 # Scene
 ROI_TEST_OFFSET: -5
