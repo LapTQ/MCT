@@ -33,7 +33,7 @@ def calc_loc(X, loc_infer_mode: int, mid: Union[tuple[Union[float, int]], None] 
 
     # TODO
     if loc_infer_mode == 1:     # box, midpoint of box's bottom edge
-        X[:, 2] += X[:, 4] / 2
+        X[:, 2] += X[:, 4] / 2  # type: ignore
         X[:, 3] += X[:, 5]
         return X[:, 2:4]
     
@@ -63,9 +63,43 @@ def calc_loc(X, loc_infer_mode: int, mid: Union[tuple[Union[float, int]], None] 
             if 0 <= a <= 1 and xyxy[1] <= y <= xyxy[3]:
                 ret[i] = xyxy[[0, 3]]
         return ret
-    
+
+    elif loc_infer_mode == 3:   # pose
+
+        ret = np.empty(shape=(len(X), 2), dtype='float32')
+        boxes, kpts = X[:, 2:6], X[:, 10:61]
+        for j, (box, kpt) in enumerate(zip(boxes, kpts)):
+            locs = [kpt[i*3: i*3 + 2] for i in range(17)]
+            conf = kpt[[2 + 3*i for i in range(17)]]
+            f = [None, None]
+            i = [[15, 13, 11, 5], [16, 14, 12, 6]]
+            for c in range(2):
+                if conf[i[c][0]] >= 0.5:
+                    if conf[i[c][1]] >= 0.5:
+                        f[c] = locs[i[c][0]] + 1/6 * (locs[i[c][0]] - locs[i[c][1]])
+                    elif conf[i[c][2]] >= 0.5:
+                        f[c] = locs[i[c][0]] + 1/10 * (locs[i[c][0]] - locs[i[c][2]])
+                    else:
+                        f[c] = locs[i[c][0]]
+                elif conf[i[c][1]] >= 0.5:
+                    if conf[i[c][3]] >= 0.5:
+                        f[c] = locs[i[c][1]] + 6/11 * (locs[i[c][1]] - locs[i[c][3]])
+                    elif conf[i[c][2]] >= 0.5:
+                        f[c] = locs[i[c][1]] + (locs[i[c][1]] - locs[i[c][2]])
+                elif conf[i[c][2]] >= 0.5:
+                    if conf[i[c][3]] >= 0.5:
+                        f[c] = locs[i[c][2]] + (locs[i[c][2]] - locs[i[c][3]])
+
+            bx1, by1, bw, bh = box
+            if f[0] is not None and f[1] is not None:
+                ret[j] = (f[0] + f[1]) / 2
+            elif f[0] is None and f[1] is None:
+                ret[j] = (bx1 + bw/2, by1 + bh)
+            else:
+                x, y = f[0] if f[0] is not None else f[1]       # type: ignore
+                ret[j] = (x + bx1 + bw/2) / 2, y
+            
+        return ret
+        
     raise NotImplementedError()
 
-
-if __name__ == '__main__':
-    print(load_homo(''))

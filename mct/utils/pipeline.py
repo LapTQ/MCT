@@ -93,7 +93,7 @@ class Config:
         assert self.config.get('TRACKING_MODE') in ['bytetrack']
         
         # STA pipeline
-        assert self.config.get('LOC_INFER_MODE') in [1, 2]
+        assert self.config.get('LOC_INFER_MODE') in [1, 2, 3]
         assert self.config.get('FP_FILTER') in [None, 'gmm', 'iqr']
         assert self.config.get('MIN_SAMPLE_SIZE_TO_FP_FILTER') >= 1
         assert self.config.get('MIN_TIME_CORRESPONDENCES') >= 1

@@ -378,7 +378,7 @@ if __name__ == '__main__':
 
     video_set = '2d_v4'
     tracker_name = 'YOLOv8l_pretrained-640-ByteTrack'
-    config_pred_option = 3
+    config_pred_option = 9
 
     
     video_set_dir = VIDEO_SET[video_set]['video_set_dir']
