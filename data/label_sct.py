@@ -288,17 +288,18 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
         n_frames = min(n_frames, int(cap2.get(cv2.CAP_PROP_FRAME_COUNT)))
     for frame_count in tqdm(range(n_frames)):
         dets = det_seq[det_seq[:, 0] == frame_count]
-        dets[:, 4:6] += dets[:, 2:4]
         success, frame = cap.read()
+        n_uniques_1 = np.unique(det_seq[:, 1])
         if 'vid_path2' not in kwargs:
             vis_img = plot_box(frame, dets)
+            cv2.putText(vis_img, str(n_uniques_1), (800, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), thickness=3)
             show_img = vis_img
         else:
             vid_id = int(filename.split('_')[1])
 
             dets2 = det_seq2[det_seq2[:, 0] == frame_count]
-            dets2[:, 4:6] += dets2[:, 2:4]
             success2, frame2 = cap2.read()
+            n_uniques_2 = np.unique(det_seq2[:, 1])
 
             if 'correspondence' in kwargs:
                 correspondence = kwargs['correspondence'][kwargs['correspondence'][:, 1] == vid_id]
@@ -307,7 +308,9 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
                     dets2[dets2[:, 1] == id2, 1] = 100 - id1
 
             vis_img = plot_box(frame, dets)
+            cv2.putText(vis_img, str(n_uniques_1), (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255))
             vis_img2 = plot_box(frame2, dets2)
+            cv2.putText(vis_img2, str(n_uniques_2), (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255))
             show_img = np.concatenate([vis_img, vis_img2], axis=1)
 
         if kwargs.get('save_video', False):
@@ -316,7 +319,7 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
         if kwargs.get('display', False):
             cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
             cv2.imshow(filename, show_img)
-            key = cv2.waitKey(20)
+            key = cv2.waitKey(2)
             if key == 27:
                 break
             elif key == ord('e'):
@@ -371,17 +374,20 @@ if __name__ == '__main__':
     ROOT_DIR = os.path.join(HERE, 'recordings/2d_v4')
     VID_DIR = os.path.join(HERE, 'recordings/2d_v4/videos')
     TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct')
-    GT_DIR = os.path.join(HERE, 'recordings/2d_v4/gt')
+    GT_DIR = os.path.join(HERE, 'recordings/2d_v4/gt_pose')
 
-    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('42_*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(GT_DIR).glob('42_*.txt')])
+    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('43_*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    txt_list1 = sorted([str(path) for path in Path(GT_DIR).glob('43_*.txt')])
     vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('43_*.avi')])
     txt_list2 = sorted([str(path) for path in Path(GT_DIR).glob('43_*.txt')])
     #
     # correspondence = np.loadtxt(f'{ROOT_DIR}/pred_mct_gtgt_correspondences.txt', delimiter=',', dtype=int)   # pred_mct_gtgt_correspondences.txt true_mct_gtgt_correspondences.txt
     #
-    for vid_path1, txt_path1, vid_path2, txt_path2 in zip(vid_list1, txt_list1, vid_list2, txt_list2):
-        visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True, vid_path2=vid_path2, txt_path2=txt_path2) # , correspondence=correspondence
+    # for vid_path1, txt_path1, vid_path2, txt_path2 in zip(vid_list1, txt_list1, vid_list2, txt_list2):
+    #     visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True, vid_path2=vid_path2, txt_path2=txt_path2) # , correspondence=correspondence
+
+    for vid_path1, txt_path1 in zip(vid_list1, txt_list1):
+        visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True) # , correspondence=correspondence
 
     # for vid_id in range(19, 25):
     #     vid_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/videos').glob(f'21_000{vid_id}*.avi'))[0])
