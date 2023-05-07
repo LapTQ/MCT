@@ -113,11 +113,11 @@ _ = model.float().eval()
 if torch.cuda.is_available():
     model.half().to(device)
 
-for path in tqdm((HERE / 'laptq_in').glob('*')):
+for path in ['/home/tran/Pictures/Screenshot from 41_00009_2023-04-13_08-30-00-000000.avi - 1.png']: #tqdm((HERE / 'laptq_in').glob('*')):
 
     path = str(path)
     image = cv2.imread(path)
-    image = letterbox(image, 960, stride=64, auto=True)[0]
+    image = letterbox(image, 640, stride=64, auto=True)[0]
     image_ = image.copy()
     image = transforms.ToTensor()(image)
     image = torch.tensor(np.array([image.numpy()]))
@@ -125,7 +125,7 @@ for path in tqdm((HERE / 'laptq_in').glob('*')):
         image = image.half().to(device)
     with torch.no_grad():
         output, _ = model(image)  # shape [1, 34425, 57]
-        output = non_max_suppression_kpt(output, 0.25, 0.65, nc=model.yaml['nc'], nkpt=model.yaml['nkpt'], kpt_label=True)
+        output = non_max_suppression_kpt(output, 0.25, 0.45, nc=model.yaml['nc'], nkpt=model.yaml['nkpt'], kpt_label=True)
         
         output = output_to_keypoint(output)
 

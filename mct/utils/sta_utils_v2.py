@@ -250,6 +250,8 @@ def visualize_sta_result(
     p = 0
     while True:
 
+        print(fid_1, fid_2, p)
+
         if fid_1 > sta[p]['frame_id_1'] or fid_2 > sta[p]['frame_id_2']:
             p += 1
             continue
@@ -289,7 +291,7 @@ def visualize_sta_result(
         fim_1 = plot_box(fim_1, dets_1)
         fim_2 = plot_box(fim_2, dets_2)
 
-        if dets_1.shape[0] == 61:
+        if dets_1.shape[1] == 61:
             kpts_1 = dets_1[:, 10:]
             kpts_2 = dets_2[:, 10:]
 
@@ -300,7 +302,10 @@ def visualize_sta_result(
         
         locs_1 = np.array([[-1, k, x, y] for k, (x, y) in sta[p]['locs'][0].items()]).reshape(-1, 4)    # type: ignore
         locs_2 = np.array([[-1, k, x, y] for k, (x, y) in sta[p]['locs'][1].items()]).reshape(-1, 4)    # type: ignore
-        locs_1_ori = np.concatenate([locs_1[:, :2], cv2.perspectiveTransform(locs_1[:, 2:].reshape(-1, 1, 2), homo_inv).reshape(-1, 2)], axis=1)
+        if len(locs_1) == 0:
+            locs_1_ori = locs_1
+        else:
+            locs_1_ori = np.concatenate([locs_1[:, :2], cv2.perspectiveTransform(locs_1[:, 2:].reshape(-1, 1, 2), homo_inv).reshape(-1, 2)], axis=1)
         texts_1 = [f'{k} (0)' for k in sta[p]['locs'][0]]
         texts_2 = [f'{k} (1)' for k in sta[p]['locs'][1]]
         fim_1 = plot_loc(fim_1, locs_1_ori)
@@ -377,8 +382,8 @@ if __name__ == '__main__':
     
 
     video_set = '2d_v4'
-    tracker_name = 'YOLOv8l_pretrained-640-ByteTrack'
-    config_pred_option = 9
+    tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack'
+    config_pred_option = 0
 
     
     video_set_dir = VIDEO_SET[video_set]['video_set_dir']
@@ -386,7 +391,7 @@ if __name__ == '__main__':
     cam2_id = VIDEO_SET[video_set]['cam_id2']
     range_ = VIDEO_SET[video_set]['range_']
 
-    true_mct_gtgt_path = str(Path(video_set_dir) / 'true_mct_gtgt.txt')
+    true_mct_gtgt_path = str(Path(video_set_dir) / ('true_mct_gtgt.txt' if 'pose' not in tracker_name else 'true_mct_gtgt_pose.txt'))
     config_true_path = str(Path(video_set_dir) / tracker_name / 'config_pseudotrue_sct_gttracker.yaml')
     config_pred_path = str(Path(video_set_dir) / tracker_name / f'config_pred_mct_trackertracker_{config_pred_option}.yaml')
     out_eval_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_eval.txt')
@@ -407,8 +412,8 @@ if __name__ == '__main__':
         vid2_name = os.path.split(vid2_path)[1]
         vid2_basename = os.path.splitext(vid2_name)[0]
         
-        gt_txt1_path = str(Path(video_set_dir) / 'gt' / (vid1_basename + '.txt'))
-        gt_txt2_path = str(Path(video_set_dir) / 'gt' / (vid2_basename + '.txt'))
+        gt_txt1_path = str(Path(video_set_dir) / ('gt' if 'pose' not in tracker_name else 'gt_pose') / (vid1_basename + '.txt'))
+        gt_txt2_path = str(Path(video_set_dir) / ('gt' if 'pose' not in tracker_name else 'gt_pose') / (vid2_basename + '.txt'))
         tracker_txt1_path = str(Path(video_set_dir) / tracker_name / 'sct' / (vid1_basename + '.txt'))
         tracker_txt2_path = str(Path(video_set_dir) / tracker_name / 'sct' / (vid2_basename + '.txt'))
 
@@ -508,17 +513,19 @@ if __name__ == '__main__':
 
         # export video
         out_video_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.avi')
-        # visualize_sta_result(
-        #     vid1_path,
-        #     vid2_path,
-        #     tracker_txt1_path,
-        #     tracker_txt2_path,
-        #     out_validate_pred_mct_trackertracker_path,
-        #     roi_path,
-        #     matches_path,
-        #     out_video_path
-        # )
+        visualize_sta_result(
+            vid1_path,
+            vid2_path,
+            tracker_txt1_path,
+            tracker_txt2_path,
+            out_validate_pred_mct_trackertracker_path,
+            roi_path,
+            matches_path,
+            out_video_path
+        )
 
         paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
+
+        break
 
     prf(paths, out_path=out_eval_path)

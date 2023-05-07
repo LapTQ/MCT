@@ -25,6 +25,8 @@ TIME_DIFF_THRESH: 0.1    # null
 
 # STA pipeline
 STA_PSEUDO_SAME_CAMERA: false
+STA_PSEUDO_IN_ROI_ACCORD_CAM1: false             # true if the gt is created by just correcting for only the association, and not the detection, of SCT
+STA_PSEUDO_IN_ROI_LOC_INFER_MODE_CAM1: 3
 LOC_INFER_MODE: 3   # 1, 2, 3
 FP_FILTER: null   # null, 'gmm', 'iqr'
 MIN_SAMPLE_SIZE_TO_FP_FILTER: 15

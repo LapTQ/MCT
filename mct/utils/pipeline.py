@@ -698,7 +698,18 @@ class STA(Pipeline):
                     locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'), (scene.width / 2, scene.height))   # type: ignore
                     
                     # filter in ROI
-                    in_roi_idxs = scene.is_in_roi(locs)
+                    if self.config.get('STA_PSEUDO_SAME_CAMERA') and self.config.get('STA_PSEUDO_IN_ROI_ACCORD_CAM1'):
+                        if c == 0:
+                            dets_1 = adict['sct_output'][1][t]
+                            in_roi_idxs_1 = self.scenes[1].is_in_roi(calc_loc(dets_1, self.config.get('STA_PSEUDO_IN_ROI_LOC_INFER_MODE_CAM1'), (self.scenes[1].width / 2, self.scenes[1].height)))   # type: ignore
+                            dets_1 = dets_1[in_roi_idxs_1]
+                            # assumming dets = [[_, _, x1(cx,...), y1(cy,...), w(x2,...), h(y2,...), ...], ...]
+                            in_roi_idxs = np.where(np.all(abs(np.subtract(dets[:, 2:6].reshape(-1, 1, 4), dets_1[:, 2:6].reshape(1, -1, 4))) < 1, axis=-1))[0]
+                        else:
+                            in_roi_idxs = scene.is_in_roi(calc_loc(dets, self.config.get('STA_PSEUDO_IN_ROI_LOC_INFER_MODE_CAM1'), (scene.width / 2, scene.height)))        # type: ignore
+                    else:
+                        in_roi_idxs = scene.is_in_roi(locs)
+                    
                     dets_in_roi = dets[in_roi_idxs]
                     locs_in_roi = locs[in_roi_idxs]
                     if (c == 0 and (not self.config.get('STA_PSEUDO_SAME_CAMERA') or self.homo is not None)) \
