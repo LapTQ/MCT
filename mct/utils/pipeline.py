@@ -699,6 +699,7 @@ class STA(Pipeline):
                     
                     # filter in ROI
                     if self.config.get('STA_PSEUDO_SAME_CAMERA') and self.config.get('STA_PSEUDO_IN_ROI_ACCORD_CAM1'):
+                        # handle for pseudo true mapping between gt box vs tracker pose, because differen detection mode might give different in-roi result
                         if c == 0:
                             dets_1 = adict['sct_output'][1][t]
                             in_roi_idxs_1 = self.scenes[1].is_in_roi(calc_loc(dets_1, self.config.get('STA_PSEUDO_IN_ROI_LOC_INFER_MODE_CAM1'), (self.scenes[1].width / 2, self.scenes[1].height)))   # type: ignore

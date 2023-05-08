@@ -250,8 +250,6 @@ def visualize_sta_result(
     p = 0
     while True:
 
-        print(fid_1, fid_2, p)
-
         if fid_1 > sta[p]['frame_id_1'] or fid_2 > sta[p]['frame_id_2']:
             p += 1
             continue
@@ -279,67 +277,69 @@ def visualize_sta_result(
             )
             writer_created = True
 
-        black = np.zeros_like(fim_2)
+        if 1662 <= p <= 1895 or 2937 <= p <= 3095:
         
-        fim_1 = plot_roi(fim_1, roi_1)
-        fim_2 = plot_roi(fim_2, roi_2)
-        black = plot_roi(black, roi_2)
+            black = np.zeros_like(fim_2)
+            
+            fim_1 = plot_roi(fim_1, roi_1)
+            fim_2 = plot_roi(fim_2, roi_2)
+            black = plot_roi(black, roi_2)
 
-        dets_1 = sct_1[sct_1[:, 0] == fid_1]
-        dets_2 = sct_2[sct_2[:, 0] == fid_2]
+            dets_1 = sct_1[sct_1[:, 0] == fid_1]
+            dets_2 = sct_2[sct_2[:, 0] == fid_2]
 
-        fim_1 = plot_box(fim_1, dets_1)
-        fim_2 = plot_box(fim_2, dets_2)
+            fim_1 = plot_box(fim_1, dets_1)
+            fim_2 = plot_box(fim_2, dets_2)
 
-        if dets_1.shape[1] == 61:
-            kpts_1 = dets_1[:, 10:]
-            kpts_2 = dets_2[:, 10:]
+            if dets_1.shape[1] == 61:
+                kpts_1 = dets_1[:, 10:]
+                kpts_2 = dets_2[:, 10:]
 
-            for kpt in kpts_1:
-                fim_1 = plot_skeleton_kpts(fim_1, kpt.T, 3)
-            for kpt in kpts_2:
-                fim_2 = plot_skeleton_kpts(fim_2, kpt.T, 3)
-        
-        locs_1 = np.array([[-1, k, x, y] for k, (x, y) in sta[p]['locs'][0].items()]).reshape(-1, 4)    # type: ignore
-        locs_2 = np.array([[-1, k, x, y] for k, (x, y) in sta[p]['locs'][1].items()]).reshape(-1, 4)    # type: ignore
-        if len(locs_1) == 0:
-            locs_1_ori = locs_1
-        else:
-            locs_1_ori = np.concatenate([locs_1[:, :2], cv2.perspectiveTransform(locs_1[:, 2:].reshape(-1, 1, 2), homo_inv).reshape(-1, 2)], axis=1)
-        texts_1 = [f'{k} (0)' for k in sta[p]['locs'][0]]
-        texts_2 = [f'{k} (1)' for k in sta[p]['locs'][1]]
-        fim_1 = plot_loc(fim_1, locs_1_ori)
-        fim_2 = plot_loc(fim_2, locs_2)
-        black = plot_loc(black, locs_1, texts=texts_1)
-        black = plot_loc(black, locs_2, texts=texts_2)
-
-        for k, v in sta[p]['matches'].items():
-            if k == 'TP':
-                color = (0, 255, 0)
-            elif k == 'FP':
-                color = (0, 0, 255)
+                for kpt in kpts_1:
+                    fim_1 = plot_skeleton_kpts(fim_1, kpt.T, 3)
+                for kpt in kpts_2:
+                    fim_2 = plot_skeleton_kpts(fim_2, kpt.T, 3)
+            
+            locs_1 = np.array([[-1, k, x, y] for k, (x, y) in sta[p]['locs'][0].items()]).reshape(-1, 4)    # type: ignore
+            locs_2 = np.array([[-1, k, x, y] for k, (x, y) in sta[p]['locs'][1].items()]).reshape(-1, 4)    # type: ignore
+            if len(locs_1) == 0:
+                locs_1_ori = locs_1
             else:
-                color = (11, 185, 255)
-            for id_1, id_2 in v:
-                cv2.line(
-                    black,
-                    np.int32(sta[p]['locs'][0][id_1]),
-                    np.int32(sta[p]['locs'][1][id_2]),
-                    color=color,
-                    thickness=3
-                )
+                locs_1_ori = np.concatenate([locs_1[:, :2], cv2.perspectiveTransform(locs_1[:, 2:].reshape(-1, 1, 2), homo_inv).reshape(-1, 2)], axis=1)
+            texts_1 = [f'{k} (0)' for k in sta[p]['locs'][0]]
+            texts_2 = [f'{k} (1)' for k in sta[p]['locs'][1]]
+            fim_1 = plot_loc(fim_1, locs_1_ori)
+            fim_2 = plot_loc(fim_2, locs_2)
+            black = plot_loc(black, locs_1, texts=texts_1)
+            black = plot_loc(black, locs_2, texts=texts_2)
 
-        fim_1 = cv2.resize(fim_1, (W, H))
-        collage = np.concatenate(
-            [
-                np.concatenate([fim_1, fim_2], axis=1),
-                np.concatenate([black, np.zeros_like(black)], axis=1)
-            ],
-            axis=0
-        )
+            for k, v in sta[p]['matches'].items():
+                if k == 'TP':
+                    color = (0, 255, 0)
+                elif k == 'FP':
+                    color = (0, 0, 255)
+                else:
+                    color = (11, 185, 255)
+                for id_1, id_2 in v:
+                    cv2.line(
+                        black,
+                        np.int32(sta[p]['locs'][0][id_1]),
+                        np.int32(sta[p]['locs'][1][id_2]),
+                        color=color,
+                        thickness=3
+                    )
 
-        if writer_created:
-            writer.write(collage)   # type: ignore
+            fim_1 = cv2.resize(fim_1, (W, H))
+            collage = np.concatenate(
+                [
+                    np.concatenate([fim_1, fim_2], axis=1),
+                    np.concatenate([np.zeros_like(black), black], axis=1)
+                ],
+                axis=0
+            )
+
+            if writer_created:
+                writer.write(collage)   # type: ignore
 
         fid_1 += 1
         fid_2 += 1
@@ -383,7 +383,7 @@ if __name__ == '__main__':
 
     video_set = '2d_v4'
     tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack'
-    config_pred_option = 0
+    config_pred_option = 6
 
     
     video_set_dir = VIDEO_SET[video_set]['video_set_dir']
@@ -513,19 +513,17 @@ if __name__ == '__main__':
 
         # export video
         out_video_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.avi')
-        visualize_sta_result(
-            vid1_path,
-            vid2_path,
-            tracker_txt1_path,
-            tracker_txt2_path,
-            out_validate_pred_mct_trackertracker_path,
-            roi_path,
-            matches_path,
-            out_video_path
-        )
+        # visualize_sta_result(
+        #     vid1_path,
+        #     vid2_path,
+        #     tracker_txt1_path,
+        #     tracker_txt2_path,
+        #     out_validate_pred_mct_trackertracker_path,
+        #     roi_path,
+        #     matches_path,
+        #     out_video_path
+        # )
 
         paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
-
-        break
 
     prf(paths, out_path=out_eval_path)

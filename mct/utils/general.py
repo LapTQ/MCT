@@ -75,15 +75,15 @@ def calc_loc(X, loc_infer_mode: int, mid: Union[tuple[Union[float, int]], None] 
             i = [[15, 13, 11, 5], [16, 14, 12, 6]]
             for c in range(2):
                 if conf[i[c][0]] >= 0.5:
-                    if conf[i[c][1]] >= 0.5:
-                        f[c] = locs[i[c][0]] + 1/6 * (locs[i[c][0]] - locs[i[c][1]])
-                    elif conf[i[c][2]] >= 0.5:
-                        f[c] = locs[i[c][0]] + 1/10 * (locs[i[c][0]] - locs[i[c][2]])
+                    if conf[i[c][2]] >= 0.5:
+                        f[c] = locs[i[c][0]] + 1/8 * (locs[i[c][0]] - locs[i[c][2]])
+                    elif conf[i[c][1]] >= 0.5:
+                        f[c] = locs[i[c][0]] + 1/5 * (locs[i[c][0]] - locs[i[c][1]])
                     else:
                         f[c] = locs[i[c][0]]
                 elif conf[i[c][1]] >= 0.5:
                     if conf[i[c][3]] >= 0.5:
-                        f[c] = locs[i[c][1]] + 6/11 * (locs[i[c][1]] - locs[i[c][3]])
+                        f[c] = locs[i[c][1]] + 6/9 * (locs[i[c][1]] - locs[i[c][3]])
                     elif conf[i[c][2]] >= 0.5:
                         f[c] = locs[i[c][1]] + (locs[i[c][1]] - locs[i[c][2]])
                 elif conf[i[c][2]] >= 0.5:

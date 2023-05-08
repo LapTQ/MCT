@@ -15,7 +15,7 @@ CAMERA_FRAME_HEIGHT: null
 CAMERA_FPS: null
 
 # SCT pipeline
-DETECTION_MODE: 'box'   # 'box', 'pose'         # tune
+DETECTION_MODE: 'pose'   # 'box', 'pose'         # tune
 TRACKING_MODE: 'bytetrack'
 SCT_TXT_SLEEP: 0
 
@@ -38,7 +38,7 @@ DIST_WINDOW_SIZE: 15                             # tune
 DIST_WINDOW_BOUNDARY: 10                         # tune
 
 # Scene
-ROI_TEST_OFFSET: -5
+ROI_TEST_OFFSET: 0
 
 # Visualizer
 VIS_SCT_BOX_THICKNESS: 2
