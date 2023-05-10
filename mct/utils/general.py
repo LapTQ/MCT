@@ -71,32 +71,36 @@ def calc_loc(X, loc_infer_mode: int, mid: Union[tuple[Union[float, int]], None] 
         for j, (box, kpt) in enumerate(zip(boxes, kpts)):
             locs = [kpt[i*3: i*3 + 2] for i in range(17)]
             conf = kpt[[2 + 3*i for i in range(17)]]
-            f = [None, None]
+            f = [[], []]
             i = [[15, 13, 11, 5], [16, 14, 12, 6]]
             for c in range(2):
                 if conf[i[c][0]] >= 0.5:
                     if conf[i[c][2]] >= 0.5:
-                        f[c] = locs[i[c][0]] + 1/8 * (locs[i[c][0]] - locs[i[c][2]])
-                    elif conf[i[c][1]] >= 0.5:
-                        f[c] = locs[i[c][0]] + 1/5 * (locs[i[c][0]] - locs[i[c][1]])
-                    else:
-                        f[c] = locs[i[c][0]]
-                elif conf[i[c][1]] >= 0.5:
+                        f[c].append(locs[i[c][0]] + 1/8.5 * (locs[i[c][0]] - locs[i[c][2]]))
+                    if conf[i[c][1]] >= 0.5:
+                        f[c].append(locs[i[c][0]] + 1/4.5 * (locs[i[c][0]] - locs[i[c][1]]))
+                if conf[i[c][1]] >= 0.5:
+                    if conf[i[c][2]] >= 0.5:
+                        f[c].append(locs[i[c][1]] + 5/4.7 * (locs[i[c][1]] - locs[i[c][2]]))
                     if conf[i[c][3]] >= 0.5:
-                        f[c] = locs[i[c][1]] + 6/9 * (locs[i[c][1]] - locs[i[c][3]])
-                    elif conf[i[c][2]] >= 0.5:
-                        f[c] = locs[i[c][1]] + (locs[i[c][1]] - locs[i[c][2]])
-                elif conf[i[c][2]] >= 0.5:
+                        f[c].append(locs[i[c][1]] + 2/4.8 * (locs[i[c][1]] - locs[i[c][3]]))
+                if conf[i[c][2]] >= 0.5:
                     if conf[i[c][3]] >= 0.5:
-                        f[c] = locs[i[c][2]] + (locs[i[c][2]] - locs[i[c][3]])
+                        f[c].append(locs[i[c][2]] + 4/3 * (locs[i[c][2]] - locs[i[c][3]]))
+                
+                if len(f[c]) == 0 and conf[i[c][0]] >= 0.5:
+                    f[c].append(locs[i[c][0]])
 
             bx1, by1, bw, bh = box
-            if f[0] is not None and f[1] is not None:
+            if len(f[0]) > 0  and len(f[1]) > 0:
+                f[0] = np.mean(f[0], axis=0)
+                f[1] = np.mean(f[1], axis=0)
                 ret[j] = (f[0] + f[1]) / 2
-            elif f[0] is None and f[1] is None:
+            elif len(f[0]) == len(f[1]) == 0:
                 ret[j] = (bx1 + bw/2, by1 + bh)
             else:
-                x, y = f[0] if f[0] is not None else f[1]       # type: ignore
+                xy = f[0] if len(f[0]) > 0 else f[1]
+                x, y = np.mean(xy, axis=0)
                 ret[j] = (x + bx1 + bw/2) / 2, y
             
         return ret
