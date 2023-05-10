@@ -29,6 +29,7 @@ STA_PSEUDO_IN_ROI_ACCORD_CAM1: false             # true if the gt is created by 
 STA_PSEUDO_IN_ROI_LOC_INFER_MODE_CAM1: 3
 LOC_INFER_MODE: 3   # 1, 2, 3
 FP_FILTER: null   # null, 'gmm', 'iqr'
+FP_REMAP: false                                 # tune
 MIN_SAMPLE_SIZE_TO_FP_FILTER: 15
 FP_GMM_N_COMPONENTS: 2
 FP_GMM_STD_COEF: 3

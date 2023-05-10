@@ -95,6 +95,7 @@ class Config:
         # STA pipeline
         assert self.config.get('LOC_INFER_MODE') in [1, 2, 3]
         assert self.config.get('FP_FILTER') in [None, 'gmm', 'iqr']
+        assert isinstance(self.config.get('FP_REMAP'), bool)
         assert self.config.get('MIN_SAMPLE_SIZE_TO_FP_FILTER') >= 1
         assert self.config.get('MIN_TIME_CORRESPONDENCES') >= 1
         assert isinstance(self.config.get('TIME_DIFF_THRESH'), (float, int)) or self.config.get('TIME_DIFF_THRESH') is None
@@ -728,54 +729,67 @@ class STA(Pipeline):
                     self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets[:, 1]), locs.tolist())})                     # type: ignore
                     self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi.tolist())})       # type: ignore
 
-            matches = []
+            # START FROM HERE
+
+            blacklist = {t: [] for t in range(T)}
             logging.info(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.config.get('DIST_WINDOW_SIZE')}, WINDOW_BOUNDARY={self.config.get('DIST_WINDOW_BOUNDARY')}")
-            for t in range(T):
+            for iter_n in range(2 if self.config.get('FP_FILTER') and self.config.get('FP_REMAP') else 1):
+                matches = []
+                for t in range(T):
+                    
+                    h1_ids = adict['in_roi'][0][t][:, 1]
+                    h2_ids = adict['in_roi'][1][t][:, 1]
+
+                    cost = np.empty((len(h1_ids), len(h2_ids)), dtype='float32')
+                    gate = np.ones((len(h1_ids), len(h2_ids)), dtype='int32')
+                    for i1, c1_id in enumerate(h1_ids):
+                        for i2, c2_id in enumerate(h2_ids):
+                            c1_locs, c2_locs = self._retrieve_window_locations(
+                                c1_id, c2_id,
+                                t - T,
+                                self.config.get('DIST_WINDOW_SIZE'),
+                                self.config.get('DIST_WINDOW_BOUNDARY')
+                            )
+
+                            cost[i1, i2] = np.mean(
+                                np.sqrt(np.sum(
+                                    np.square(c1_locs - c2_locs),
+                                    axis=1,
+                                    keepdims=False
+                                ))
+                            )
+
+                            if (c1_id, c2_id) in blacklist[t]:
+                                gate[i1, i2] = 0                    
+                    
+                    mi1s, mi2s = hungarian(cost, gate=gate)
+                    if len(mi1s) > 0:
+                        logging.debug(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
+                    for i1, i2 in zip(mi1s, mi2s):
+                        h1 = h1_ids[i1]
+                        h2 = h2_ids[i2]
+                        dist = cost[i1, i2]
+                        matches.append([t, h1, h2, dist])
                 
-                h1_ids = adict['in_roi'][0][t][:, 1]
-                h2_ids = adict['in_roi'][1][t][:, 1]
-
-                cost = np.empty((len(h1_ids), len(h2_ids)), dtype='float32')
-                for i1, c1_id in enumerate(h1_ids):
-                    for i2, c2_id in enumerate(h2_ids):
-                        c1_locs, c2_locs = self._retrieve_window_locations(
-                            c1_id, c2_id,
-                            t - T,
-                            self.config.get('DIST_WINDOW_SIZE'),
-                            self.config.get('DIST_WINDOW_BOUNDARY')
-                        )
-
-                        cost[i1, i2] = np.mean(
-                            np.sqrt(np.sum(
-                                np.square(c1_locs - c2_locs),
-                                axis=1,
-                                keepdims=False
-                            ))
-                        )
+                matches = np.array(matches).reshape(-1, 4)
                 
-                mi1s, mi2s = hungarian(cost)
-                if len(mi1s) > 0:
-                    logging.debug(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
-                for i1, i2 in zip(mi1s, mi2s):
-                    h1 = h1_ids[i1]
-                    h2 = h2_ids[i2]
-                    dist = cost[i1, i2]
-                    matches.append([t, h1, h2, dist])
-            
-            matches = np.array(matches).reshape(-1, 4)
-            
-            # FP filter
-            d = self.distances + matches[:, 3].tolist()
-            if self.config.get('FP_FILTER') and len(d) >= self.config.get('MIN_SAMPLE_SIZE_TO_FP_FILTER'):
-                filter = self._create_fp_filter()
-                ub = filter(np.array(d).reshape(-1, 1))             # type: ignore
-                matches = matches[matches[:, 3] <= ub]
+                # FP filter
+                d = self.distances + matches[:, 3].tolist()
+                if self.config.get('FP_FILTER') and len(d) >= self.config.get('MIN_SAMPLE_SIZE_TO_FP_FILTER'):
+                    filter = self._create_fp_filter()
+                    ub = filter(np.array(d).reshape(-1, 1))             # type: ignore
+                    
+                    for t in range(T):
+                        sub = matches[np.int32(matches[:, 0]) == t]
+                        blacklist[t] = [(int(m[1]), int(m[2])) for m in sub[sub[:, 3] > ub]]
 
-                logging.info(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
+                    matches = matches[matches[:, 3] <= ub]                  
+                    
+                    logging.info(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
             
-            self.distances.extend(matches[:, 3].tolist())
+            self.distances.extend(matches[:, 3].tolist())       # type: ignore
 
-            for m in matches:
+            for m in matches:               # type: ignore
                 t = int(m[0].item())
                 self.history[t - T][4].append(np.int32(m[1:3]).tolist())    # correct only because t in [0, T-1]
 

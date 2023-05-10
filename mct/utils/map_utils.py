@@ -61,8 +61,8 @@ def map_mono(A, B, diff_thresh=None):
             M1[-1] = i1
             D[-1] = d
     
-    idx = np.array(D) <= diff_thresh
-    M1 = np.array(M1)[idx]
-    M2 = np.array(M2)[idx]
+    idx = np.array(D) <= diff_thresh        # type: ignore
+    M1 = np.array(M1)[idx]                  # type: ignore
+    M2 = np.array(M2)[idx]                  # type: ignore
 
     return M1, M2
