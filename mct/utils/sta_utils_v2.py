@@ -277,7 +277,7 @@ def visualize_sta_result(
             )
             writer_created = True
 
-        if 1018 <= p <= 1126 or 1538 <= p <= 1683 or 2475 <= p <= 2600:
+        if 1057 <= p <= 1156 or 1662 <= p <= 1895 or 2937 <= p <= 3095:
         
             black = np.zeros_like(fim_2)
             
@@ -363,7 +363,7 @@ if __name__ == '__main__':
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(19, 25)},
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'range_': range(1, 13)},
         #'2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': range(1, 13)},
-        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(10, 11)},
+        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(12, 13)},
     }
     for video_set in VIDEO_SET:
         VIDEO_SET[video_set]['video_set_dir'] = str(HERE / '../../data/recordings' / video_set)
@@ -382,8 +382,8 @@ if __name__ == '__main__':
     
 
     video_set = '2d_v4'
-    tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack'
-    for config_pred_option in [18]:
+    tracker_name = 'YOLOv8l_pretrained-640-ByteTrack'
+    for config_pred_option in [10]:
     
 
     
@@ -395,7 +395,7 @@ if __name__ == '__main__':
         true_mct_gtgt_path = str(Path(video_set_dir) / ('true_mct_gtgt.txt' if 'pose' not in tracker_name else 'true_mct_gtgt_pose.txt'))
         config_true_path = str(Path(video_set_dir) / tracker_name / 'config_pseudotrue_sct_gttracker.yaml')
         config_pred_path = str(Path(video_set_dir) / tracker_name / f'config_pred_mct_trackertracker_{config_pred_option}.yaml')
-        out_eval_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_eval.txt')
+        out_eval_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_eval_{cam1_id}_{cam2_id}.txt')
 
         paths = []
 
@@ -484,25 +484,25 @@ if __name__ == '__main__':
 
             # predict mct tracker-tracker
             out_pred_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}' / f'{cam1_id}_{cam2_id}_{video_id}.txt')
-            # main({
-            #     'config': config_pred_path,
+            main({
+                'config': config_pred_path,
             
-            #     'meta_1': meta1_path,
-            #     'meta_2': meta2_path,
-            #     'camera_1': vid1_path,
-            #     'camera_2': vid2_path,
+                'meta_1': meta1_path,
+                'meta_2': meta2_path,
+                'camera_1': vid1_path,
+                'camera_2': vid2_path,
                 
-            #     'sct_1': tracker_txt1_path,
-            #     'sct_2': tracker_txt2_path,
+                'sct_1': tracker_txt1_path,
+                'sct_2': tracker_txt2_path,
 
-            #     'roi': roi_path,
-            #     'matches': matches_path,
+                'roi': roi_path,
+                'matches': matches_path,
 
-            #     'out_sta_txt': out_pred_mct_trackertracker_path,
-            #     'out_sct_vid_1': None,
-            #     'out_sct_vid_2': None,
-            #     'out_sta_vid': None
-            # })
+                'out_sta_txt': out_pred_mct_trackertracker_path,
+                'out_sct_vid_1': None,
+                'out_sct_vid_2': None,
+                'out_sta_vid': None
+            })
 
             # find TP, FP, FN
             out_validate_pred_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.txt')
@@ -514,16 +514,16 @@ if __name__ == '__main__':
 
             # export video
             out_video_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.avi')
-            visualize_sta_result(
-                vid1_path,
-                vid2_path,
-                tracker_txt1_path,
-                tracker_txt2_path,
-                out_validate_pred_mct_trackertracker_path,
-                roi_path,
-                matches_path,
-                out_video_path
-            )
+            # visualize_sta_result(
+            #     vid1_path,
+            #     vid2_path,
+            #     tracker_txt1_path,
+            #     tracker_txt2_path,
+            #     out_validate_pred_mct_trackertracker_path,
+            #     roi_path,
+            #     matches_path,
+            #     out_video_path
+            # )
 
             paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
 

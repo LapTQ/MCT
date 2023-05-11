@@ -54,10 +54,13 @@ class IQRFilter(FilterBase):
         logging.debug(f'{self.name}:\t upper bound = {ub}')
 
         # filter out false matches due to missing detection boxes
+        # import matplotlib
         # import matplotlib.pyplot as plt
+        # matplotlib.use('agg')
+        # plt.figure()
         # plt.hist(x.flatten(), bins=42)
         # plt.plot([ub, ub], plt.ylim())
-        # plt.show()
+        # plt.savefig('img.png')
 
         return ub
     
@@ -100,9 +103,12 @@ class GMMFilter(FilterBase):
         logging.debug(f'{self.name}:\t upper bound = {ub}')
 
         # filter out false matches due to missing detection boxes
+        # import matplotlib
         # import matplotlib.pyplot as plt
-        # plt.hist(distances.flatten(), bins=42)
-        # plt.plot([upper_bound, upper_bound], plt.ylim())
-        # plt.show()
+        # matplotlib.use('agg')
+        # plt.figure()
+        # plt.hist(x.flatten(), bins=42)
+        # plt.plot([ub, ub], plt.ylim())
+        # plt.savefig('img.png')
 
         return ub

@@ -731,7 +731,7 @@ class STA(Pipeline):
 
             # START FROM HERE
 
-            blacklist = {t: [] for t in range(T)}
+            ub = 2e9
             logging.info(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.config.get('DIST_WINDOW_SIZE')}, WINDOW_BOUNDARY={self.config.get('DIST_WINDOW_BOUNDARY')}")
             for iter_n in range(2 if self.config.get('FP_FILTER') and self.config.get('FP_REMAP') else 1):
                 matches = []
@@ -759,7 +759,7 @@ class STA(Pipeline):
                                 ))
                             )
 
-                            if (c1_id, c2_id) in blacklist[t]:
+                            if cost[i1, i2] > ub:
                                 gate[i1, i2] = 0                    
                     
                     mi1s, mi2s = hungarian(cost, gate=gate)
@@ -778,11 +778,6 @@ class STA(Pipeline):
                 if self.config.get('FP_FILTER') and len(d) >= self.config.get('MIN_SAMPLE_SIZE_TO_FP_FILTER'):
                     filter = self._create_fp_filter()
                     ub = filter(np.array(d).reshape(-1, 1))             # type: ignore
-                    
-                    for t in range(T):
-                        sub = matches[np.int32(matches[:, 0]) == t]
-                        blacklist[t] = [(int(m[1]), int(m[2])) for m in sub[sub[:, 3] > ub]]
-
                     matches = matches[matches[:, 3] <= ub]                  
                     
                     logging.info(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
