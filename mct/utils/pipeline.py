@@ -857,12 +857,12 @@ class STA(Pipeline):
         """
         assert window_size % 2 == 1, 'window size must be an odd number.'
         
-        locs = [self.history[t][2][0][c1_id]], [self.history[t][2][1][c2_id]]
+        locs = [self.history[t][3][0][c1_id]], [self.history[t][3][1][c2_id]]
         
         ns = [0, 0]     # counter for left, right
         slices = [
-            [self.history[j][2] for j in range(t - 1, t - 1 - window_boundary, -1)], 
-            [self.history[j][2] for j in range(t + 1, t + window_boundary + 1)]
+            [self.history[j][3] for j in range(t - 1, t - 1 - window_boundary, -1)], 
+            [self.history[j][3] for j in range(t + 1, t + window_boundary + 1)]
         ]
 
         for i, slice in enumerate(slices):
