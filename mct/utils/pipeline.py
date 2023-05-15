@@ -729,8 +729,6 @@ class STA(Pipeline):
                     self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets[:, 1]), locs.tolist())})                     # type: ignore
                     self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi.tolist())})       # type: ignore
 
-            # START FROM HERE
-
             ub = 2e9
             logging.info(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.config.get('DIST_WINDOW_SIZE')}, WINDOW_BOUNDARY={self.config.get('DIST_WINDOW_BOUNDARY')}")
             for iter_n in range(2 if self.config.get('FP_FILTER') and self.config.get('FP_REMAP') else 1):

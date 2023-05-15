@@ -377,13 +377,14 @@ if __name__ == '__main__':
         'YOLOXl_pretrained-640-ByteTrack',
         'YOLOXm_pretrained-640-ByteTrack',
         'YOLOXs_pretrained-640-ByteTrack',
-        'YOLOv7pose_pretrained-640-ByteTrack'
+        'YOLOv7pose_pretrained-640-ByteTrack',
+        'YOLOv7box_pretrained-640-ByteTrack',
     ]
     
 
     video_set = '2d_v4'
-    tracker_name = 'YOLOv8l_pretrained-640-ByteTrack'
-    for config_pred_option in [10]:
+    tracker_name = 'YOLOv7box_pretrained-640-ByteTrack'
+    for config_pred_option in [6]:
     
 
     
@@ -506,24 +507,24 @@ if __name__ == '__main__':
 
             # find TP, FP, FN
             out_validate_pred_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.txt')
-            # validate_pred_mct_trackertracker(
-            #     out_pseudotrue_mct_trackertracker_path,
-            #     out_pred_mct_trackertracker_path,
-            #     out_validate_pred_mct_trackertracker_path
-            # )
+            validate_pred_mct_trackertracker(
+                out_pseudotrue_mct_trackertracker_path,
+                out_pred_mct_trackertracker_path,
+                out_validate_pred_mct_trackertracker_path
+            )
 
             # export video
             out_video_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.avi')
-            # visualize_sta_result(
-            #     vid1_path,
-            #     vid2_path,
-            #     tracker_txt1_path,
-            #     tracker_txt2_path,
-            #     out_validate_pred_mct_trackertracker_path,
-            #     roi_path,
-            #     matches_path,
-            #     out_video_path
-            # )
+            visualize_sta_result(
+                vid1_path,
+                vid2_path,
+                tracker_txt1_path,
+                tracker_txt2_path,
+                out_validate_pred_mct_trackertracker_path,
+                roi_path,
+                matches_path,
+                out_video_path
+            )
 
             paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
 

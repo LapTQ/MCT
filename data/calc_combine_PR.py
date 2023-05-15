@@ -1,49 +1,50 @@
 from pathlib import Path
 import os
+import math
 
 HERE = Path(__file__).parent
 
-DIRS = ['2d_v1', '2d_v2', '2d_v3']
-COUNTS = [16, 6, 12]
-TRACKER_PREFIX = 'YOLO'
-FILENAME = 'log_error_analysis_pred_mct_trackertracker_correspondences_v2_IQR_windowsize11_windowboundary5.txt'
+FILE_PATH = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack/pred/18_eval.txt'
+VID = [1, 2, 3, 4, 5, 6, 9, 10, 7, 8, 11, 12]
 
-tracker_names = [name for name in os.listdir(str(HERE / 'recordings' / DIRS[0])) if name.startswith(TRACKER_PREFIX)]
 
-c_Pre = 0
-c_Rec = 0
-c_F1 = 0
-for tracker_name in tracker_names:
-    Pre = 0
-    Rec = 0
-    F1 = 0
-    for dir in DIRS:
-        with open(HERE / 'recordings' / dir / tracker_name / FILENAME, 'r') as f:
-            while True:
-                line = f.readline()
-                if line == '':
-                    break
-                if line.startswith('Pre'):
-                    line = line.split()
-                    Pre += float(line[1])
-                elif line.startswith('Rec'):
-                    line = line.split()
-                    Rec += float(line[1])
-                elif line.startswith('F1'):
-                    line = line.split()
-                    F1 += float(line[1])
+TP = [0, 0, 0]  # easy, medium, hard
+FP = [0, 0, 0]
+FN = [0, 0, 0]
 
-    Pre /= sum(COUNTS)
-    Rec /= sum(COUNTS)
-    F1 /= sum(COUNTS)
 
-    print(f'{tracker_name}:\tP = {Pre:.3f}\tR = {Rec:.3f}\tF1 = {F1:.3f}')
+with open(FILE_PATH, 'r') as f:
+    ct = f.read().strip()
 
-    c_Pre += Pre
-    c_Rec += Rec
-    c_F1 += F1
+ct = [l.strip() for l in ct.split('\n')]
 
-c_Pre /= len(tracker_names)
-c_Rec /= len(tracker_names)
-c_F1 /= len(tracker_names)
-print(f'Combined:\tP = {c_Pre:.3f}\tR = {c_Rec:.3f}\tF1 = {c_F1:.3f}')
+for l in ct:
+    if l.startswith('======'):
+        video_id = int(l.split(',')[2].strip().split()[-1])
+        idx = VID.index(video_id) // 4
+    elif l.startswith('TP:'):
+        TP[idx] += int(l.split()[-1])
+    elif l.startswith('FP:'):
+        FP[idx] += int(l.split()[-1])
+    elif l.startswith('FN:'):
+        FN[idx] += int(l.split()[-1])
+
+        if video_id == 12:
+            break
+    
+for i, name in enumerate(['EASY', 'MEDI', 'HARD']):
+    pre = TP[i] / (TP[i] + FP[i])
+    rec = TP[i] / (TP[i] + FN[i])
+    f1 = 2 * pre * rec / (pre + rec)
+    print(f'{name}: {round(f1, 3)} ({TP[i]} - {FP[i]} - {FN[i]})')
+
+sTP = sum(TP)
+sFP = sum(FP)
+sFN = sum(FN)
+spre = sTP / (sTP + sFP)
+srec = sTP / (sTP + sFN)
+sf1 = 2 * spre * srec / (spre + srec)
+print(f'ALLL: {round(sf1, 3)} ({sTP} - {sFP} - {sFN})')
+
+
+
