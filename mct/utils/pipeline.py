@@ -1245,10 +1245,8 @@ class Export(Pipeline):
 
             logging.debug(f'{self.name}:\t processing {len(items)} frames')
 
-            for i, item in enumerate(items):
-                if i > 0:
-                    f.write('\n')
-                f.write(str(item))
+            for item in items:
+                print(str(item), file=f)
             
             if self.config.get('RUNNING_MODE') == 'offline':
                 break
@@ -1367,6 +1365,17 @@ def main(kwargs):
     # pl_dis_sct_1.start()
     # pl_dis_sct_2.start()
     # pl_dis_sta.start()
+
+    if config.get('RUNNING_MODE') == 'online':
+        pl_camera_1_noretimg.join()
+        pl_camera_2_noretimg.join()
+        pl_sct_1.join()
+        pl_sct_2.join()
+        pl_sync.join()
+        pl_sta.join()
+        pl_exp.join()
+
+
 
 
 if __name__ == '__main__':
