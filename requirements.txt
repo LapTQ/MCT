@@ -29,3 +29,12 @@ psutil
 pycocotools
 #protobuf==3.19.6
 #tensorboard-data-board==0.6.1
+
+flask==2.3.2
+flask-wtf==1.1.1
+flask-sqlalchemy==3.0.3
+flask-migrate==4.0.4
+flask-login==0.6.2
+email-validator
+flask-mail==0.9.1
+pyjwt==2.7.0

@@ -1,10 +1,10 @@
 import os
 from pathlib import Path
 
-SRC_DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack/sct'
-DST_DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack/sct'
+SRC_DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/gt_splited'
+DST_DIR = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/gt_splited'
 EXTENSION = '.txt'
-DETECTION_MODE = 'pose'     # 'box', 'pose'
+DETECTION_MODE = 'box'     # 'box', 'pose'
 
 filenames = [name for name in os.listdir(SRC_DIR) if name.endswith(EXTENSION)]
 

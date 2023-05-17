@@ -277,7 +277,7 @@ def visualize_sta_result(
             )
             writer_created = True
 
-        if 1057 <= p <= 1156 or 1662 <= p <= 1895 or 2937 <= p <= 3095:
+        if 1084 <= p <= 1149 or 1703 <= p <= 1917 or 2137 <= p <= 2310:
         
             black = np.zeros_like(fim_2)
             
@@ -363,7 +363,7 @@ if __name__ == '__main__':
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(19, 25)},
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'range_': range(1, 13)},
         #'2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': range(1, 13)},
-        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(12, 13)},
+        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(1, 13)},
     }
     for video_set in VIDEO_SET:
         VIDEO_SET[video_set]['video_set_dir'] = str(HERE / '../../data/recordings' / video_set)
@@ -383,8 +383,8 @@ if __name__ == '__main__':
     
 
     video_set = '2d_v4'
-    tracker_name = 'YOLOv7box_pretrained-640-ByteTrack'
-    for config_pred_option in [6]:
+    tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack'
+    for config_pred_option in [18]:
     
 
     
@@ -515,20 +515,20 @@ if __name__ == '__main__':
 
             # export video
             out_video_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.avi')
-            visualize_sta_result(
-                vid1_path,
-                vid2_path,
-                tracker_txt1_path,
-                tracker_txt2_path,
-                out_validate_pred_mct_trackertracker_path,
-                roi_path,
-                matches_path,
-                out_video_path
-            )
+            # visualize_sta_result(
+            #     vid1_path,
+            #     vid2_path,
+            #     tracker_txt1_path,
+            #     tracker_txt2_path,
+            #     out_validate_pred_mct_trackertracker_path,
+            #     roi_path,
+            #     matches_path,
+            #     out_video_path
+            # )
 
             paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
 
-        # prf(paths, out_path=out_eval_path)
+        prf(paths, out_path=out_eval_path)
 
 
 # cuts:
