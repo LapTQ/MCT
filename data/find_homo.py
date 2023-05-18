@@ -28,7 +28,7 @@ opt = {
         'src': CAM1,
         'dst': CAM2,
         'matches_out_path': None, #str(Path(CAM1).parent.parent / 'matches_42_to_43.txt'), # None
-        'roi_out_path': None, #str(Path(CAM1).parent.parent / 'roi_43.txt'),  # None
+        'roi_out_path': None, #str(Path(CAM2).parent.parent / 'workarea_42.txt'),  # None
         'video': False,
         'draw_match_line': False
     }
@@ -60,73 +60,108 @@ def extract_frame(cap):
 
 def select_matches(src, dst):
 
-    # return (np.array([[530, 447], [476, 485], [525, 235], [627, 268], [616, 626], [710, 403], [814, 635], [708, 283]], dtype='int32'),
-    #         np.array([[736, 488], [703, 445], [1034, 528], [984, 622], [532, 499], [753, 659], [450, 631], [963, 698]], dtype='int32'))
+    def _select_matches(src, dst):
 
-    global img
-    global src_pts
-    global dst_pts
-    global is_src
-
-    H1, W1 = src.shape[:2]
-
-    window_name = 'SELECT MATCHES (>= 4 matches): <ESC> to reset. <y> to see preview. <q> to abort.'
-
-    def on_mouse(event, x, y, flag, param):
+        # return (np.array([[530, 447], [476, 485], [525, 235], [627, 268], [616, 626], [710, 403], [814, 635], [708, 283]], dtype='int32'),
+        #         np.array([[736, 488], [703, 445], [1034, 528], [984, 622], [532, 499], [753, 659], [450, 631], [963, 698]], dtype='int32'))
 
         global img
         global src_pts
         global dst_pts
         global is_src
 
-        if event == cv2.EVENT_LBUTTONDOWN:
-            cv2.circle(img, (x, y), radius=10, color=(0, 0, 255), thickness=2)
-            if is_src:
-                src_pts.append([x, y])
-            else:
-                dst_pts.append([x - W1, y])
-                print(f'[INFO] {src_pts[-1]} matched to {dst_pts[-1]}')
-                if opt['draw_match_line']:
-                    cv2.line(img, src_pts[-1], (x, y), color=(0, 255, 0), thickness=2)
-            is_src = not is_src
+        H1, W1 = src.shape[:2]
 
+        window_name = 'SELECT MATCHES (>= 4 matches): <ESC> to reset. <y> to see preview. <q> to abort.'
+
+        def on_mouse(event, x, y, flag, param):
+
+            global img
+            global src_pts
+            global dst_pts
+            global is_src
+
+            if event == cv2.EVENT_LBUTTONDOWN:
+                cv2.circle(img, (x, y), radius=10, color=(0, 0, 255), thickness=2)
+                if is_src:
+                    src_pts.append([x, y])
+                else:
+                    dst_pts.append([x - W1, y])
+                    print(f'[INFO] {src_pts[-1]} matched to {dst_pts[-1]}')
+                    if opt['draw_match_line']:
+                        cv2.line(img, src_pts[-1], (x, y), color=(0, 255, 0), thickness=2)
+                is_src = not is_src
+
+                cv2.imshow(window_name, img)
+
+        is_src = True
+
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
+        while True:
+            img = np.concatenate([src, dst], axis=1)
             cv2.imshow(window_name, img)
+            src_pts = []
+            dst_pts = []
+            cv2.setMouseCallback(window_name, on_mouse)
 
-    is_src = True
+            key = cv2.waitKey(0)
+            if key == 27:
+                continue
+            elif key == ord('y'):
+                if len(src_pts) <= 3:
+                    print('[WARNING] Need at least 4 points')
+                    continue
+                break
+            elif key == ord('q'):
+                exit(0)
 
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.destroyAllWindows()
 
+        return (np.array(src_pts, dtype='int32'), 
+                np.array(dst_pts, dtype='int32'))
+    
     while True:
-        img = np.concatenate([src, dst], axis=1)
-        cv2.imshow(window_name, img)
-        src_pts = []
-        dst_pts = []
-        cv2.setMouseCallback(window_name, on_mouse)
+        window_name = 'PREVIEW RESULT OF SELECTING MATCHES: <y> to submit. <ESC> to reset'
+        src_pts, dst_pts = _select_matches(src, dst)
+        # matches = np.loadtxt('recordings/2d_v3/matches_121_to_127.txt').astype('int32')
+        # src_pts, dst_pts = matches[:, :2], matches[:, 2:]
+        src_pts = src_pts.astype('float32').reshape(-1, 1, 2)
+        dst_pts = dst_pts.astype('float32').reshape(-1, 1, 2)
+        print(src_pts)
+        print(dst_pts)
+        H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
 
-        key = cv2.waitKey(0)
+        src_transformed = cv2.warpPerspective(src, H, (dst.shape[1], dst.shape[0]))
+
+        show_img = np.concatenate([src_transformed, dst], axis=1)
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.imshow(window_name, show_img)
+        while True:
+            key = cv2.waitKey(0)
+            if key == 27 or key == ord('y'):
+                cv2.destroyAllWindows()
+                break
         if key == 27:
             continue
         elif key == ord('y'):
-            if len(src_pts) <= 3:
-                print('[WARNING] Need at least 4 points')
-                continue
+            cv2.destroyAllWindows()
             break
-        elif key == ord('q'):
-            exit(0)
-
-    cv2.destroyAllWindows()
-
-    return (np.array(src_pts, dtype='int32'), 
-            np.array(dst_pts, dtype='int32'))
+    
+    return src_pts, dst_pts, H
 
 
 def select_ROI(src, dst, homo):
-
+    # if select roi in one image only, then set both src and homo = None
+    
     global show_img
     global points
     
 
-    src_transformed = cv2.warpPerspective(src, homo, (dst.shape[1], dst.shape[0]))
+    if src is not None and homo is not None:
+        src_transformed = cv2.warpPerspective(src, homo, (dst.shape[1], dst.shape[0]))
+    else:
+        src_transformed = dst.copy()
     window_name = 'Select ROI: <y> to submit. <ESC> to reset'
 
     def on_mouse(event, x, y, flag, param):
@@ -154,18 +189,19 @@ def select_ROI(src, dst, homo):
                 )
 
                 # draw in the source image
-                homo_inv = np.linalg.inv(homo)
-                [[[p1_x, p1_y]], [[p2_x, p2_y]]] = cv2.perspectiveTransform(
-                    np.array([points[-2], points[-1]], dtype='float32').reshape(-1, 1, 2),
-                    homo_inv
-                )
-                cv2.line(
-                    show_img,
-                    (int(p1_x * W1 / W), int(H + p1_y * H1 / H)),
-                    (int(p2_x * W1 / W), int(H + p2_y * H1 / H)),
-                    color=(0, 255, 0),
-                    thickness=1
-                )
+                if homo is not None:
+                    homo_inv = np.linalg.inv(homo)
+                    [[[p1_x, p1_y]], [[p2_x, p2_y]]] = cv2.perspectiveTransform(
+                        np.array([points[-2], points[-1]], dtype='float32').reshape(-1, 1, 2),
+                        homo_inv
+                    )
+                    cv2.line(
+                        show_img,
+                        (int(p1_x * W1 / W), int(H + p1_y * H1 / H)),
+                        (int(p2_x * W1 / W), int(H + p2_y * H1 / H)),
+                        color=(0, 255, 0),
+                        thickness=1
+                    )
 
             cv2.imshow(window_name, show_img)
 
@@ -175,7 +211,7 @@ def select_ROI(src, dst, homo):
         H, W = added.shape[:2]
         H1, W1 = H // 2, W // 2
         H2, W2 = H1, W - W1
-        src_scaled = cv2.resize(src, (W1, H1))
+        src_scaled = cv2.resize(src if src else dst, (W1, H1))
         dst_scaled = cv2.resize(dst, (W2, H2))
 
         show_img = np.concatenate(
@@ -222,42 +258,35 @@ def main(opt):
         src = cv2.imread(opt['src'])
         dst = cv2.imread(opt['dst'])
 
-
-    while True:
-        window_name = 'PREVIEW RESULT OF SELECTING MATCHES: <y> to submit. <ESC> to reset'
-        src_pts, dst_pts = select_matches(src, dst)
-        # matches = np.loadtxt('recordings/2d_v3/matches_121_to_127.txt').astype('int32')
-        # src_pts, dst_pts = matches[:, :2], matches[:, 2:]
-        src_pts = src_pts.astype('float32').reshape(-1, 1, 2)
-        dst_pts = dst_pts.astype('float32').reshape(-1, 1, 2)
-        print(src_pts)
-        print(dst_pts)
-        H, mask = cv2.findHomography(src_pts, dst_pts) # cv2.RANSAC
-
-        src_transformed = cv2.warpPerspective(src, H, (dst.shape[1], dst.shape[0]))
-
-        show_img = np.concatenate([src_transformed, dst], axis=1)
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.imshow(window_name, show_img)
-        while True:
-            key = cv2.waitKey(0)
-            if key == 27 or key == ord('y'):
-                cv2.destroyAllWindows()
-                break
-        if key == 27:
-            continue
-        elif key == ord('y'):
-            cv2.destroyAllWindows()
-            break
-
+    src_pts, dst_pts, H = select_matches(src, dst)
     contour = select_ROI(src, dst, H)
 
+    matches = np.concatenate([src_pts.reshape(-1, 2), dst_pts.reshape(-1, 2)], axis=1)
+
     if opt['matches_out_path'] is not None:
-        matches = np.concatenate([src_pts.reshape(-1, 2), dst_pts.reshape(-1, 2)], axis=1)
+        
         np.savetxt(opt['matches_out_path'], matches)
         print('[INFO] Matches saved in', opt['matches_out_path'])
     else:
         print('[INFO] Not save matches\n...Printing result to stdout\nH =', matches)
+
+    if opt['roi_out_path'] is not None:
+        np.savetxt(opt['roi_out_path'], contour.reshape(-1, 2))
+        print('[INFO] Contour saved in', opt['roi_out_path'])
+    else:
+        print('[INFO] Not save contour\n...Printing result to stdout\ncontour =', contour.reshape(-1, 2))
+
+
+def main2(opt):
+
+    if opt['video']:
+        cap2 = cv2.VideoCapture(opt['dst'])
+        dst = extract_frame(cap2)
+
+    else:
+        dst = cv2.imread(opt['dst'])
+
+    contour = select_ROI(None, dst, None)
 
     if opt['roi_out_path'] is not None:
         np.savetxt(opt['roi_out_path'], contour.reshape(-1, 2))
