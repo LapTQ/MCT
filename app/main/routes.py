@@ -81,7 +81,12 @@ def unregister_workshift(day, dayshift_id):
     form = EmptyForm()
     if form.validate_on_submit():
     
-        workshift = RegisteredWorkshift.query.filter_by(user_id=current_user.id, day=day, dayshift_id=dayshift_id).first()    # type: ignore
+        workshift = RegisteredWorkshift.query.filter_by(
+            user_id=current_user.id,     # type: ignore
+            day=day, 
+            dayshift_id=dayshift_id
+        ).first()
+        
         if workshift:
             db.session.delete(workshift)
             db.session.commit()

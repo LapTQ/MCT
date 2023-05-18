@@ -38,7 +38,7 @@ def load_user(id):
 
 class DayShift(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(32), unique=True)
+    name = db.Column(db.String(32))
     start_time = db.Column(db.Time)
     end_time = db.Column(db.Time)
 
@@ -67,3 +67,43 @@ class RegisteredWorkshift(db.Model):
     
     def __str__(self):
         return self.__repr__()
+    
+
+class Camera(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    num = db.Column(db.Integer, unique=True, nullable=False)
+    address = db.Column(db.String(100), unique=True, nullable=False)
+
+    def __repr__(self):
+        return f'Camera(id={self.id}, num={self.num}, address={self.address})'
+
+
+class Region(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(28))
+    primary_cam_id = db.Column(db.Integer, db.ForeignKey('camera.id'), nullable=False)
+    secondary_cam_id = db.Column(db.Integer, db.ForeignKey('camera.id'))
+    points = db.Column(db.String(10000), nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint(type.in_(['checkin', 'overlap', 'workarea'])),
+    )
+
+    def __repr__(self):
+        primary_cam_num = db.session.get(Camera, self.primary_cam_id).num
+        secondary_cam_num = db.session.get(Camera, self.secondary_cam_id).num
+        return f'Region(type={self.type}, secondary_cam_num={primary_cam_num}, secondary_cam_num={secondary_cam_num}, points=...)'
+
+
+class CameraMatchingPoint(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    primary_cam_id = db.Column(db.Integer, db.ForeignKey('camera.id'), nullable=False)      # sourse
+    secondary_cam_id = db.Column(db.Integer, db.ForeignKey('camera.id'), nullable=False)    # destination
+    points = db.Column(db.String(10000), nullable=False)                                    # source, destination
+
+    def __repr__(self):
+        primary_cam_num = db.session.get(Camera, self.primary_cam_id).num
+        secondary_cam_num = db.session.get(Camera, self.secondary_cam_id).num
+        return f'CameraMatchingPoint(primary_cam_num={primary_cam_num}, secondary_cam_id={secondary_cam_num}, points=...)'
+
+
