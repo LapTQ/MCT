@@ -91,7 +91,10 @@ class Region(db.Model):
 
     def __repr__(self):
         primary_cam_num = db.session.get(Camera, self.primary_cam_id).num
-        secondary_cam_num = db.session.get(Camera, self.secondary_cam_id).num
+        if self.secondary_cam_id is None:
+            secondary_cam_num = None    
+        else:
+            secondary_cam_num = db.session.get(Camera, self.secondary_cam_id).num
         return f'Region(type={self.type}, secondary_cam_num={primary_cam_num}, secondary_cam_num={secondary_cam_num}, points=...)'
 
 
