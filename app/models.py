@@ -84,6 +84,7 @@ class Region(db.Model):
     primary_cam_id = db.Column(db.Integer, db.ForeignKey('camera.id'), nullable=False)
     secondary_cam_id = db.Column(db.Integer, db.ForeignKey('camera.id'))
     points = db.Column(db.String(10000), nullable=False)
+    role = db.Column(db.String(128), db.ForeignKey('user.role', name='fk_region_user_role'))
 
     __table_args__ = (
         db.CheckConstraint(type.in_(['checkin', 'overlap', 'workarea'])),
@@ -95,7 +96,7 @@ class Region(db.Model):
             secondary_cam_num = None    
         else:
             secondary_cam_num = db.session.get(Camera, self.secondary_cam_id).num
-        return f'Region(type={self.type}, secondary_cam_num={primary_cam_num}, secondary_cam_num={secondary_cam_num}, points=...)'
+        return f'Region(type={self.type}, secondary_cam_num={primary_cam_num}, secondary_cam_num={secondary_cam_num}, role={self.role}, points=...)'
 
 
 class CameraMatchingPoint(db.Model):
