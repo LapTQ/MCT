@@ -18,11 +18,11 @@
             {% if not current_user.is_anonymous %}
 
                 {% if current_user.role == 'admin' %}
-                    <a href="{{ url_for('auth.create_account') }}">Create account</a>
+                    <a href="{{ url_for('auth.create_account') }}"> Create account </a>
                 {% elif current_user.role == 'manager' %}
-                    <a href="{{ url_for('main.view_staff_list') }}">Manage staff</a>
+                    <a href="{{ url_for('main.view_staff_list') }}"> Manage staff </a>
                 {% else %}
-                    <a href="{{ url_for('main.user', username=current_user.username) }}">Personal info</a>
+                    <a href="{{ url_for('main.user', username=current_user.username) }}"> Personal info </a>
                 {% endif %}
 
                 <a href="{{ url_for('auth.logout') }}">Logout</a>

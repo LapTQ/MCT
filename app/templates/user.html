@@ -2,8 +2,39 @@
 
 {% block app_content %}
 
-    <h1> User: {{ user.username}}</h1>
+    <h1> User: {{ user.username }}</h1>
 
     <p>Role: {{ user.role }}</p>
+
+    <p>
+        <div>
+            <a> Registered workshifts</a>
+
+            {% if current_user.role in ['intern', 'engineer'] %}
+                <a href="{{ url_for('main.register_workshift') }} "> Register new workshift </a>
+            {% endif %}
+        </div>
+
+        <ul>
+            {% for workshift in workshifts %}
+
+            <div>
+                <a><li> {{ workshift }}</li></a>
+                {% if current_user.username == user.username %}
+                    <a>
+                        <form action=" {{ url_for('main.unregister_workshift', day=workshift.day, dayshift_id=workshift.dayshift_id) }} " method="post" novalidate>
+                            {% with unregister_form = unregister_form_class() %}
+                            
+                            {{ unregister_form.hidden_tag() }}
+                            <p>{{ unregister_form.submit(value='Unregister') }}</p>
+                            {% endwith %}
+                        </form>
+                    </a>
+                {% endif %}
+            </div>
+                
+            {% endfor %}
+        </ul>
+    </p>
 
 {% endblock %}
