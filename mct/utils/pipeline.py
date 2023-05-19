@@ -11,6 +11,9 @@ import yaml
 from abc import ABC, abstractmethod
 import numpy as np
 
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent))
+
 from general import load_roi, load_homo, calc_loc                   # type: ignore
 from map_utils import hungarian, map_mono
 from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
@@ -218,6 +221,7 @@ class Pipeline(ABC):
             self.output_queues = []
         elif isinstance(self.output_queues, MyQueue):
             self.output_queues = [self.output_queues]
+        self.output_queues = {i: q for i, q in enumerate(self.output_queues)}
 
 
     def switch_pausing(self):
@@ -225,7 +229,8 @@ class Pipeline(ABC):
 
     
     def _put_to_output_queues(self, item, msg=None):
-        for oq in self.output_queues:                    # type: ignore
+        self.lock.acquire()
+        for k, oq in self.output_queues.items():                    # type: ignore
             oq.put(
                 item,
                 block=self.config.get('QUEUE_GET_BLOCK'),
@@ -233,6 +238,19 @@ class Pipeline(ABC):
             )
         
             logging.debug(f"{self.name}:\t put to {oq.name} with message: {msg}")
+        self.lock.release()
+        
+
+    def add_output_queue(self, queue, key):
+        self.lock.acquire()
+        self.output_queues[key] = queue # type: ignore
+        self.lock.release()
+
+    
+    def remove_output_queue(self, key):
+        self.lock.acquire()
+        del self.output_queues[key] # type: ignore
+        self.lock.release()
 
 
 class Camera(Pipeline):
@@ -317,7 +335,7 @@ class Camera(Pipeline):
             self._put_to_output_queues(out_item, f"frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')}")
 
             # if reading from video on disk, then sleep according to fps to sync time.
-            sleep = self.config.get('CAMERA_SLEEP') + (0 if self.meta is None else 0.01 / self.fps)
+            sleep = self.config.get('CAMERA_SLEEP') + (0 if self.meta is None else 1 / self.fps)
             logging.debug(f"{self.name}:\t sleep {sleep}")
             time.sleep(sleep)
         

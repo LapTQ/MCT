@@ -1,10 +1,20 @@
-from flask import render_template, redirect, url_for, request, current_app, Response, flash
+from flask import render_template, redirect, url_for, current_app, Response, flash
 from flask_login import login_required, current_user
 
 from app import db
 from app.main import bp
-from app.models import User, RegisteredWorkshift, DayShift
+from app.models import User, RegisteredWorkshift, DayShift, Camera
 from app.main.forms import EmptyForm, RegisterWorkshiftForm
+
+###################################
+from app.main.tasks import cams, config     # TODO thay ten bien
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+from mct.utils.pipeline import MyQueue
+import time
+from threading import Thread
+###################################
 
 
 @bp.route('/', methods=['GET', 'POST'])
@@ -17,7 +27,7 @@ def index():
 @bp.route('/user/<username>')
 @login_required
 def user(username):
-    user = User.query.filter_by(username=username).first_or_404()
+    user = User.query.filter_by(username=username).first_or_404() # type: ignore
     if (user.username != current_user.username and current_user.role != 'manager') or user.role == 'admin':    # type: ignore
         return redirect(url_for('main.index'))
     
@@ -71,7 +81,7 @@ def register_workshift():
     return render_template('register_workshift.html', form=form)
 
 
-@bp.route('/unregister_workshift/<day>/<dayshift_id>', methods=['POST'])
+@bp.route('/_unregister_workshift/<day>/<dayshift_id>', methods=['POST'])
 @login_required
 def unregister_workshift(day, dayshift_id):
 
@@ -95,4 +105,68 @@ def unregister_workshift(day, dayshift_id):
     return redirect(url_for('main.user', username=current_user.username)) # type: ignore
     
 
+@bp.route('/view_cameras')
+@login_required
+def view_cameras():
+    print("view cam", id(current_app))
+
+    if current_user.role != 'manager':  # type: ignore
+        return redirect(url_for('main.index'))
+    
+    cameras = Camera.query.all()
+    
+    for cid, cv in cams.items():
+        name=f'Display-Input-Queue<{cv["num"]}>'
+        iq_display = MyQueue(config.get('QUEUE_MAXSIZE'), name=name)
+        cv['pl_camera'].add_output_queue(iq_display, name)
+        cv['iq_display'] = iq_display
+    
+    return render_template('view_cameras.html', cameras=cameras)
+
+
+@bp.route('/_video_feed/<cam_id>')
+def video_feed(cam_id):
+    class FakeCamera:
+
+        def __init__(self):
+            self.frame = None
+            self.last_access = 0
+
+
+        def start(self, app, cam_id):
+            Thread(target=self._thread, args=(app, cam_id)).start()
+            while True:
+                self.last_access = time.time()
+                while self.frame is None:
+                    time.sleep(0)
+                yield self.frame
+
+        
+        def _thread(self, app, cam_id):
+            import cv2
+
+            with app.app_context():
+                msg = ''
+                iq_display = cams[cam_id]['iq_display']
+                while True:
+
+                    if iq_display.empty():
+                        continue
+                    
+                    frame = iq_display.get()
+                    frame_img = frame['frame_img']
+                    frame_img = cv2.resize(frame_img, (480, 240))
+                    
+                    cv2.putText(frame_img, msg, (50, 50), cv2.FONT_HERSHEY_COMPLEX, 2, color=(0, 255, 0), thickness=3)
+                    imgbyte = cv2.imencode('.jpg', frame_img)[1].tobytes()
+
+                    if time.time() - self.last_access > 3:
+                        cams[cam_id]['pl_camera'].remove_output_queue(iq_display.name)
+                        break
+
+                    self.frame = (b'--frame\r\n'
+                                  b'Content-Type: image/jpeg\r\n\r\n' + imgbyte + b'\r\n')
+    
+    return Response(FakeCamera().start(current_app._get_current_object(), int(cam_id)), # type: ignore
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 

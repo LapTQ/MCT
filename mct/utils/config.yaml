@@ -1,4 +1,4 @@
-RUNNING_MODE: 'offline'   # 'offline' or 'online'
+RUNNING_MODE: 'online'   # 'offline' or 'online'
 ONLINE_SLEEP_BEFORE_STOP: 14
 
 # queue

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block app_content %}
+    <h1>Camera view</h1>
+
+    <table>
+        <tr valign="top">
+            {% for cam in cameras %}
+            <td><img src="{{ url_for('main.video_feed', cam_id=cam.id) }}"></td>
+            {% endfor %}
+        </tr>
+    </table>
+    
+
+{% endblock %}

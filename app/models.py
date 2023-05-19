@@ -96,7 +96,7 @@ class Region(db.Model):
             secondary_cam_num = None    
         else:
             secondary_cam_num = db.session.get(Camera, self.secondary_cam_id).num
-        return f'Region(type={self.type}, secondary_cam_num={primary_cam_num}, secondary_cam_num={secondary_cam_num}, role={self.role}, points=...)'
+        return f'Region(type={self.type}, primary_cam_num={primary_cam_num}, secondary_cam_num={secondary_cam_num}, role={self.role}, points=...)'
 
 
 class CameraMatchingPoint(db.Model):

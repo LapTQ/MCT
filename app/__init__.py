@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
@@ -19,6 +19,11 @@ def create_app(config_class=Config):
     db.init_app(app)
     migrate.init_app(app, db)
     login.init_app(app)
+
+
+    from app.main.tasks import startup as main_startup
+    with app.app_context():
+        main_startup()
 
 
     from app.auth import bp as auth_bp
