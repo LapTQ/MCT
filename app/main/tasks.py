@@ -35,9 +35,9 @@ def async_startup(app):
     with app.app_context():
 
         for c in Camera.query.all():
-            print(c.id)
             cams[c.id] = {'num': c.num, 
-                          'address': c.address} 
+                          'address': c.address}
+            # break
 
 
         import yaml

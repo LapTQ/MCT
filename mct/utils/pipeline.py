@@ -204,6 +204,7 @@ class Pipeline(ABC):
 
     def stop(self) -> None:
         logging.info(f'{self.name}:\t triggering config stop...')
+        self.output_queues = {}
         self.config.stop()
 
 
@@ -243,6 +244,7 @@ class Pipeline(ABC):
 
     def add_output_queue(self, queue, key):
         self.lock.acquire()
+        assert key not in self.output_queues, f'{key} already exists in output_queues'
         self.output_queues[key] = queue # type: ignore
         self.lock.release()
 
@@ -335,7 +337,7 @@ class Camera(Pipeline):
             self._put_to_output_queues(out_item, f"frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')}")
 
             # if reading from video on disk, then sleep according to fps to sync time.
-            sleep = self.config.get('CAMERA_SLEEP') + (0 if self.meta is None else 1 / self.fps)
+            sleep = self.config.get('CAMERA_SLEEP') + (0 if self.meta is None else self.config.get('CAMERA_SLEEP_MUL_FACTOR') / self.fps)
             logging.debug(f"{self.name}:\t sleep {sleep}")
             time.sleep(sleep)
         

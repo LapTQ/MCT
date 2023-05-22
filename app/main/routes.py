@@ -1,4 +1,4 @@
-from flask import render_template, redirect, url_for, current_app, Response, flash
+from flask import render_template, redirect, url_for, current_app, Response, flash, session
 from flask_login import login_required, current_user
 
 from app import db
@@ -108,7 +108,6 @@ def unregister_workshift(day, dayshift_id):
 @bp.route('/view_cameras')
 @login_required
 def view_cameras():
-    print("view cam", id(current_app))
 
     if current_user.role != 'manager':  # type: ignore
         return redirect(url_for('main.index'))
@@ -116,7 +115,7 @@ def view_cameras():
     cameras = Camera.query.all()
     
     for cid, cv in cams.items():
-        name=f'Display-Input-Queue<{cv["num"]}>'
+        name=f'Display-Input-Queue<CAMID={cv["num"]}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>' # type: ignore
         iq_display = MyQueue(config.get('QUEUE_MAXSIZE'), name=name)
         cv['pl_camera'].add_output_queue(iq_display, name)
         cv['iq_display'] = iq_display
@@ -137,8 +136,8 @@ def video_feed(cam_id):
             Thread(target=self._thread, args=(app, cam_id)).start()
             while True:
                 self.last_access = time.time()
-                while self.frame is None:
-                    time.sleep(0)
+                if self.frame is None:
+                    continue
                 yield self.frame
 
         
