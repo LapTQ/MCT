@@ -115,9 +115,9 @@ def view_cameras():
     cameras = Camera.query.all()
     
     for cid, cv in cams.items():
-        name=f'Display-Input-Queue<CAMID={cv["num"]}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>' # type: ignore
+        name=f'Input-Queue-Display<CAMID={cv["num"]}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>' # type: ignore
         iq_display = MyQueue(config.get('QUEUE_MAXSIZE'), name=name)
-        cv['pl_camera'].add_output_queue(iq_display, name)
+        cv['pl_display'].add_output_queue(iq_display, name)
         cv['iq_display'] = iq_display
     
     return render_template('view_cameras.html', cameras=cameras)
@@ -160,7 +160,7 @@ def video_feed(cam_id):
                     imgbyte = cv2.imencode('.jpg', frame_img)[1].tobytes()
 
                     if time.time() - self.last_access > 3:
-                        cams[cam_id]['pl_camera'].remove_output_queue(iq_display.name)
+                        cams[cam_id]['pl_display'].remove_output_queue(iq_display.name)
                         break
 
                     self.frame = (b'--frame\r\n'

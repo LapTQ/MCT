@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any, Union, Tuple, List
 from queue import Queue
 from threading import Lock, Thread
 from datetime import datetime
@@ -175,7 +175,7 @@ class Pipeline(ABC):
     def __init__(
             self, 
             config: Config,
-            output_queues: Union[list[MyQueue], MyQueue, None] = None, 
+            output_queues: Union[List[MyQueue], MyQueue, None] = None, 
             name='Pipeline component'
     ) -> None:
         
@@ -262,7 +262,7 @@ class Camera(Pipeline):
             config: Config, 
             source: Union[int, str],
             meta: Union[dict, None] = None, 
-            output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             ret_img: bool = True,
             name='Camera thread'
     ) -> None:
@@ -424,7 +424,7 @@ class SCT(Pipeline):
             config: Config, 
             tracker: Tracker,
             input_queue: MyQueue,
-            output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             name='SCT'
     ) -> None:
         super().__init__(config, output_queues, name)
@@ -448,7 +448,7 @@ class SCT(Pipeline):
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
 
-            logging.info(f'{self.name}:\t processing {len(items)} frames')
+            logging.debug(f'{self.name}:\t processing {len(items)} frames')
             
             for item in items:
                 dets = self.tracker.infer(item['frame_img'], item['frame_id'])
@@ -474,8 +474,8 @@ class SyncFrame(Pipeline):
     def __init__(
             self, 
             config: Config, 
-            input_queues: list[MyQueue],
-            output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            input_queues: List[MyQueue],
+            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             name='SyncFrame'
     ) -> None:
         super().__init__(config, output_queues, name)
@@ -613,11 +613,11 @@ class STA(Pipeline):
     def __init__(
             self, 
             config: Config, 
-            scenes: list[Scene],
+            scenes: List[Scene],
             homo: Union[np.ndarray, None],
-            sct_queues: list[MyQueue],
+            sct_queues: List[MyQueue],
             sync_queue: MyQueue,
-            output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             name='STA'
     ) -> None:
         super().__init__(config, output_queues, name)
@@ -923,7 +923,7 @@ class Visualize(Pipeline):
             video_queue: Union[MyQueue, None] = None,
             scene: Union[Scene, None] = None,
             homo: Union[np.ndarray, None] = None,
-            output_queues: Union[list[MyQueue], MyQueue, None] = None,
+            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             name='Visualizer'
     ) -> None:
         super().__init__(config, output_queues, name)

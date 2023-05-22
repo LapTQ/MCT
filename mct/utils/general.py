@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from typing import Union
+from typing import Union, Tuple
 
 
 def load_roi(path, W, H) -> np.ndarray:
@@ -19,7 +19,7 @@ def load_homo(matches_path) -> np.ndarray:
     return H
 
 
-def calc_loc(X, loc_infer_mode: int, mid: Union[tuple[Union[float, int]], None] = None) -> np.ndarray:
+def calc_loc(X, loc_infer_mode: int, mid: Union[Tuple[Union[float, int]], None] = None) -> np.ndarray:
     
     # if detection mode == 'box' => [[frame_id, track_id, x1, y1, w, h, -1, -1, -1, 0],...] (N x 10)
     # if detection mode == 'pose' => [[frame_id, track_id, x1, y1, w, h, conf, -1, -1, -1, *[kpt_x, kpt_y, kpt_conf], ...]] (N x 61)

@@ -9,7 +9,7 @@ from app.models import Camera, Region, CameraMatchingPoint
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from mct.utils.pipeline import MyQueue, Config, Camera as PLCamera
+from mct.utils.pipeline import MyQueue, Config, Camera as PLCamera, Tracker, SCT as PLSCT, Visualize as PLVisualize, Scene
 
 mylist = Queue()
 
@@ -26,7 +26,7 @@ mylist = Queue()
             
 #         print('Task complete')
 
-config = Config('/media/tran/003D94E1B568C6D11/Workingspace/MCT/mct/utils/config.yaml')
+config = Config('mct/utils/config.yaml')
 
 cams = {}
 
@@ -42,10 +42,20 @@ def async_startup(app):
 
         import yaml
         for cid, cv in cams.items():
-            meta = yaml.safe_load(open(f'/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/meta/{cv["num"]}_00011_2023-04-15_08-30-00-000000.yaml', 'r'))
-            pl_camera = PLCamera(config, cv['address'], meta)
-            cv['pl_camera'] = pl_camera
-            pl_camera.start()
+            meta = yaml.safe_load(open(f'data/recordings/2d_v4/meta/{cv["num"]}_00011_2023-04-15_08-30-00-000000.yaml', 'r'))
+            iq_sct = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'Input-Queue-SCT<CAMID={cv["num"]}>')
+            iq_vis_sct_annot = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'Input-Queue-Vis_SCT-Annot<CAMID={cv["num"]}>')
+            iq_vis_sct_video = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'Input-Queue-Vis_SCT-Video<CAMID={cv["num"]}>')
+            pl_camera_noretimg = PLCamera(config, cv['address'], meta, [iq_sct])
+            pl_camera_retimg = PLCamera(config, cv['address'], meta, [iq_vis_sct_video])
+            tracker = Tracker(config.get('DETECTION_MODE'), config.get('TRACKING_MODE'), f'data/recordings/2d_v4/gt_splited/{cv["num"]}_00011_2023-04-15_08-30-00-000000.txt')
+            pl_sct = PLSCT(config, tracker, iq_sct, [iq_vis_sct_annot])
+            pl_display = PLVisualize(config, 'SCT', iq_vis_sct_annot, iq_vis_sct_video)
+            cv['pl_display'] = pl_display
+            pl_camera_noretimg.start()
+            pl_sct.start()
+            pl_camera_retimg.start()
+            pl_display.start()
 
 
 
