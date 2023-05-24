@@ -6,7 +6,7 @@ from app.main import bp
 from app.models import User, RegisteredWorkshift, DayShift, Camera
 from app.main.forms import EmptyForm, RegisterWorkshiftForm
 
-###################################
+##### START HERE #####
 from app.main.tasks import cams, config     # TODO thay ten bien
 import sys
 from pathlib import Path
@@ -14,7 +14,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from mct.utils.pipeline import MyQueue
 import time
 from threading import Thread
-###################################
+##### END HERE #####
 
 
 @bp.route('/', methods=['GET', 'POST'])
@@ -114,11 +114,13 @@ def view_cameras():
     
     cameras = Camera.query.all()
     
+    ##### START HERE #####
     for cid, cv in cams.items():
-        name=f'Input-Queue-Display<CAMID={cv["num"]}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>' # type: ignore
+        name=f'IQ-Display<{cid}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>' # type: ignore
         iq_display = MyQueue(config.get('QUEUE_MAXSIZE'), name=name)
         cv['pl_display'].add_output_queue(iq_display, name)
         cv['iq_display'] = iq_display
+    ##### END HERE #####
     
     return render_template('view_cameras.html', cameras=cameras)
 
@@ -145,6 +147,7 @@ def video_feed(cam_id):
             import cv2
 
             with app.app_context():
+                ##### START HERE #####
                 msg = ''
                 iq_display = cams[cam_id]['iq_display']
                 while True:
@@ -161,6 +164,7 @@ def video_feed(cam_id):
 
                     if time.time() - self.last_access > 3:
                         cams[cam_id]['pl_display'].remove_output_queue(iq_display.name)
+                ##### END HERE #####
                         break
 
                     self.frame = (b'--frame\r\n'

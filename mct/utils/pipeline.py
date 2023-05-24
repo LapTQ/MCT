@@ -1,4 +1,4 @@
-from typing import Any, Union, Tuple, List
+from typing import Union, List, Dict
 from queue import Queue
 from threading import Lock, Thread
 from datetime import datetime
@@ -283,6 +283,10 @@ class Camera(Pipeline):
         if self.config.get('CAMERA_FPS') is not None:
             assert self.meta is None, 'camera_fps must not be set when capturing videos from disk'
             self.cap.set(cv2.CAP_PROP_FPS, self.config.get('CAMERA_FPS'))
+
+        ##### START HERE #####
+        self.signin_sid = None
+        ##### END HERE #####
         
         logging.info(f'{self.name}:\t initilized')
 
@@ -328,10 +332,26 @@ class Camera(Pipeline):
             else:   # if reading from video on disk
                 frame_time = datetime.strptime(self.meta['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (frame_id - self.meta['start_frame_id']) / self.fps
 
+            ##### START HERE #####
+            # mock check-in
+            if '<1>' in self.name:
+                if frame_id == 184:
+                    self.signal_signin(4)
+                elif frame_id == 479:
+                    self.signal_signin(3)
+                elif frame_id == 878:
+                    self.signal_signin(5)
+
+            signin_sid = self._observe_signin()
+            if signin_sid is not None:
+                logging.info(f'{self.name}: get sign-in signal')
+            ##### END HERE #####
+            
             out_item = {
                 'frame_img': frame,
                 'frame_id': frame_id,
-                'frame_time': frame_time
+                'frame_time': frame_time,
+                'signin_sid': signin_sid
             }
             
             self._put_to_output_queues(out_item, f"frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')}")
@@ -370,6 +390,17 @@ class Camera(Pipeline):
 
     def _check_meta(self) -> None:
         pass
+
+    
+    ###### START HERE ######
+    def _observe_signin(self):
+        signin_sid, self.signin_sid = self.signin_sid, None
+        return signin_sid
+        
+
+    def signal_signin(self, sid):
+        self.signin_sid = sid
+    ###### END HERE ######
         
 
 class Tracker:
@@ -417,6 +448,56 @@ class Tracker:
             raise NotImplementedError()
 
 
+class Scene:
+
+    def __init__(
+            self,
+            width: Union[int, float, None] = None,
+            height: Union[int, float, None] = None,
+            roi: Union[np.ndarray, None] = None,
+            roi_test_offset=0,
+            name='Scene'
+    ) -> None:
+
+        self.width = width
+        self.height = height
+        
+        self.roi = roi   
+        self._check_roi()
+
+        self.roi_test_offset = roi_test_offset
+
+        self.name = name
+
+        logging.debug(f'{self.name}:\t initialized')
+    
+
+    def is_in_roi(self, x: np.ndarray) -> Union[bool, np.ndarray]:
+        not_np = False
+        if not isinstance(x, np.ndarray):
+            x = np.array(x)
+            not_np = True
+        
+        x = np.float32(x.reshape(-1, 2))    # type: ignore
+
+        ret = [cv2.pointPolygonTest(self.roi, p, True) >= self.roi_test_offset for p in x]      # type: ignore
+
+        if not_np and len(ret) == 1:
+            return ret[0]
+        else:
+            return np.array(ret, dtype=bool)
+        
+    
+    def has_roi(self) -> bool:
+        return self.roi is not None
+    
+
+    def _check_roi(self):
+        if self.roi is not None:
+            assert isinstance(self.roi, np.ndarray)
+            self.roi = np.int32(self.roi)   # type: ignore
+
+
 class SCT(Pipeline):
 
     def __init__(
@@ -457,7 +538,10 @@ class SCT(Pipeline):
                     'frame_id': item['frame_id'],
                     'sct_output': dets,
                     'sct_detection_mode': self.tracker.detection_mode,
-                    'sct_tracking_mode': self.tracker.tracking_mode
+                    'sct_tracking_mode': self.tracker.tracking_mode,
+                    ##### START HERE #####
+                    'signin_sid': item['signin_sid']
+                    ##### END HERE #####
                 }
 
                 self._put_to_output_queues(out_item, f"frame_id={item['frame_id']}, sct shape={dets.shape}")
@@ -558,56 +642,6 @@ class SyncFrame(Pipeline):
         return [[] for _ in range(len(self.input_queues))]
 
 
-class Scene:
-
-    def __init__(
-            self,
-            width: Union[int, float, None] = None,
-            height: Union[int, float, None] = None,
-            roi: Union[np.ndarray, None] = None,
-            roi_test_offset=0,
-            name='Scene'
-    ) -> None:
-
-        self.width = width
-        self.height = height
-        
-        self.roi = roi   
-        self._check_roi()
-
-        self.roi_test_offset = roi_test_offset
-
-        self.name = name
-
-        logging.debug(f'{self.name}:\t initialized')
-    
-
-    def is_in_roi(self, x: np.ndarray) -> Union[bool, np.ndarray]:
-        not_np = False
-        if not isinstance(x, np.ndarray):
-            x = np.array(x)
-            not_np = True
-        
-        x = np.float32(x.reshape(-1, 2))    # type: ignore
-
-        ret = [cv2.pointPolygonTest(self.roi, p, True) >= self.roi_test_offset for p in x]      # type: ignore
-
-        if not_np and len(ret) == 1:
-            return ret[0]
-        else:
-            return np.array(ret, dtype=bool)
-        
-    
-    def has_roi(self) -> bool:
-        return self.roi is not None
-    
-
-    def _check_roi(self):
-        if self.roi is not None:
-            assert isinstance(self.roi, np.ndarray)
-            self.roi = np.int32(self.roi)   # type: ignore
-
-
 class STA(Pipeline):
 
     def __init__(
@@ -701,7 +735,7 @@ class STA(Pipeline):
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
                 adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
 
-            logging.info(f"{self.name}:\t infer location from detection with LOC_INFER_MODE={self.config.get('LOC_INFER_MODE')}")
+            logging.debug(f"{self.name}:\t infer location from detection with LOC_INFER_MODE={self.config.get('LOC_INFER_MODE')}")
             adict['in_roi'] = [[], []]
             for t in range(T):
                 self.history.append(
@@ -750,7 +784,7 @@ class STA(Pipeline):
                     self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi.tolist())})       # type: ignore
 
             ub = 2e9
-            logging.info(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.config.get('DIST_WINDOW_SIZE')}, WINDOW_BOUNDARY={self.config.get('DIST_WINDOW_BOUNDARY')}")
+            logging.debug(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.config.get('DIST_WINDOW_SIZE')}, WINDOW_BOUNDARY={self.config.get('DIST_WINDOW_BOUNDARY')}")
             for iter_n in range(2 if self.config.get('FP_FILTER') and self.config.get('FP_REMAP') else 1):
                 matches = []
                 for t in range(T):
@@ -941,7 +975,7 @@ class Visualize(Pipeline):
 
         self.wait_list = self._new_wait_list()
 
-        logging.debug(f'{self.name}:\t initialized')
+        logging.info(f'{self.name}:\t initialized')
 
     
     def _start(self):
@@ -1025,6 +1059,13 @@ class Visualize(Pipeline):
                     if self.scene is not None:
                         locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
                         frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
+
+                    ##### START HERE #####
+                    if 'signin_sid' in adict:
+                        signin_sid = adict['signin_sid'][0][t]
+                        if signin_sid is not None:
+                            cv2.putText(frame_img, f'user<{signin_sid}> signed in', (300, 100), cv2.FONT_HERSHEY_TRIPLEX, 8.0, (0, 255, 0), thickness=3)
+                    ##### END HERE #####
                     
                     out_item = {
                         'frame_img': frame_img,                   # type: ignore
@@ -1279,6 +1320,65 @@ class Export(Pipeline):
         if not os.path.exists(parent) and parent != '':
             logging.debug(f'{self.name}:\t create directory {parent}')
             os.makedirs(parent)
+
+
+##### START HERE #####
+
+class Staff:
+
+    MAX_AGE = 5
+
+    def __init__(self, sid):
+        self.sid = sid
+        self.age = 0
+        self.history = []
+    
+    def update(self):
+        pass
+
+
+
+
+class StaffMap(Pipeline):
+
+    def __init__(
+            self, 
+            config: Config,
+            sct_queues: dict,
+            sta_queues: dict,
+            output_queues: Union[List[MyQueue], MyQueue, None] = None, 
+            name='Staff Map'
+    ) -> None:
+        super().__init__(config, output_queues, name)
+
+        self.sct_queues = sct_queues
+        self.sta_queues = sta_queues
+
+        self.history = {
+            'sct': {},
+            'sta': {},
+        }
+    
+    def _start(self) -> None:
+        
+        while not self.is_stopped():
+
+            self.trigger_pause()
+
+            for t, q in (('sct', self.sct_queues), ('sta', self.sta_queues)):
+                for k, v in self.history[t].items():
+                    v.extend(q[k].get_many(
+                        size=self.config.get('QUEUE_GET_MANY_SIZE'),
+                        block=self.config.get('QUEUE_GET_BLOCK'),
+                        timeout=self.config.get('QUEUE_TIMEOUT')
+                    ))
+            
+            print(self.history)
+
+
+
+##### END HERE #####
+
 
 
 def main(kwargs):

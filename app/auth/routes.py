@@ -5,8 +5,15 @@ from datetime import datetime
 
 from app import db
 from app.auth import bp
-from app.models import User
+from app.models import User, Region
 from app.auth.forms import LoginForm, CreateAccountForm
+
+##### START HERE #####
+from app.main.tasks import cams     # TODO thay ten bien
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+##### END HERE #####
 
 
 @bp.route('/login', methods=['GET', 'POST'])
@@ -26,6 +33,13 @@ def login():
         
         login_user(user, remember=form.remember_me.data)
         flash(f'Hello {user}!')
+
+        ##### START HERE #####
+        # TODO xu ly sign-in vs check-in
+        if user.role in ['intern', 'engineeer']:
+            checkin_cam_id = Region.query.filter_by(type='checkin').first().primary_cam_id
+            cams[checkin_cam_id]['pl_camera_noretimg'].signal_signin(user.id)
+        ##### END HERE #####
     
         next_page = request.args.get('next')
         if not next_page or url_parse(next_page).netloc != '':
