@@ -60,7 +60,7 @@ class Config:
     def stop(self) -> None:
         self.lock.acquire()
         self.stopped = True
-        logging.info(f'{self.name}\t stop locked')
+        logging.info(f'{self.name}:\t stop locked')
         self.lock.release()
 
 
@@ -71,7 +71,7 @@ class Config:
     def switch_pausing(self) -> None:
         self.lock.acquire()
         self.pausing = not self.pausing
-        logging.info(f'{self.name}\t pausing switched')
+        logging.info(f'{self.name}:\t pausing switched')
         self.lock.release()
 
 
@@ -620,6 +620,8 @@ class SyncFrame(Pipeline):
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.input_queues[1].name} to wait list')
 
+            logging.debug(f'{self.name}:\t processing {len(c1_adict_matched)} frames')
+            
             for i, j in zip(c1_adict_matched, c2_adict_matched):
 
                 logging.debug(f"{self.name}:\t sync frame_id={adict['frame_id'][0][i]} ({datetime.fromtimestamp(adict['frame_time'][0][i]).strftime('%M-%S-%f')}) with frame_id={adict['frame_id'][1][j]} ({datetime.fromtimestamp(adict['frame_time'][1][j]).strftime('%M-%S-%f')})")
@@ -682,7 +684,7 @@ class STA(Pipeline):
 
             self.trigger_pause()
             
-            for wl, iq in zip(self.wait_list, self.sct_queues + [self.sync_queue]):
+            for wl, iq in zip(self.wait_list, self.sct_queues + [self.sync_queue]):     # type: ignore
                 wl.extend(
                     iq.get_many(
                         size=self.config.get('QUEUE_GET_MANY_SIZE'),
@@ -817,7 +819,7 @@ class STA(Pipeline):
                     mi1s, mi2s = hungarian(cost, gate=gate)
                     if len(mi1s) > 0:
                         logging.debug(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
-                    for i1, i2 in zip(mi1s, mi2s):
+                    for i1, i2 in zip(mi1s, mi2s):  # type: ignore
                         h1 = h1_ids[i1]
                         h2 = h2_ids[i2]
                         dist = cost[i1, i2]
@@ -832,7 +834,7 @@ class STA(Pipeline):
                     ub = filter(np.array(d).reshape(-1, 1))             # type: ignore
                     matches = matches[matches[:, 3] <= ub]                  
                     
-                    logging.info(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
+                    logging.debug(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
             
             self.distances.extend(matches[:, 3].tolist())       # type: ignore
 
@@ -984,7 +986,7 @@ class Visualize(Pipeline):
 
             self.trigger_pause()
             
-            for wl, iq in zip(self.wait_list, [self.annot_queue, self.video_queue]):
+            for wl, iq in zip(self.wait_list, [self.annot_queue, self.video_queue]):    # type: ignore
                 wl.extend(
                     iq.get_many(                                                # type: ignore
                         size=self.config.get('QUEUE_GET_MANY_SIZE'),
@@ -1326,17 +1328,40 @@ class Export(Pipeline):
 
 class Staff:
 
-    MAX_AGE = 5
+    MAX_AGE = 30
 
-    def __init__(self, sid):
+    def __init__(self, sid, cid, tid):
         self.sid = sid
-        self.age = 0
-        self.history = []
+        
+        self.cid = cid
+        self.tid = tid
+        self.age = -1
+        self.mat_his = []
+
     
-    def update(self):
-        pass
-
-
+    def update(self, cur, mat):
+        
+        cid, tid = self.cid, self.tid
+        
+        if mat is None:
+            if self.age >= 0:
+                self.age += 1
+        else:
+            self.mat_his.append(mat)
+            self.age = 0
+        
+        if self.age > Staff.MAX_AGE:
+            if len(self.mat_his) > 0:
+                freq = {}
+                for m in self.mat_his:
+                    freq[m] = freq.get(m, 0) + 1
+                self.cid, self.tid = max(freq, key=freq.get)    # type: ignore
+                self.age = 0
+                self.mat_his = []
+        
+        return cid, tid
+            
+            
 
 
 class StaffMap(Pipeline):
@@ -1346,18 +1371,24 @@ class StaffMap(Pipeline):
             config: Config,
             sct_queues: dict,
             sta_queues: dict,
-            output_queues: Union[List[MyQueue], MyQueue, None] = None, 
+            checkin_scene: Scene,
+            checkin_cid: int,
+            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             name='Staff Map'
     ) -> None:
         super().__init__(config, output_queues, name)
 
         self.sct_queues = sct_queues
         self.sta_queues = sta_queues
+        
+        self.checkin_scene = checkin_scene
+        self.checkin_cid = checkin_cid
+        self._check_checkin_cid()
 
-        self.history = {
-            'sct': {},
-            'sta': {},
-        }
+        self.staffs = []
+
+        self.wait_list = self._new_wait_list()
+        
     
     def _start(self) -> None:
         
@@ -1365,15 +1396,174 @@ class StaffMap(Pipeline):
 
             self.trigger_pause()
 
-            for t, q in (('sct', self.sct_queues), ('sta', self.sta_queues)):
-                for k, v in self.history[t].items():
-                    v.extend(q[k].get_many(
+            for i, q in enumerate([self.sct_queues, self.sta_queues]):
+                for k, v in q.items():
+                    if k not in self.wait_list[i]:
+                        self.wait_list[i][k] = []
+                    self.wait_list[i][k].extend(v.get_many(
                         size=self.config.get('QUEUE_GET_MANY_SIZE'),
                         block=self.config.get('QUEUE_GET_BLOCK'),
                         timeout=self.config.get('QUEUE_TIMEOUT')
                     ))
+
+            active_list = self.wait_list
+            self.wait_list = self._new_wait_list()
+
+            sta_midxs = self._match_sta_index(active_list[1])
+            sct_midxs, sta_midxs = self._match_sct_index(active_list[0], active_list[1], sta_midxs)
+
+            if len(list(sta_midxs.values())[0]) == 0:
+                self.wait_list = active_list
+                continue
+
+            T = len(list(sta_midxs.values())[0])
+
+            for wl, al, idxs in zip(self.wait_list, active_list, [sct_midxs, sta_midxs]):   # type: ignore
+                for k in al:
+                    if k not in wl:
+                        wl[k] = []
+                    wl[k].extend(al[k][idxs[k][-1] + 1:])
+                    al[k] = [al[k][idx] for idx in idxs[k]]
+
+            for t in range(T):
+                signin_sid = active_list[0][self.checkin_cid][t]['signin_sid']
+                if signin_sid is not None:
+                    dets = active_list[0][self.checkin_cid][t]['sct_output']
+                    locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'), (self.checkin_scene.width / 2, self.checkin_scene.height)) # type: ignore
+                    in_roi_idxs = self.checkin_scene.is_in_roi(locs)
+                    dets_in_roi = dets[in_roi_idxs]
+                    assert len(dets_in_roi) == 1
+                    tid = int(dets_in_roi[0][1])
+                    self.staffs.append(Staff(signin_sid, self.checkin_cid, tid))
+                
+                stf_pres = [(stf.cid, stf.tid) for stf in self.staffs]
+                obj_curs = {(cid, int(d[1])): d
+                            for cid, cv in active_list[0].items() 
+                            for d in cv[t]['sct_output']}
+
+                mat_curs = {}
+                for (cid1, cid2), cv in active_list[1].items():
+                    for tid1, tid2 in cv[t]['matches']:
+                        mat_curs[(cid1, tid1)] = (cid2, tid2)
+                        mat_curs[(cid2, tid2)] = (cid1, tid1)
+
+                # for cid, cv in active_list[0].items():
+                    # print(f'CID<{cid}>(frame_id={cv[t]["frame_id"]})', end='\t')
+                # print()
+                
+                for i, (cid, tid) in enumerate(stf_pres):
+                    self.staffs[i].update(
+                        obj_curs.get((cid, tid), None),
+                        mat_curs.get((cid, tid), None)
+                    )
+                    # print(f'Staff<{self.staffs[i].sid}>(cid={self.staffs[i].cid}, tid={self.staffs[i].tid})', end='\t')
+                # print()
+
+                
+
+
+
+
+
+
+    def _check_checkin_cid(self):
+        assert self.checkin_cid in self.sct_queues
+               
             
-            print(self.history)
+    def _match_sta_index(self, sta_dict):
+        ks, vs = list(sta_dict.keys()), list(sta_dict.values())
+        cids = {}
+        for i, k in enumerate(ks):
+            for j, cid in enumerate(k):
+                if cid not in cids:
+                    cids[cid] = []
+                cids[cid].append((i, j))
+                
+        its = [0 for _ in range(len(ks))]
+        idxs = [[] for _ in range(len(ks))]
+
+        while True:
+            cond = True
+            for i, it in enumerate(its):
+                cond = cond and (it < len(vs[i]))
+            if not cond:
+                break
+
+            good = True
+            
+            for cid in cids:
+                br1 = False
+                fid_p = None
+                for i, j in cids[cid]:
+                    fid = vs[i][its[i]][f'frame_id_{j + 1}']
+                    if fid_p is None:
+                        fid_p = fid
+                    else:
+                        if fid != fid_p:
+                            if fid < fid_p:
+                                its[i] += 1
+                            else:
+                                for ib in range(i):
+                                    its[ib] += 1
+                            br1 = True
+                            break
+                if br1:
+                    good = False
+                    break
+            
+            if good:
+                for i in range(len(ks)):
+                    idxs[i].append(its[i])
+                    its[i] += 1
+
+        return {k: v for k, v in zip(ks, idxs)} # type: ignore
+
+    
+    def _match_sct_index(self, sct_dict, sta_dict, sta_idxs):
+        sct_ks = []
+        sct_idxs = []
+        new_sta_idxs = {}
+        for i, (pk, idxs) in enumerate(sta_idxs.items()):
+            new_sta_idxs[pk] = []
+            for cj, cid in enumerate(pk):
+                if cid in sct_ks:
+                    continue
+                
+                sct_ks.append(cid)
+                sct_idxs.append([])
+
+                write_sta = True if len(new_sta_idxs[pk]) == 0 else False
+
+                j, q = 0, 0
+                while j < len(sct_dict[cid]) and q < len(idxs):
+                    sta_fid = sta_dict[pk][idxs[q]][f'frame_id_{cj + 1}']
+                    sct_fid = sct_dict[cid][j]['frame_id']
+                    if sta_fid == sct_fid:
+                        sct_idxs[-1].append(j)
+                        if write_sta:
+                            new_sta_idxs[pk].append(idxs[q])
+                        j += 1
+                        q += 1
+                    elif sta_fid < sct_fid:
+                        q += 1
+                    else:
+                        j += 1
+
+        return {k: v for k, v in zip(sct_ks, sct_idxs)}, new_sta_idxs       # type: ignore
+                
+
+        
+
+            
+
+
+                
+
+
+
+    
+    def _new_wait_list(self):
+        return [{}, {}] # sct and sta
 
 
 
