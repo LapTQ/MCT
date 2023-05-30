@@ -54,7 +54,7 @@ def async_startup(app):
             
             sm_iq_sct[cid] = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-SM_SCT<{cid}>')
             
-            pl_camera_noretimg = PLCamera(config, cv['address'], meta, [iq_sct], name=f'CameraNoRet<{cid}>')   # Needed to run mock checkin
+            pl_camera_noretimg = PLCamera(config, cv['address'], meta, [iq_sct], ret_img=False, name=f'CameraNoRet<{cid}>')   # Needed to run mock checkin
             pl_camera_retimg = PLCamera(config, cv['address'], meta, [iq_vis_sct_video], name=f'CameraRet<{cid}>')
             
             tracker = Tracker(config.get('DETECTION_MODE'), config.get('TRACKING_MODE'), f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{cv["num"]}_00011_2023-04-15_08-30-00-000000.txt')
@@ -104,7 +104,7 @@ def async_startup(app):
             sm_iq_sta[(csid, cpid)] = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-SM_STA<({csid}, {cpid})>')
             
             stas[(csid, cpid)] = {
-                'pl_sync': PLSync(config, [iq_sync_s, iq_sync_p], iq_sta_sync, name=f'Sync<({csid}, {cpid})>'),
+                'pl_sync': PLSync(config, [iq_sync_s, iq_sync_p], [iq_sta_sync], name=f'Sync<({csid}, {cpid})>'),
                 'pl_sta': PLSTA(config, [ss, ps], H, [iq_sta_sct_s, iq_sta_sct_p], iq_sta_sync, [sm_iq_sta[(csid, cpid)]], name=f'STA<({csid}, {cpid})>')
             }
 
@@ -122,12 +122,31 @@ def async_startup(app):
         for cid, cv in cams.items():
             cv['pl_camera_noretimg'].start()
             # cv['pl_camera_retimg'].start()
-            cv['pl_sct'].start()
             # cv['pl_display'].start()
+
+        if config.get('RUNNING_MODE') == 'offline':
+            for cid, cv in cams.items():
+                cv['pl_camera_noretimg'].join()
+        
+        for cid, cv in cams.items():
+            cv['pl_sct'].start()
 
         for cv in stas.values():
             cv['pl_sync'].start()
+        
+        if config.get('RUNNING_MODE') == 'offline':
+            for cid, cv in cams.items():            ##############
+                cv['pl_sct'].join()
+            
+            for cv in stas.values():                ##############
+                cv['pl_sync'].join()
+
+        for cv in stas.values():
             cv['pl_sta'].start()
+        
+        if config.get('RUNNING_MODE') == 'offline':
+            for cv in stas.values():
+                cv['pl_sta'].join()
 
         pl_sm.start()
 

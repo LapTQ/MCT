@@ -10,6 +10,7 @@ import sys
 import yaml
 from abc import ABC, abstractmethod
 import numpy as np
+from copy import deepcopy
 
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
@@ -300,6 +301,8 @@ class Camera(Pipeline):
 
         while not self.is_stopped():
 
+            start_time = time.time()
+
             self.trigger_pause()
 
             if not self.cap.isOpened():
@@ -354,10 +357,13 @@ class Camera(Pipeline):
                 'signin_sid': signin_sid
             }
             
-            self._put_to_output_queues(out_item, f"frame_id={frame_id}, frame_time={datetime.fromtimestamp(frame_time).strftime('%Y-%m-%d_%H-%M-%S-%f')}")
+            self._put_to_output_queues(out_item)
+
+            end_time = time.time()
 
             # if reading from video on disk, then sleep according to fps to sync time.
-            sleep = self.config.get('CAMERA_SLEEP') + (0 if self.meta is None else self.config.get('CAMERA_SLEEP_MUL_FACTOR') / self.fps)
+            sleep = 0 if self.meta is None or self.config.get('RUNNING_MODE') == 'offline' \
+                else max(0, self.config.get('CAMERA_SLEEP_MUL_FACTOR') / self.fps - (end_time - start_time))
             logging.debug(f"{self.name}:\t sleep {sleep}")
             time.sleep(sleep)
         
@@ -521,6 +527,8 @@ class SCT(Pipeline):
         
         while not self.is_stopped():
 
+            start_time = time.time()
+
             self.trigger_pause()
 
             items = self.input_queue.get_many(
@@ -544,10 +552,13 @@ class SCT(Pipeline):
                     ##### END HERE #####
                 }
 
-                self._put_to_output_queues(out_item, f"frame_id={item['frame_id']}, sct shape={dets.shape}")
+                self._put_to_output_queues(out_item)
             
-            logging.debug(f"{self.name}:\t sleep {self.config.get('SCT_TXT_SLEEP')}")
-            time.sleep(self.config.get('SCT_TXT_SLEEP'))
+            end_time = time.time()
+            logging.debug(f'{self.name}:\t sleep due to .txt tracking result')
+            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
+            time.sleep(sleep)
 
             if self.config.get('RUNNING_MODE') == 'offline':
                 break
@@ -575,6 +586,8 @@ class SyncFrame(Pipeline):
     def _start(self) -> None:
 
         while not self.is_stopped():
+
+            start_time = time.time()
 
             self.trigger_pause()
             
@@ -619,7 +632,7 @@ class SyncFrame(Pipeline):
                 self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.input_queues[1].name} to wait list')
-
+            
             logging.debug(f'{self.name}:\t processing {len(c1_adict_matched)} frames')
             
             for i, j in zip(c1_adict_matched, c2_adict_matched):
@@ -630,7 +643,13 @@ class SyncFrame(Pipeline):
                     'frame_id_match': (adict['frame_id'][0][i], adict['frame_id'][1][j])
                 }
 
-                self._put_to_output_queues(out_item, f'frame_ids={out_item["frame_id_match"]}')
+                self._put_to_output_queues(out_item)
+            
+            end_time = time.time()
+            logging.debug(f'{self.name}:\t sleep')
+            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
+            time.sleep(sleep)
             
             if self.config.get('RUNNING_MODE') == 'offline':
                 break
@@ -682,7 +701,11 @@ class STA(Pipeline):
         
         while not self.is_stopped():
 
+            start_time = time.time()
+
             self.trigger_pause()
+
+            t0 = time.time() ################
             
             for wl, iq in zip(self.wait_list, self.sct_queues + [self.sync_queue]):     # type: ignore
                 wl.extend(
@@ -697,7 +720,6 @@ class STA(Pipeline):
             self.wait_list = self._new_wait_list()
 
             # TODO CHUYEN 1 SO FRAME CUOI VE WAITING LIST => WINDOW
-            # TODO thong ke toc do => realtime + sleep sao cho memory usage on dinh
 
             # reorganize items
             adict = {
@@ -731,14 +753,19 @@ class STA(Pipeline):
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
+            logging.info(f'{self.name}:\t processing {T} pairs of frames')
             del adict['frame_id_match']
             for k in adict:
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
                 adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
 
+            t1 = time.time() ################
+            
             logging.debug(f"{self.name}:\t infer location from detection with LOC_INFER_MODE={self.config.get('LOC_INFER_MODE')}")
             adict['in_roi'] = [[], []]
+
+            tr1 = tr2 = tr3 = tr4 = 0 #################
+
             for t in range(T):
                 self.history.append(
                     (
@@ -750,10 +777,15 @@ class STA(Pipeline):
                     )
                 )
                 for c in range(2):
+
                     scene = self.scenes[c]
                     dets = adict['sct_output'][c][t]
+                    t5 = time.time()    ########
                     locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'), (scene.width / 2, scene.height))   # type: ignore
+                    t6 = time.time()    ########
                     
+                    
+
                     # filter in ROI
                     if self.config.get('STA_PSEUDO_SAME_CAMERA') and self.config.get('STA_PSEUDO_IN_ROI_ACCORD_CAM1'):
                         # handle for pseudo true mapping between gt box vs tracker pose, because differen detection mode might give different in-roi result
@@ -768,6 +800,8 @@ class STA(Pipeline):
                     else:
                         in_roi_idxs = scene.is_in_roi(locs)
                     
+                    t7 = time.time()    ########
+                    
                     dets_in_roi = dets[in_roi_idxs]
                     locs_in_roi = locs[in_roi_idxs]
                     if (c == 0 and (not self.config.get('STA_PSEUDO_SAME_CAMERA') or self.homo is not None)) \
@@ -780,11 +814,23 @@ class STA(Pipeline):
                     adict['in_roi'][c].append(dets_in_roi)
                     logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
 
+                    t8 = time.time()    ########
+                    
                     # store location history, both inside-only and inide-outside
                     assert dets_in_roi.shape[1] in (10, 61, 9), 'expect track_id is of index 1' # ATTENTION: 9 is for output of CVAT only @@
                     self.history[-1][2][c].update({id: loc for id, loc in zip(np.int32(dets[:, 1]), locs.tolist())})                     # type: ignore
                     self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi.tolist())})       # type: ignore
 
+                    t9 = time.time()    ########
+
+                    tr1 += (t6-t5)
+                    tr2 += (t7-t6)
+                    tr3 += (t8-t7)
+                    tr4 += (t9-t8)
+
+            
+            t2 = time.time() ################
+            
             ub = 2e9
             logging.debug(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.config.get('DIST_WINDOW_SIZE')}, WINDOW_BOUNDARY={self.config.get('DIST_WINDOW_BOUNDARY')}")
             for iter_n in range(2 if self.config.get('FP_FILTER') and self.config.get('FP_REMAP') else 1):
@@ -837,10 +883,13 @@ class STA(Pipeline):
                     logging.debug(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
             
             self.distances.extend(matches[:, 3].tolist())       # type: ignore
-
+            
+            
             for m in matches:               # type: ignore
                 t = int(m[0].item())
                 self.history[t - T][4].append(np.int32(m[1:3]).tolist())    # correct only because t in [0, T-1]
+
+            t3 = time.time() ################
 
             for his in self.history[-T:]:
                 out_item = {
@@ -851,8 +900,16 @@ class STA(Pipeline):
                     'matches': his[4]
                 }
                 
-                self._put_to_output_queues(out_item, f'frame_ids={his[0], his[1]}, #matches={len(his[4])}')
+                self._put_to_output_queues(out_item)
 
+            logging.info(f'{self.name}:\t processing time t0={(t1-t0)/T:.4f}, t1={(t2-t1)/T:.4f}, t2={(t3-t2)/T:.4f}, tr1={tr1/T:.4f}, tr2={tr2/T:.4f}, tr3={tr3/T:.4f}, tr4={tr4/T:.4f}')  ################
+            
+            end_time = time.time()
+            logging.debug(f'{self.name}:\t sleep')
+            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
+            time.sleep(sleep)
+            
             if self.config.get('RUNNING_MODE') == 'offline':
                 break
 
@@ -1394,6 +1451,8 @@ class StaffMap(Pipeline):
         
         while not self.is_stopped():
 
+            start_time = time.time()
+
             self.trigger_pause()
 
             for i, q in enumerate([self.sct_queues, self.sta_queues]):
@@ -1458,6 +1517,12 @@ class StaffMap(Pipeline):
                     )
                     # print(f'Staff<{self.staffs[i].sid}>(cid={self.staffs[i].cid}, tid={self.staffs[i].tid})', end='\t')
                 # print()
+
+            
+            end_time = time.time()
+            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
+            time.sleep(sleep)
 
                 
 
@@ -1686,6 +1751,101 @@ def main(kwargs):
         pl_exp.join()
 
 
+def main2(kwargs):
+
+    config = Config(kwargs['config'])
+
+    # input queues
+    iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-<1>-Input-Queue')
+    iq_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-<2>-Input-Queue')
+    iq_sct_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-<3>-Input-Queue')
+    
+    iq_sync_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<*1, 2>-Input-Queue')
+    iq_sync_21 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<1, *2>-Input-Queue')
+    iq_sync_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<*2, 3>-Input-Queue')
+    iq_sync_32 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<2, *3>-Input-Queue')
+    
+    
+    iq_sta_sct_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<*1, 2>-InputSCT-Queue')
+    iq_sta_sct_21 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<1, *2>-InputSCT-Queue')
+    iq_sta_sync_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<1, 2>-InputSync-Queue')
+    iq_sta_sct_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<*2, 3>-InputSCT-Queue')
+    iq_sta_sct_32 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<2, *3>-InputSCT-Queue')
+    iq_sta_sync_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<2, 3>-InputSync-Queue')
+
+    # ONLY USE META IF CAPTURING VIDEOS
+    meta_1 = yaml.safe_load(open(kwargs['meta_1'], 'r'))
+    meta_2 = yaml.safe_load(open(kwargs['meta_2'], 'r'))
+    meta_3 = yaml.safe_load(open(kwargs['meta_3'], 'r'))
+
+    pl_camera_1_noretimg = Camera(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_sct_1, iq_sync_12], ret_img=False, name='Camera-<1>-NoRetImg')
+    pl_camera_2_noretimg = Camera(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_sct_2, iq_sync_21, iq_sync_23], ret_img=False, name='Camera-<2>-NoRetImg')
+    pl_camera_3_noretimg = Camera(config, kwargs['camera_3'], meta=meta_3, output_queues=[iq_sct_3, iq_sync_32], ret_img=False, name='Camera-<3>-NoRetImg')
+    
+    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_1'], name='Tracker-<1>')
+    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_2'], name='Tracker-<2>')
+    tracker3 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_3'], name='Tracker-<3>')
+    pl_sct_1 = SCT(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_12], name='SCT-<1>')
+    pl_sct_2 = SCT(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_21, iq_sta_sct_23], name='SCT-<2>')
+    pl_sct_3 = SCT(config, tracker=tracker3, input_queue=iq_sct_3, output_queues=[iq_sta_sct_32], name='SCT-<3>')
+    
+    pl_sync_12 = SyncFrame(config, [iq_sync_12, iq_sync_21], iq_sta_sync_12)
+    pl_sync_23 = SyncFrame(config, [iq_sync_23, iq_sync_32], iq_sta_sync_23)
+    
+    roi_21 = load_roi(kwargs['roi_21'], pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
+    homo_12 = load_homo(kwargs['matches_12'])
+    roi_12 = cv2.perspectiveTransform(roi_21, np.linalg.inv(homo_12)) # type: ignore
+    roi_32 = load_roi(kwargs['roi_32'], pl_camera_3_noretimg.width, pl_camera_3_noretimg.height)
+    homo_23 = load_homo(kwargs['matches_23'])
+    roi_23 = cv2.perspectiveTransform(roi_32, np.linalg.inv(homo_23)) # type: ignore
+    scene_12 = Scene(pl_camera_1_noretimg.width, pl_camera_1_noretimg.height, roi_12, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<*1, 2>')
+    scene_21 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_21, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<1, *2>')
+    scene_23 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_23, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<*2, 3>')
+    scene_32 = Scene(pl_camera_3_noretimg.width, pl_camera_3_noretimg.height, roi_32, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<2, *3>')
+    pl_sta_12 = STA(config, [scene_12, scene_21], homo_12, [iq_sta_sct_12, iq_sta_sct_21], iq_sta_sync_12, name='STA-<1, 2>')
+    pl_sta_23 = STA(config, [scene_23, scene_32], homo_23, [iq_sta_sct_23, iq_sta_sct_32], iq_sta_sync_23, name='STA-<2, 3>')
+
+    # start
+    pl_camera_1_noretimg.start()
+    pl_camera_2_noretimg.start()
+    pl_camera_3_noretimg.start()
+    if config.get('RUNNING_MODE') == 'offline':
+        pl_camera_1_noretimg.join()     # offline
+        pl_camera_2_noretimg.join()     # offline
+        pl_camera_3_noretimg.join()     # offline
+    
+    pl_sct_1.start()
+    pl_sct_2.start()
+    pl_sct_3.start()
+    pl_sync_12.start()
+    pl_sync_23.start()
+    if config.get('RUNNING_MODE') == 'offline':
+        pl_sct_1.join()                 # offline
+        pl_sct_2.join()                 # offline
+        pl_sct_3.join()                 # offline
+        pl_sync_12.join()                  # offline
+        pl_sync_23.join()                  # offline
+
+    pl_sta_12.start()
+    # pl_sta_23.start()
+    if config.get('RUNNING_MODE') == 'offline':
+        pl_sta_12.join()                   # offline
+        pl_sta_23.join()                   # offline
+
+
+    if config.get('RUNNING_MODE') == 'online':
+        pl_camera_1_noretimg.join()
+        pl_camera_2_noretimg.join()
+        # pl_camera_3_noretimg.join()
+        pl_sct_1.join()
+        pl_sct_2.join()
+        # pl_sct_3.join()
+        pl_sync_12.join()
+        # pl_sync_23.join()
+        pl_sta_12.join()
+        # pl_sta_23.join()
+        
+
 
 
 if __name__ == '__main__':
@@ -1711,6 +1871,31 @@ if __name__ == '__main__':
 
     }
     
-    main(kwargs)
+    # main(kwargs)
+
+    kwargs2 = {
+        'config': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/config_pred_mct_trackertracker_18.yaml',
+        
+        'meta_1': 'data/recordings/2d_v4/meta/41_00011_2023-04-15_08-30-00-000000.yaml',
+        'meta_2': 'data/recordings/2d_v4/meta/42_00011_2023-04-15_08-30-00-000000.yaml',
+        'meta_3': 'data/recordings/2d_v4/meta/43_00011_2023-04-15_08-30-00-000000.yaml',
+        'camera_1': 'data/recordings/2d_v4/videos/41_00011_2023-04-15_08-30-00-000000.avi',
+        'camera_2': 'data/recordings/2d_v4/videos/42_00011_2023-04-15_08-30-00-000000.avi',
+        'camera_3': 'data/recordings/2d_v4/videos/43_00011_2023-04-15_08-30-00-000000.avi',
+        
+        'sct_1': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/41_00011_2023-04-15_08-30-00-000000.txt',
+        'sct_2': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/42_00011_2023-04-15_08-30-00-000000.txt',
+        'sct_3': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/43_00011_2023-04-15_08-30-00-000000.txt',
+
+        'roi_21': 'data/recordings/2d_v4/roi_42.txt',
+        'roi_32': 'data/recordings/2d_v4/roi_43.txt',
+        'matches_12': 'data/recordings/2d_v4/matches_41_to_42.txt',
+        'matches_23': 'data/recordings/2d_v4/matches_42_to_43.txt',
+
+    }
+
+    main2(kwargs2)
+
+
 
     

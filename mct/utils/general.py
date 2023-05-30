@@ -68,11 +68,13 @@ def calc_loc(X, loc_infer_mode: int, mid: Union[Tuple[Union[float, int]], None] 
 
         ret = np.empty(shape=(len(X), 2), dtype='float32')
         boxes, kpts = X[:, 2:6], X[:, 10:61]
+        i = [[15, 13, 11, 5], [16, 14, 12, 6]]
+        
         for j, (box, kpt) in enumerate(zip(boxes, kpts)):
             locs = [kpt[i*3: i*3 + 2] for i in range(17)]
             conf = kpt[[2 + 3*i for i in range(17)]]
             f = [[], []]
-            i = [[15, 13, 11, 5], [16, 14, 12, 6]]
+            
             for c in range(2):
                 if conf[i[c][0]] >= 0.5:
                     if conf[i[c][2]] >= 0.5:
@@ -104,6 +106,42 @@ def calc_loc(X, loc_infer_mode: int, mid: Union[Tuple[Union[float, int]], None] 
                 ret[j] = (x + bx1 + bw/2) / 2, y
             
         return ret
+    
+    # if loc_infer_mode == 4:
+    #     boxes, kpts = X[:, 2:6], X[:, 10:61]
+    #     i = [[15, 13, 11, 5], [16, 14, 12, 6]]
+    #     masks = [[], []] # kpts[:, [2 + 3*i for i in range(17)]] > 0.5
+    #     cands = [[], []]
+    #     pairs = [[0, 2, 1/8.5], [0, 1, 1/4.5], [1, 2, 5/4.7], [1, 3, 2/4.8], [2, 3, 4/3]]
+    #     for c in range(2):
+    #         for i1, i2, co in pairs:
+    #             masks[c].append((kpts[:, i[c][i1] * 3 + 2] >= 0.5) * (kpts[:, i[c][i2] * 3 + 2] >= 0.5))
+    #             cands[c].append((1 + co) * kpts[:, [i[c][i1] * 3, i[c][i1] * 3 + 1]] - co * kpts[:, [i[c][i2] * 3, i[c][i2] * 3 + 1]])
+            
+        
+    #         masks[c] = np.stack(masks[c], axis=1)
+    #         cands[c] = np.where(
+    #             np.repeat(np.any(masks[c], axis=1), 2).reshape(-1, 2),
+    #             np.mean(np.stack(cands[c], axis=2), 
+    #                     axis=-1,
+    #                     where=np.expand_dims(masks[c], axis=1)),
+    #             kpts[:, [i[0][0] * 3, i[0][0] * 3 + 1]]
+    #         )
+    #         masks[c] = np.any(masks[c], axis=1) + (kpts[:, i[0][0] * 3 + 2] >= 0.5)
+        
+    #     mask = np.stack(masks, axis=1)
+    #     bc = boxes[:, :2] + boxes[:, 2:] * [0.5, 1]
+
+    #     ret = np.where(
+    #         np.repeat(np.all(mask, axis=1), 2).reshape(-1, 2),
+    #         np.mean(np.stack(cands, axis=2), axis=-1),
+    #         np.where(
+    #             np.repeat(np.all(~ mask, axis=1), 2).reshape(-1, 2),
+    #             bc,
+    #             np.sum(np.stack(cands, axis=2) * np.tile(mask, 2).reshape(-1, 2, 2), axis=-1) * [0.5, 1] + bc * [0.5, 0]
+    #         )
+    #     )
+
+    #     return ret
         
     raise NotImplementedError()
-
