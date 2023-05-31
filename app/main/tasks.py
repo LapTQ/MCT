@@ -49,23 +49,13 @@ def async_startup(app):
         for cid, cv in cams.items():
             meta = yaml.safe_load(open(f'data/recordings/2d_v4/meta/{cv["num"]}_00011_2023-04-15_08-30-00-000000.yaml', 'r'))
             iq_sct = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-SCT<{cid}>')
-            iq_vis_sct_annot = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Vis_SCT-Annot<{cid}>')
-            iq_vis_sct_video = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Vis_SCT-Video<{cid}>')
             
             sm_iq_sct[cid] = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-SM_SCT<{cid}>')
             
-            pl_camera_noretimg = PLCamera(config, cv['address'], meta, [iq_sct], ret_img=False, name=f'CameraNoRet<{cid}>')   # Needed to run mock checkin
-            pl_camera_retimg = PLCamera(config, cv['address'], meta, [iq_vis_sct_video], name=f'CameraRet<{cid}>')
+            cv['pl_camera_noretimg'] = PLCamera(config, cv['address'], meta, [iq_sct], ret_img=False, name=f'CameraNoRet<{cid}>')   # Needed to run mock checkin
             
             tracker = Tracker(config.get('DETECTION_MODE'), config.get('TRACKING_MODE'), f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{cv["num"]}_00011_2023-04-15_08-30-00-000000.txt')
-            pl_sct = PLSCT(config, tracker, iq_sct, [iq_vis_sct_annot, sm_iq_sct[cid]], name=f'SCT<{cid}>')
-            
-            
-            pl_display = PLVisualize(config, 'SCT', iq_vis_sct_annot, iq_vis_sct_video, name=f'Visualize<{cid}>')
-            cv['pl_camera_noretimg'] = pl_camera_noretimg
-            cv['pl_camera_retimg'] = pl_camera_retimg
-            cv['pl_sct'] = pl_sct
-            cv['pl_display'] = pl_display
+            cv['pl_sct'] = PLSCT(config, tracker, iq_sct, [sm_iq_sct[cid]], name=f'SCT<{cid}>')
             
 
         stas = {}
@@ -77,7 +67,6 @@ def async_startup(app):
             proi[:, 0] *= pw
             proi[:, 1] *= ph
             proi = proi.reshape(-1, 1, 2)
-            ps = Scene(pw, ph, proi, config.get('ROI_TEST_OFFSET'))
 
             csid = r.secondary_cam_id
             sw = cams[csid]['pl_camera_noretimg'].width
@@ -90,16 +79,16 @@ def async_startup(app):
             ps = Scene(pw, ph, proi, config.get('ROI_TEST_OFFSET'))
             ss = Scene(sw, sh, sroi, config.get('ROI_TEST_OFFSET'))
 
-            iq_sync_s = MyQueue(config.get('QUEUE_MAXSIZE'))
-            iq_sync_p = MyQueue(config.get('QUEUE_MAXSIZE'))
-            cams[csid]['pl_camera_noretimg'].add_output_queue(iq_sync_s, f'IQ-Sync<(*{csid}, {cpid})>')
-            cams[cpid]['pl_camera_noretimg'].add_output_queue(iq_sync_p, f'IQ-Sync<({csid}, *{cpid})>')
+            iq_sync_s = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Sync<(*{csid}, {cpid})>')
+            iq_sync_p = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Sync<({csid}, *{cpid})>')
+            cams[csid]['pl_camera_noretimg'].add_output_queue(iq_sync_s, iq_sync_s.name)
+            cams[cpid]['pl_camera_noretimg'].add_output_queue(iq_sync_p, iq_sync_p.name)
 
-            iq_sta_sct_s = MyQueue(config.get('QUEUE_MAXSIZE'))
-            iq_sta_sct_p = MyQueue(config.get('QUEUE_MAXSIZE'))
+            iq_sta_sct_s = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-STA_SCT<(*{csid}, {cpid})>')
+            iq_sta_sct_p = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-STA_SCT<({csid}, *{cpid})>')
             iq_sta_sync = MyQueue(config.get('QUEUE_MAXSIZE'))
-            cams[csid]['pl_sct'].add_output_queue(iq_sta_sct_s, f'IQ-STA_SCT<(*{csid}, {cpid})>')
-            cams[cpid]['pl_sct'].add_output_queue(iq_sta_sct_p, f'IQ-STA_SCT<({csid}, *{cpid})>')
+            cams[csid]['pl_sct'].add_output_queue(iq_sta_sct_s, iq_sta_sct_s.name)
+            cams[cpid]['pl_sct'].add_output_queue(iq_sta_sct_p, iq_sta_sct_p.name)
             
             sm_iq_sta[(csid, cpid)] = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-SM_STA<({csid}, {cpid})>')
             
@@ -121,8 +110,6 @@ def async_startup(app):
 
         for cid, cv in cams.items():
             cv['pl_camera_noretimg'].start()
-            # cv['pl_camera_retimg'].start()
-            # cv['pl_display'].start()
 
         if config.get('RUNNING_MODE') == 'offline':
             for cid, cv in cams.items():

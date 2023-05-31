@@ -299,9 +299,9 @@ class Camera(Pipeline):
         else:   # if reading from video on disk
             frame_id = self.meta['start_frame_id'] - 1
 
-        while not self.is_stopped():
+        start_time = time.time()
 
-            start_time = time.time()
+        while not self.is_stopped():
 
             self.trigger_pause()
 
@@ -357,16 +357,17 @@ class Camera(Pipeline):
                 'signin_sid': signin_sid
             }
             
-            self._put_to_output_queues(out_item)
-
+            logging.debug(f"{self.name}:\t sleep")
             end_time = time.time()
-
             # if reading from video on disk, then sleep according to fps to sync time.
             sleep = 0 if self.meta is None or self.config.get('RUNNING_MODE') == 'offline' \
                 else max(0, self.config.get('CAMERA_SLEEP_MUL_FACTOR') / self.fps - (end_time - start_time))
-            logging.debug(f"{self.name}:\t sleep {sleep}")
             time.sleep(sleep)
-        
+            
+            self._put_to_output_queues(out_item)
+
+            start_time = end_time
+
         self.cap.release()
 
     
@@ -524,10 +525,10 @@ class SCT(Pipeline):
 
     
     def _start(self) -> None:
+
+        start_time = time.time()
         
         while not self.is_stopped():
-
-            start_time = time.time()
 
             self.trigger_pause()
 
@@ -552,13 +553,15 @@ class SCT(Pipeline):
                     ##### END HERE #####
                 }
 
+                logging.debug(f'{self.name}:\t sleep due to .txt tracking result')
+                end_time = time.time()
+                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                    else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
+                time.sleep(sleep)
+
                 self._put_to_output_queues(out_item)
-            
-            end_time = time.time()
-            logging.debug(f'{self.name}:\t sleep due to .txt tracking result')
-            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
-            time.sleep(sleep)
+
+                start_time = end_time
 
             if self.config.get('RUNNING_MODE') == 'offline':
                 break
@@ -585,9 +588,9 @@ class SyncFrame(Pipeline):
     
     def _start(self) -> None:
 
-        while not self.is_stopped():
+        start_time = time.time()
 
-            start_time = time.time()
+        while not self.is_stopped():
 
             self.trigger_pause()
             
@@ -643,13 +646,15 @@ class SyncFrame(Pipeline):
                     'frame_id_match': (adict['frame_id'][0][i], adict['frame_id'][1][j])
                 }
 
+                logging.debug(f'{self.name}:\t sleep')
+                end_time = time.time()
+                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                    else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
+                time.sleep(sleep)
+
                 self._put_to_output_queues(out_item)
-            
-            end_time = time.time()
-            logging.debug(f'{self.name}:\t sleep')
-            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
-            time.sleep(sleep)
+
+                start_time = end_time
             
             if self.config.get('RUNNING_MODE') == 'offline':
                 break
@@ -698,10 +703,10 @@ class STA(Pipeline):
 
 
     def _start(self) -> None:
+
+        start_time = time.time()
         
         while not self.is_stopped():
-
-            start_time = time.time()
 
             self.trigger_pause()
 
@@ -753,7 +758,7 @@ class STA(Pipeline):
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logging.info(f'{self.name}:\t processing {T} pairs of frames')
+            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
             del adict['frame_id_match']
             for k in adict:
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
@@ -899,16 +904,18 @@ class STA(Pipeline):
                     'locs_in_roi': his[3],
                     'matches': his[4]
                 }
+
+                logging.debug(f'{self.name}:\t sleep')
+                end_time = time.time()
+                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                    else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
+                time.sleep(sleep)    
                 
                 self._put_to_output_queues(out_item)
 
-            logging.info(f'{self.name}:\t processing time t0={(t1-t0)/T:.4f}, t1={(t2-t1)/T:.4f}, t2={(t3-t2)/T:.4f}, tr1={tr1/T:.4f}, tr2={tr2/T:.4f}, tr3={tr3/T:.4f}, tr4={tr4/T:.4f}')  ################
-            
-            end_time = time.time()
-            logging.debug(f'{self.name}:\t sleep')
-            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
-            time.sleep(sleep)
+                start_time = end_time
+
+            # logging.info(f'{self.name}:\t processing time t0={(t1-t0)/T:.4f}, t1={(t2-t1)/T:.4f}, t2={(t3-t2)/T:.4f}, tr1={tr1/T:.4f}, tr2={tr2/T:.4f}, tr3={tr3/T:.4f}, tr4={tr4/T:.4f}')  ################
             
             if self.config.get('RUNNING_MODE') == 'offline':
                 break
@@ -1448,10 +1455,10 @@ class StaffMap(Pipeline):
         
     
     def _start(self) -> None:
+
+        start_time = time.time()
         
         while not self.is_stopped():
-
-            start_time = time.time()
 
             self.trigger_pause()
 
@@ -1506,23 +1513,25 @@ class StaffMap(Pipeline):
                         mat_curs[(cid1, tid1)] = (cid2, tid2)
                         mat_curs[(cid2, tid2)] = (cid1, tid1)
 
-                # for cid, cv in active_list[0].items():
-                    # print(f'CID<{cid}>(frame_id={cv[t]["frame_id"]})', end='\t')
-                # print()
+                for cid, cv in active_list[0].items():
+                    print(f'CID<{cid}>(frame_id={cv[t]["frame_id"]})', end='\t')
+                print()
                 
                 for i, (cid, tid) in enumerate(stf_pres):
                     self.staffs[i].update(
                         obj_curs.get((cid, tid), None),
                         mat_curs.get((cid, tid), None)
                     )
-                    # print(f'Staff<{self.staffs[i].sid}>(cid={self.staffs[i].cid}, tid={self.staffs[i].tid})', end='\t')
-                # print()
+                    print(f'Staff<{self.staffs[i].sid}>(cid={self.staffs[i].cid}, tid={self.staffs[i].tid})', end='\t')
+                print()
 
             
-            end_time = time.time()
-            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time))
-            time.sleep(sleep)
+                end_time = time.time()
+                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                    else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time)) + 0.01
+                time.sleep(sleep)
+
+                start_time = end_time
 
                 
 
@@ -1827,7 +1836,7 @@ def main2(kwargs):
         pl_sync_23.join()                  # offline
 
     pl_sta_12.start()
-    # pl_sta_23.start()
+    pl_sta_23.start()
     if config.get('RUNNING_MODE') == 'offline':
         pl_sta_12.join()                   # offline
         pl_sta_23.join()                   # offline
@@ -1836,14 +1845,14 @@ def main2(kwargs):
     if config.get('RUNNING_MODE') == 'online':
         pl_camera_1_noretimg.join()
         pl_camera_2_noretimg.join()
-        # pl_camera_3_noretimg.join()
+        pl_camera_3_noretimg.join()
         pl_sct_1.join()
         pl_sct_2.join()
-        # pl_sct_3.join()
+        pl_sct_3.join()
         pl_sync_12.join()
-        # pl_sync_23.join()
+        pl_sync_23.join()
         pl_sta_12.join()
-        # pl_sta_23.join()
+        pl_sta_23.join()
         
 
 
