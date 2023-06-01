@@ -34,8 +34,8 @@ FP_REMAP: true                                 # tune
 MIN_SAMPLE_SIZE_TO_FP_FILTER: 15
 FP_GMM_N_COMPONENTS: 2                          # tune
 FP_GMM_STD_COEF: 3                              # tune
-FP_IQR_LOWER: 25                                # tune
-FP_IQR_UPPER: 75                                # tune
+FP_IQR_LOWER: 30                                # tune
+FP_IQR_UPPER: 70                                # tune
 DIST_WINDOW_SIZE: 7                             # tune
 DIST_WINDOW_BOUNDARY: 10                         # tune
 

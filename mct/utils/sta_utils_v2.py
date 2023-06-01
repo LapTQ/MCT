@@ -363,7 +363,7 @@ if __name__ == '__main__':
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(19, 25)},
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'range_': range(1, 13)},
         #'2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': range(1, 13)},
-        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(1, 13)},
+        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(12, 13)},
     }
     for video_set in VIDEO_SET:
         VIDEO_SET[video_set]['video_set_dir'] = str(HERE / '../../data/recordings' / video_set)
@@ -379,6 +379,8 @@ if __name__ == '__main__':
         'YOLOXs_pretrained-640-ByteTrack',
         'YOLOv7pose_pretrained-640-ByteTrack',
         'YOLOv7box_pretrained-640-ByteTrack',
+        'YOLOv7pose_pretrained-640-ByteTrack-IDfixed',
+        'YOLOv7box_pretrained-640-ByteTrack-IDfixed'
     ]
     
 
@@ -431,57 +433,57 @@ if __name__ == '__main__':
             ################# make ground truth ##################
             # make pseudotrue sct gt-tracker
             out_pseudotrue_sct_gttracker1_path = str(Path(video_set_dir) / tracker_name / 'pseudotrue' / 'sct_gttracker' / f'{cam1_id}_{video_id}.txt')
-            # main({
-            #     'config': config_true_path,
+            main({
+                'config': config_true_path,
             
-            #     'meta_1': meta1_path,
-            #     'meta_2': meta1_path,
-            #     'camera_1': vid1_path,
-            #     'camera_2': vid1_path,
+                'meta_1': meta1_path,
+                'meta_2': meta1_path,
+                'camera_1': vid1_path,
+                'camera_2': vid1_path,
                 
-            #     'sct_1': gt_txt1_path,
-            #     'sct_2': tracker_txt1_path,
+                'sct_1': gt_txt1_path,
+                'sct_2': tracker_txt1_path,
 
-            #     'roi': roi_path,
-            #     'matches': matches_path,
+                'roi': roi_path,
+                'matches': matches_path,
 
-            #     'out_sta_txt': out_pseudotrue_sct_gttracker1_path,
-            #     'out_sct_vid_1': None,
-            #     'out_sct_vid_2': None,
-            #     'out_sta_vid': None
-            # })
+                'out_sta_txt': out_pseudotrue_sct_gttracker1_path,
+                'out_sct_vid_1': None,
+                'out_sct_vid_2': None,
+                'out_sta_vid': None
+            })
 
             out_pseudotrue_sct_gttracker2_path = str(Path(video_set_dir) / tracker_name / 'pseudotrue' / 'sct_gttracker' / f'{cam2_id}_{video_id}.txt')
-            # main({
-            #     'config': config_true_path,
+            main({
+                'config': config_true_path,
             
-            #     'meta_1': meta2_path,
-            #     'meta_2': meta2_path,
-            #     'camera_1': vid2_path,
-            #     'camera_2': vid2_path,
+                'meta_1': meta2_path,
+                'meta_2': meta2_path,
+                'camera_1': vid2_path,
+                'camera_2': vid2_path,
                 
-            #     'sct_1': gt_txt2_path,
-            #     'sct_2': tracker_txt2_path,
+                'sct_1': gt_txt2_path,
+                'sct_2': tracker_txt2_path,
 
-            #     'roi': roi_path,
-            #     'matches': None,
+                'roi': roi_path,
+                'matches': None,
 
-            #     'out_sta_txt': out_pseudotrue_sct_gttracker2_path,
-            #     'out_sct_vid_1': None,
-            #     'out_sct_vid_2': None,
-            #     'out_sta_vid': None
-            # })
+                'out_sta_txt': out_pseudotrue_sct_gttracker2_path,
+                'out_sct_vid_1': None,
+                'out_sct_vid_2': None,
+                'out_sta_vid': None
+            })
 
             # make pseudotrue mct tracker-tracker
             out_pseudotrue_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pseudotrue' / 'mct_trackertracker' / f'{cam1_id}_{cam2_id}_{video_id}.txt')
-            # make_pseudotrue_mct_trackertracker(
-            #     true_mct_gtgt_path,
-            #     meta1_path,
-            #     meta2_path,
-            #     out_pseudotrue_sct_gttracker1_path,
-            #     out_pseudotrue_sct_gttracker2_path,
-            #     out_pseudotrue_mct_trackertracker_path
-            # )
+            make_pseudotrue_mct_trackertracker(
+                true_mct_gtgt_path,
+                meta1_path,
+                meta2_path,
+                out_pseudotrue_sct_gttracker1_path,
+                out_pseudotrue_sct_gttracker2_path,
+                out_pseudotrue_mct_trackertracker_path
+            )
 
             # predict mct tracker-tracker
             out_pred_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}' / f'{cam1_id}_{cam2_id}_{video_id}.txt')

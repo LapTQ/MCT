@@ -748,10 +748,10 @@ class STA(Pipeline):
                 self.wait_list = active_list
                 continue
 
-            # add un-processed items to wait list
-            self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
-            self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
-            self.wait_list[2].extend(active_list[2][sync_adict_matched[-1] + 1:])
+            # add un-processed items to wait list, postponse the last BOUNDARY frames for the next iteration
+            self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1 - self.config.get('DIST_WINDOW_BOUNDARY'):])
+            self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1 - self.config.get('DIST_WINDOW_BOUNDARY'):])
+            self.wait_list[2].extend(active_list[2][sync_adict_matched[-1] + 1 - self.config.get('DIST_WINDOW_BOUNDARY'):])
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.sct_queues[0].name} to wait list')
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.sct_queues[1].name} to wait list')
             logging.debug(f'{self.name}:\t putting {len(self.wait_list[2])} of {self.sync_queue.name} to wait list')
@@ -840,7 +840,7 @@ class STA(Pipeline):
             logging.debug(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.config.get('DIST_WINDOW_SIZE')}, WINDOW_BOUNDARY={self.config.get('DIST_WINDOW_BOUNDARY')}")
             for iter_n in range(2 if self.config.get('FP_FILTER') and self.config.get('FP_REMAP') else 1):
                 matches = []
-                for t in range(T):
+                for t in range(T - self.config.get('DIST_WINDOW_BOUNDARY')):    # postponse the last BOUNDARY frames for the next iteration
                     
                     h1_ids = adict['in_roi'][0][t][:, 1]
                     h2_ids = adict['in_roi'][1][t][:, 1]
@@ -889,14 +889,15 @@ class STA(Pipeline):
             
             self.distances.extend(matches[:, 3].tolist())       # type: ignore
             
-            
             for m in matches:               # type: ignore
                 t = int(m[0].item())
                 self.history[t - T][4].append(np.int32(m[1:3]).tolist())    # correct only because t in [0, T-1]
 
+            self.history = self.history[:len(self.history) - self.config.get('DIST_WINDOW_BOUNDARY')]   # postponse the last BOUNDARY frames for the next iteration
+            
             t3 = time.time() ################
 
-            for his in self.history[-T:]:
+            for his in self.history[-max(T - self.config.get('DIST_WINDOW_BOUNDARY'), 0):]:     # postponse the last BOUNDARY frames for the next iteration
                 out_item = {
                     'frame_id_1': his[0],
                     'frame_id_2': his[1],
@@ -1417,8 +1418,8 @@ class Staff:
         if self.age > Staff.MAX_AGE:
             if len(self.mat_his) > 0:
                 freq = {}
-                for m in self.mat_his:
-                    freq[m] = freq.get(m, 0) + 1
+                for i, m in enumerate(self.mat_his):
+                    freq[m] = freq.get(m, 0) + i                # more weight on newer candidate
                 self.cid, self.tid = max(freq, key=freq.get)    # type: ignore
                 self.age = 0
                 self.mat_his = []
@@ -1458,7 +1459,7 @@ class StaffMap(Pipeline):
 
         start_time = time.time()
         
-        while not self.is_stopped():
+        while True:# not self.is_stopped():
 
             self.trigger_pause()
 
@@ -1523,12 +1524,13 @@ class StaffMap(Pipeline):
                         mat_curs.get((cid, tid), None)
                     )
                     print(f'Staff<{self.staffs[i].sid}>(cid={self.staffs[i].cid}, tid={self.staffs[i].tid})', end='\t')
+                    
                 print()
 
             
                 end_time = time.time()
                 sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                    else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time)) + 0.01
+                    else max(0, self.config.get('SCT_TXT_SLEEP') - (end_time - start_time)) + 0.01  # TODO fix this
                 time.sleep(sleep)
 
                 start_time = end_time
@@ -1624,16 +1626,6 @@ class StaffMap(Pipeline):
                         j += 1
 
         return {k: v for k, v in zip(sct_ks, sct_idxs)}, new_sta_idxs       # type: ignore
-                
-
-        
-
-            
-
-
-                
-
-
 
     
     def _new_wait_list(self):
