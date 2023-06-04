@@ -1,13 +1,25 @@
 {% extends "base.html" %}
 
 {% block app_content %}
-    <h1>Staff list</h1>
 
-    <ul>
+    <table class="table table-hover">
+        <tr>
+            <td style="vertical-align: middle; border-top: none;"><h1>Staff list</h1></td>
+            <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('auth.create_account') }}"> Create account </a></td>
+        </tr>
+
+        <tr>
+            <td style="vertical-align: middle; border-top: none;">Username</td>
+            <td style="vertical-align: middle; border-top: none;">Role</td>
+        </tr>
+
         {% for user in users%}
-            <li><a href="{{ url_for('main.user', username=user.username) }}">{{ user.username }}</a></li>
+            <tr>
+                <td><a href="{{ url_for('main.user', username=user.username) }}">{{ user.username }}</a></td>
+                <td>{{ user.role }}</td>
+            </tr>
         {% endfor %}
-    </ul>
-    
+
+    </table>
 
 {% endblock %}

@@ -38,7 +38,7 @@ def login():
         # TODO xu ly sign-in vs check-in
         if user.role in ['intern', 'engineeer']:
             checkin_cam_id = Region.query.filter_by(type='checkin').first().primary_cam_id
-            cams[checkin_cam_id]['pl_camera_noretimg'].signal_signin(user.id)
+            cams[checkin_cam_id]['pl_camera'].signal_signin(user.id)
         ##### END HERE #####
     
         next_page = request.args.get('next')
@@ -59,7 +59,7 @@ def logout():
 @login_required
 def create_account():
 
-    if not current_user.role == 'admin': # type: ignore
+    if not current_user.role in ['admin', 'manager']: # type: ignore
         return redirect(url_for('main.index'))
     
     form = CreateAccountForm()

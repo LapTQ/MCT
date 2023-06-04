@@ -7,11 +7,11 @@ from app.models import User, RegisteredWorkshift, DayShift, Camera
 from app.main.forms import EmptyForm, RegisterWorkshiftForm
 
 ##### START HERE #####
-from app.main.tasks import cams, config     # TODO thay ten bien
+from app.main.tasks import cams, sm_oq, config     # TODO thay ten bien
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from mct.utils.pipeline import MyQueue
+from mct.utils.pipeline import MyQueue, Visualize
 import time
 from threading import Thread
 ##### END HERE #####
@@ -116,9 +116,18 @@ def view_cameras():
     
     ##### START HERE #####
     for cid, cv in cams.items():
-        name=f'IQ-Display<{cid}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>' # type: ignore
-        iq_display = MyQueue(config.get('QUEUE_MAXSIZE'), name=name)
-        cv['pl_display'].add_output_queue(iq_display, name)
+
+        if 'pl_vis' not in cv:
+            iq_vis_video = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Vis_Video<{cid}>')
+            iq_vis_annot = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Vis_Annot<{cid}>')
+            cv['pl_camera'].add_output_queue(iq_vis_video, iq_vis_video.name)
+            sm_oq[cid] = iq_vis_annot
+            pl_vis = Visualize(config, iq_vis_annot, iq_vis_video, name=f'Vis<{cid}>')
+            cv['pl_vis'] = pl_vis
+            pl_vis.start()
+
+        iq_display = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Display<{cid}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>')   # type: ignore
+        cv['pl_vis'].add_output_queue(iq_display, iq_display.name)
         cv['iq_display'] = iq_display
     ##### END HERE #####
     
@@ -148,7 +157,8 @@ def video_feed(cam_id):
 
             with app.app_context():
                 ##### START HERE #####
-                msg = ''
+                # while 'iq_display' not in cams[cam_id]:
+                #     pass
                 iq_display = cams[cam_id]['iq_display']
                 while True:
 
@@ -159,11 +169,17 @@ def video_feed(cam_id):
                     frame_img = frame['frame_img']
                     frame_img = cv2.resize(frame_img, (480, 240))
                     
-                    cv2.putText(frame_img, msg, (50, 50), cv2.FONT_HERSHEY_COMPLEX, 2, color=(0, 255, 0), thickness=3)
                     imgbyte = cv2.imencode('.jpg', frame_img)[1].tobytes()
 
                     if time.time() - self.last_access > 3:
-                        cams[cam_id]['pl_display'].remove_output_queue(iq_display.name)
+                        if 'pl_vis' in cams[cam_id]:
+                            pl_vis = cams[cam_id]['pl_vis']
+                            pl_vis.remove_output_queue(iq_display.name)
+                            if len(pl_vis.output_queues) == 0:
+                                cams[cam_id]['pl_camera'].remove_output_queue(pl_vis.video_queue.name)
+                                del pl_vis
+                                del sm_oq[cam_id]
+
                 ##### END HERE #####
                         break
 
