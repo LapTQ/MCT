@@ -105,6 +105,24 @@ def unregister_workshift(day, dayshift_id):
     return redirect(url_for('main.user', username=current_user.username)) # type: ignore
     
 
+@bp.route('/view_weekly_schedule')
+@login_required
+def view_weekly_schedule():
+
+    if current_user.role != 'manager':  # type: ignore
+        return redirect(url_for('main.index'))
+    
+    workshifts = RegisteredWorkshift.query.all()
+    week = {ds: {d: [] for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}  for ds in ['morning', 'afternoon']}
+    for ws in workshifts:
+        week[ws.dayshift.name][ws.day].append(ws.user.username)
+    
+    print(week)
+    
+    return render_template('view_weekly_schedule.html', week=week)
+
+
+
 @bp.route('/view_cameras')
 @login_required
 def view_cameras():

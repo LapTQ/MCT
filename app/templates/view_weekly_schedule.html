@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block app_content %}
+
+    <h1>Weekly schedule</h1>
+
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <td></td>
+                {% for d in week['morning'] %}
+                <td>{{ d }}</td>
+                {% endfor %}
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for ds in week %}
+                <tr>
+                    <td>{{ ds }}</td>
+                    {% for d in week[ds] %}
+                    <td>
+                        {% for username in week[ds][d] %}
+                            <p>{{ username }}</p>
+                        {% endfor %}
+                    </td>
+                    {% endfor %}
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+
+{% endblock %}

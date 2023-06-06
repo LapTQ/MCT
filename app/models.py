@@ -41,6 +41,7 @@ class DayShift(db.Model):
     name = db.Column(db.String(32))
     start_time = db.Column(db.Time)
     end_time = db.Column(db.Time)
+    workshifts = db.relationship('RegisteredWorkshift', backref='dayshift', lazy='dynamic')
 
     __table_args__ = (
         db.CheckConstraint(name.in_(['morning', 'afternoon'])),
