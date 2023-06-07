@@ -39,3 +39,5 @@ email-validator
 flask-mail==0.9.1
 pyjwt==2.7.0
 python-dotenv==1.0.0
+flask_bootstrap
+flask_moment

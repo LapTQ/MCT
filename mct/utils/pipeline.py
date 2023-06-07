@@ -20,6 +20,11 @@ from map_utils import hungarian, map_mono
 from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
 from filter import FilterBase, IQRFilter, GMMFilter
 
+sys.path.append(str(Path(__file__).parent.parent.parent))
+from app import db
+from app.models import User, Message
+from flask import current_app
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1344,7 +1349,8 @@ class Staff:
 class StaffMap(Pipeline):
 
     def __init__(
-            self, 
+            self,
+            app,
             config: Config,
             sct_queues: dict,
             sta_queues: dict,
@@ -1355,6 +1361,8 @@ class StaffMap(Pipeline):
             name='Staff Map'
     ) -> None:
         super().__init__(config, output_queues, online_put_sleep, name)
+
+        self.app = app
 
         self.sct_queues = sct_queues
         self.sta_queues = sta_queues
@@ -1470,6 +1478,21 @@ class StaffMap(Pipeline):
                     
                 mid_time = end_time
                 logging.debug(f'{self.name}:\t slept {sleep}')
+
+
+
+
+                # if active_list[0][self.checkin_cid][t]['frame_id'] in [100, 300, 500]:
+                #     with self.app.app_context():
+                #         managers = User.query.filter_by(role='manager').all()
+                #         for user in managers:
+                #             msg = Message(recipient=user, body='a staff was late')
+                #             db.session.add(msg)
+                #             user.add_notification('unread_message_count', user.new_messages())
+                #             db.session.commit()
+                #         print(">>>>>>>>>>> message sent")
+
+
             
             start_time = mid_time
 

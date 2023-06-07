@@ -1,10 +1,12 @@
-from flask import render_template, redirect, url_for, current_app, Response, flash, session
+from flask import render_template, redirect, url_for, current_app, Response, flash, session, request, jsonify
 from flask_login import login_required, current_user
 
 from app import db
 from app.main import bp
-from app.models import User, RegisteredWorkshift, DayShift, Camera
+from app.models import User, RegisteredWorkshift, DayShift, Camera, Message, Notification
 from app.main.forms import EmptyForm, RegisterWorkshiftForm
+
+from datetime import datetime
 
 ##### START HERE #####
 from app.main.tasks import cams, sm_oq, config     # TODO thay ten bien
@@ -121,6 +123,34 @@ def view_weekly_schedule():
     
     return render_template('view_weekly_schedule.html', week=week)
 
+
+@bp.route('/messages')
+@login_required
+def messages():
+
+    if current_user.role != 'manager':  # type: ignore
+        return redirect(url_for('main.index'))
+    
+    current_user.last_message_read_time = datetime.utcnow()
+    current_user.add_notification('unread_message_count', 0)    # type: ignore
+    db.session.commit()
+
+    messages = current_user.messages_received.order_by(Message.timestamp.desc()).all()  # type: ignore
+
+    return render_template('messages.html', messages=messages)
+
+
+@bp.route('/notifications')
+@login_required
+def notifications():
+    since = request.args.get('since', 0.0, type=float)
+    notifications = current_user.notifications.filter(  # type: ignore
+        Notification.timestamp > since).order_by(Notification.timestamp.asc())
+    return jsonify([{
+        'name': n.name,
+        'data': n.get_data(),
+        'timestamp': n.timestamp
+    } for n in notifications])
 
 
 @bp.route('/view_cameras')

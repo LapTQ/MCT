@@ -111,6 +111,7 @@ def async_startup(app):
         cks = Scene(ckw, ckh, ckroi, config.get('ROI_TEST_OFFSET'))
 
         pl_sm = PLStaffMap(
+            current_app._get_current_object(),
             config, 
             sm_iq_sct, 
             sm_iq_sta, 

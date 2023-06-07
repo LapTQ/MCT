@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block app_content %}
+    <h1> Messages </h1>
+    
+    <table class="table table-hover">
+        {% for post in messages %}
+            <tr>
+                <td>
+                    <i>{{ moment(post.timestamp).fromNow() }}</i>
+                    <br>
+                    <span id="post{{ post.id }}">{{ post.body }}</span>
+                    <br><br>
+                </td>
+            </tr>
+        {% endfor %}
+    </table>
+    
+{% endblock %}

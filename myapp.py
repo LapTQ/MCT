@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import User, DayShift, RegisteredWorkshift, Camera, Region, CameraMatchingPoint
+from app.models import User, DayShift, RegisteredWorkshift, Camera, Region, CameraMatchingPoint, Message, Notification
 
 
 app = create_app()
@@ -14,6 +14,8 @@ def make_shell_context():
         'RegisteredWorkshift': RegisteredWorkshift,
         'Camera': Camera,
         'Region': Region,
-        'CameraMatchingPoint': CameraMatchingPoint
+        'CameraMatchingPoint': CameraMatchingPoint,
+        'Message': Message,
+        'Notification': Notification
     }
 
