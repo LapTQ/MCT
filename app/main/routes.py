@@ -3,10 +3,10 @@ from flask_login import login_required, current_user
 
 from app import db
 from app.main import bp
-from app.models import User, RegisteredWorkshift, DayShift, Camera, Message, Notification
+from app.models import User, RegisteredWorkshift, DayShift, Camera, Message, Notification, Productivity
 from app.main.forms import EmptyForm, RegisterWorkshiftForm
 
-from datetime import datetime
+from datetime import datetime, timedelta, date
 
 ##### START HERE #####
 from app.main.tasks import cams, sm_oq, config     # TODO thay ten bien
@@ -151,6 +151,64 @@ def notifications():
         'data': n.get_data(),
         'timestamp': n.timestamp
     } for n in notifications])
+
+
+@bp.route('/productivity/<username>')
+@login_required
+def productivity(username):
+    
+    user = User.query.filter_by(username=username).first_or_404() # type: ignore
+    if (user.username != current_user.username and current_user.role != 'manager') or user.role == 'admin':    # type: ignore
+        return redirect(url_for('main.index'))
+    
+    weekday_id_to_name = {
+        0: 'Monday',
+        1: 'Tuesday',
+        2: 'Wednesday',
+        3: 'Thursday',
+        4: 'Friday'
+    }
+    
+    records = Productivity.query.filter_by(user_id=user.id).order_by(Productivity.date.desc(), Productivity.dayshift_id.asc())
+    productivity_report = []
+    now = datetime.now()
+    for record in records:
+        if record.arrival:
+            latency = datetime.combine(date.today(), record.arrival) - datetime.combine(date.today(), record.dayshift.start_time)
+            if latency <= timedelta(0):
+                latency = None
+        elif now.time() < record.dayshift.start_time:
+            latency = None
+        else:
+            latency = now.time() - record.dayshift.start_time
+
+        if now < datetime.combine(record.date, record.dayshift.end_time) or record.staying is None:
+            staying = None
+            staying_percent = None
+        else:
+            staying = record.staying
+            staying_percent = record.staying / (datetime.combine(date.today(), record.dayshift.end_time) - datetime.combine(date.today(), record.dayshift.start_time))
+
+            
+        productivity_report.append(
+            {
+                'day': weekday_id_to_name[record.date.weekday()],
+                'date': record.date,
+                'dayshift': record.dayshift.name,
+                'arrival': record.arrival,
+                'latency': latency,
+                'staying': staying,
+                'staying_percent': staying_percent
+            }
+        )
+
+    return render_template('productivity.html', user=user, productivity_report=productivity_report)
+    
+
+
+    
+
+
 
 
 @bp.route('/view_cameras')

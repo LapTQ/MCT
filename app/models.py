@@ -1,7 +1,7 @@
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from app import db, login
-from datetime import datetime
+import datetime
 import json
 from time import time
 
@@ -16,6 +16,8 @@ class User(UserMixin, db.Model):
     messages_received = db.relationship('Message', foreign_keys='Message.recipient_id', backref='recipient', lazy='dynamic')
     last_message_read_time = db.Column(db.DateTime)
     notifications = db.relationship('Notification', backref='user',
+                                    lazy='dynamic')
+    productivities = db.relationship('Productivity', backref='user',
                                     lazy='dynamic')
 
     __table_args__ = (
@@ -39,7 +41,7 @@ class User(UserMixin, db.Model):
     
 
     def new_messages(self):
-        last_read_time = self.last_message_read_time or datetime(1900, 1, 1)
+        last_read_time = self.last_message_read_time or datetime.datetime(1900, 1, 1)
         return Message.query.filter_by(recipient=self).filter(
             Message.timestamp > last_read_time).count()
 
@@ -49,6 +51,43 @@ class User(UserMixin, db.Model):
         n = Notification(name=name, payload_json=json.dumps(data), user=self)
         db.session.add(n)
         return n
+    
+
+    def late(self):
+        c = 0
+        now = datetime.datetime.now()
+        for record in self.productivities.all():
+            if record.arrival:
+                latency = datetime.datetime.combine(datetime.date.today(), record.arrival) - datetime.datetime.combine(datetime.date.today(), record.dayshift.start_time)
+                if latency <= datetime.timedelta(0):
+                    latency = None
+            elif now.time() < record.dayshift.start_time:
+                latency = None
+            else:
+                latency = now.time() - record.dayshift.start_time
+            if latency:
+                c += 1
+        return c
+    
+
+    def staying(self):
+        num = datetime.timedelta(0)
+        den = datetime.timedelta(0)
+        now = datetime.datetime.now()
+        for record in self.productivities.all():
+            if now > datetime.datetime.combine(record.date, record.dayshift.end_time) and record.staying is not None:
+                num += record.staying
+                den += datetime.datetime.combine(datetime.date.today(), record.dayshift.end_time) - datetime.datetime.combine(datetime.date.today(), record.dayshift.start_time)
+        
+        if den == 0:
+            return None
+        
+        return num/den
+            
+
+
+
+
     
 
 @login.user_loader
@@ -62,6 +101,7 @@ class DayShift(db.Model):
     start_time = db.Column(db.Time)
     end_time = db.Column(db.Time)
     workshifts = db.relationship('RegisteredWorkshift', backref='dayshift', lazy='dynamic')
+    productivities = db.relationship('Productivity', backref='dayshift', lazy='dynamic')
 
     __table_args__ = (
         db.CheckConstraint(name.in_(['morning', 'afternoon'])),
@@ -136,7 +176,7 @@ class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     body = db.Column(db.String(140))
-    timestamp = db.Column(db.DateTime, index=True, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.now)
 
 
 class Notification(db.Model):
@@ -148,3 +188,44 @@ class Notification(db.Model):
 
     def get_data(self):
         return json.loads(str(self.payload_json))
+    
+
+class Productivity(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    date = db.Column(db.Date)
+    dayshift_id = db.Column(db.Integer, db.ForeignKey('day_shift.id'))
+    arrival = db.Column(db.Time)
+    staying = db.Column(db.Interval)
+
+    def __repr__(self):
+        return f'Productivity(user_id={self.user_id} \tdate={self.date} \tdayshift_id={self.dayshift_id} \tarrival={self.arrival} \tstaying={self.staying}'
+
+    # >>> from datetime import timedelta, time, datetime
+    # >>> p = Productivity(user_id=3, date=datetime(day=5, month=6, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=29, second=10), staying=timedelta(hours=2, minutes=10))
+
+
+class Detection(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    cam_id = db.Column(db.Integer, db.ForeignKey('camera.id'))
+    date = db.Column(db.Date, db.ForeignKey('productivity.date'))
+    frame_time = db.Column(db.Time)
+    frame_id = db.Column(db.Integer)
+    track_id = db.Column(db.Integer)
+    detection_mode = db.Column(db.String(140))
+    tracking_mode = db.Column(db.String(140))
+    det = db.Column(db.String(10000))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+
+
+class STA(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    det_id_1 = db.Column(db.Integer, db.ForeignKey('detection.id'))
+    det_id_2 = db.Column(db.Integer, db.ForeignKey('detection.id'))
+    loc_infer_mode = db.Column(db.Integer)
+
+
+
+    
+    
+    

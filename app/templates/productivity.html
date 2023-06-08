@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block app_content %}
+
+    <h1>Productivity report: {{ user.username }}</h1>
+
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <td>Day</td>
+                <td>Date</td>
+                <td>Day shift</td>
+                <td>Arrival</td>
+                <td>Staying time</td>
+            </tr>
+        </thead>
+        
+        <tbody>
+            {% for r in productivity_report %}
+                <tr>
+                    <td>{{ r['day'] }}</td>
+                    <td>{{ r['date'].strftime('%d/%m/%Y') }}</td>
+                    <td>{{ r['dayshift'] }}</td>
+                    {% if r['arrival'] %}
+                        <td>{{ r["arrival"] }}
+                            {% if r['latency'] %}
+                                ({{ r['latency'] }} late)
+                            {% endif %}
+                        </td>
+                    {% else %}
+                        <td></td>
+                    {% endif %}
+                    {% if r['staying'] is not none %}
+                        <td>{{ r['staying'] }} ({{ '%.0f'|format(r['staying_percent'] * 100|float) }}%)</td>
+                    {% else %}
+                        <td></td>
+                    {% endif %}
+                </tr>
+            {% endfor %}
+        </tbody>
+
+    </table>
+
+    
+
+
+{% endblock %}

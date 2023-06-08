@@ -5,12 +5,14 @@
     <table class="table table-hover">
         <tr>
             <td style="vertical-align: middle; border-top: none;"><h1>Staff list</h1></td>
-            <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('auth.create_account') }}"> New staff </a></td>
+            <td style="vertical-align: middle; border-top: none;"></td>
+            <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('auth.create_account') }}">New staff</a></td>
         </tr>
 
         <tr>
             <td style="vertical-align: middle; border-top: none;">Username</td>
             <td style="vertical-align: middle; border-top: none;">Role</td>
+            <td style="vertical-align: middle; border-top: none;">Productivity</td>
         </tr>
 
         <tbody>
@@ -18,6 +20,13 @@
                 <tr>
                     <td><a href="{{ url_for('main.user', username=user.username) }}">{{ user.username }}</a></td>
                     <td>{{ user.role }}</td>
+                    <td>{{ user.late() }}/{{ user.productivities.count() }} late 
+                        {% set staying = user.staying() %}
+                        {% if staying is not none %}
+                            ({{ '%.0f'|format(staying * 100|float) }}% staying) 
+                        {% endif %}
+                        <a href="{{ url_for('main.productivity', username=user.username) }}"> &#x2192 Details</a>
+                    </td>
                 </tr>
             {% endfor %}
         </tbody>
