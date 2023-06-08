@@ -118,9 +118,7 @@ def view_weekly_schedule():
     week = {ds: {d: [] for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}  for ds in ['morning', 'afternoon']}
     for ws in workshifts:
         week[ws.dayshift.name][ws.day].append(ws.user.username)
-    
-    print(week)
-    
+        
     return render_template('view_weekly_schedule.html', week=week)
 
 
@@ -180,7 +178,7 @@ def productivity(username):
         elif now.time() < record.dayshift.start_time:
             latency = None
         else:
-            latency = now.time() - record.dayshift.start_time
+            latency = min(now, datetime.combine(date.today(), record.dayshift.end_time)) - datetime.combine(date.today(), record.dayshift.start_time)
 
         if now < datetime.combine(record.date, record.dayshift.end_time) or record.staying is None:
             staying = None

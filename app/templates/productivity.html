@@ -21,15 +21,14 @@
                     <td>{{ r['day'] }}</td>
                     <td>{{ r['date'].strftime('%d/%m/%Y') }}</td>
                     <td>{{ r['dayshift'] }}</td>
-                    {% if r['arrival'] %}
-                        <td>{{ r["arrival"] }}
-                            {% if r['latency'] %}
-                                ({{ r['latency'] }} late)
-                            {% endif %}
-                        </td>
-                    {% else %}
-                        <td></td>
-                    {% endif %}
+                    <td>
+                        {% if r['arrival'] %}
+                            {{ r["arrival"] }} 
+                        {% endif %}
+                        {% if r['latency'] %}
+                            ({{ r['latency'] }} late)
+                        {% endif %}
+                    </td>
                     {% if r['staying'] is not none %}
                         <td>{{ r['staying'] }} ({{ '%.0f'|format(r['staying_percent'] * 100|float) }}%)</td>
                     {% else %}

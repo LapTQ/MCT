@@ -64,7 +64,7 @@ class User(UserMixin, db.Model):
             elif now.time() < record.dayshift.start_time:
                 latency = None
             else:
-                latency = now.time() - record.dayshift.start_time
+                latency = min(now, datetime.datetime.combine(datetime.date.today(), record.dayshift.end_time)) - datetime.datetime.combine(datetime.date.today(), record.dayshift.start_time)
             if latency:
                 c += 1
         return c
