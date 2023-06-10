@@ -1,0 +1,28 @@
+@startuml
+|Guess|
+start
+:request to sign-in;
+|System|
+:provide sign-in input fields;
+|Guess|
+:enter sign-in info;
+|System|
+if (sign-in info is correct?) then (yes)
+    fork
+        :record sign-in time;
+    fork again
+        if (the signed-in account is staff and a person detection appears check-in area?) then (yes)
+            :record check-in time and assign staff to the detection;
+            if (staff had been late) then (yes)
+                :announce the manager that the staff has come;
+            else (no)
+            endif
+        else (no)
+        endif
+    end fork
+    stop
+else (no)
+    :announce sign-in was failed;
+    stop
+endif
+@enduml

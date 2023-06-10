@@ -1,0 +1,71 @@
+@startuml
+
+class LoginBoundary <<boundary>> {
+    - username: String
+    - password: String
+    
+    + set_username(): void
+    + set_password(): void
+    + submit(): void
+}
+
+class LoginController <<control>> {
+
+    + login(): void
+    - validate_form(): Boolean
+    - check_password(): Boolean
+    - record_signin_time(): void
+    - get_checkin_camera_id(): Integer
+    - get_user_role(): String
+    - signal_signin(): void
+    - user_was_late(): Boolean
+    - send_message_to_manager(): void
+}
+
+class User <<entity>> {
+    - id: Interger
+    - username: String
+    - password: String
+    - role: String
+    - workshifts: List<Workshift>
+    - signin_timestamps: List<DateTime>
+    - messages_received: List<Message>
+}
+
+class Region <<entity>> {
+    - type: String
+    - primary_cam_id: Integer
+}
+
+class Camera <<entity>> {
+    - id: Integer
+    - signin_user_id: Integer
+}
+
+class Workshift <<entity>> {
+    - day: String
+    - dayshift: DayShift
+}
+
+class DayShift <<entity>> {
+    - start_time: Time
+    - end_time: Time
+}
+
+class Message <<entity>> {
+    - body: String
+    - timestamp: DateTime
+}
+
+LoginBoundary --> LoginController
+LoginController --> User
+LoginController --> Region
+LoginController --> Camera
+LoginController --> Workshift
+LoginController --> DayShift
+LoginController --> Message
+User o-- Workshift
+Workshift *-- DayShift
+User o-- Message
+
+@enduml

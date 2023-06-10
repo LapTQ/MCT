@@ -1,0 +1,16 @@
+@startuml
+|Staff|
+start
+:request to manage workshift;
+|System|
+:provide the date, time options;
+|Staff|
+:select date, time;
+|System|
+if (there's no conflict?) then (yes)
+    :save new workshift;
+    stop
+else (no)
+    :announce the registration was failed;
+    stop
+@enduml

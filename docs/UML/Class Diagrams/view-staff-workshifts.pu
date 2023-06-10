@@ -1,0 +1,67 @@
+@startuml
+
+class ViewStaffWorkshiftBoundary <<boundary>> {
+    - username
+    
+    + set_username(): void
+    + submit(): void
+    + request_to_register_workshift(): void
+    + request_to_delete_workshift(): void
+}
+
+class RegisterWorkshiftBoundary <<boundary>> {
+    - username: String
+    - day: String
+    - dayshift: String
+
+    - validate_current_user(): Boolean
+    + set_day(): void
+    + set_dayshift(): void
+    + submit(): void
+}
+
+class DeleteWorkshiftBoundary <<boundary>> {
+    - username: String
+    - day: String
+    - dayshift: String
+    
+    - validate_current_user(): Boolean
+    + set_day(): void
+    + set_dayshift(): void
+    + submit(): void
+}
+
+class ManageWorkshiftController <<control>> {
+
+    + view_staff_registered_workshift(): void
+    - validate_current_user(): Boolean
+    + register_workshift(): void
+    + delete_workshift(): void
+}
+
+class User <<entity>> {
+    - username: String
+    - workshifts: List<Workshift>
+}
+
+class Workshift <<entity>> {
+    - day: String
+    - dayshift: DayShift
+}
+
+class DayShift <<entity>> {
+    - name: String
+    - start_time: Time
+    - end_time: Time
+}
+
+ViewStaffWorkshiftBoundary --> ManageWorkshiftController
+ViewStaffWorkshiftBoundary --> RegisterWorkshiftBoundary
+ViewStaffWorkshiftBoundary --> DeleteWorkshiftBoundary
+RegisterWorkshiftBoundary --> ManageWorkshiftController
+DeleteWorkshiftBoundary --> ManageWorkshiftController
+ManageWorkshiftController --> User
+User o-- Workshift
+Workshift *-- DayShift
+
+@enduml

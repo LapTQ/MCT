@@ -1,0 +1,24 @@
+@startuml
+
+class ViewStaffPersonalInfoBoundary <<boundary>> {
+    - username: String
+    
+    + set_username(): void
+    + submit(): void
+}
+
+class ViewStaffPersonalInfoController <<control>> {
+
+    + user_info(): Dictionary
+    - validate_current_user(): Boolean
+}
+
+class User <<entity>> {
+    - username: String
+    - role: String
+}
+
+ViewStaffPersonalInfoBoundary --> ViewStaffPersonalInfoController
+ViewStaffPersonalInfoController --> User
+
+@enduml

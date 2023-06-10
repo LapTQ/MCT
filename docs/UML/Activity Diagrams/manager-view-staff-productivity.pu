@@ -1,0 +1,12 @@
+@startuml
+|Manager|
+start
+:request to view staff productivity;
+|System|
+:provide staff list;
+|Manager|
+:select staff;
+|System|
+:load lateness and absence statistics;
+stop
+@enduml

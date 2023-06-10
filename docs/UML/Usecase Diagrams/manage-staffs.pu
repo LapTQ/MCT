@@ -1,0 +1,18 @@
+@startuml
+:Manager: as Manager
+
+rectangle System {
+    (Manage staffs) as UC04
+    (View staff list) as UC10
+    (Add new staff) as UC11
+    (View staff productivity) as UC12
+    (View staff personal info) as UC07
+}
+
+UC10 .> UC04: extends
+UC11 .> UC10: extends
+UC07 .> UC10: extends
+UC12 .> UC10: extends
+
+Manager -- UC04
+@enduml

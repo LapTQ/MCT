@@ -1,0 +1,12 @@
+@startuml
+|Manager|
+start
+:request to view cameras;
+|System|
+repeat
+repeat while (tracking service has started?) is (no)
+->yes;
+:draw staff tracking result to camera view;
+:stream camera view to display;
+stop
+@enduml

@@ -1,0 +1,34 @@
+@startuml
+
+:Manager: as Manager
+:Guess: as Guess
+:Staff: as Staff
+:Admin: as Admin
+
+rectangle System {
+    (Sign in) as (UC01)
+    (Log out) as (UC02)
+    (View real-time cameras) as (UC03)
+    (Manage staffs) as (UC04)
+    (Get notified about staff's unexpected behaviors) as (UC05)
+    (View weekly schedule) as (UC06)
+    (View staff personal info) as (UC07)
+    (View staff workshifts) as (UC08)
+    (Manage accounts) as (UC09)
+}
+
+Guess -- UC01
+Manager -- UC02
+Manager -- UC03
+Manager -- UC04
+Manager -- UC05
+Manager -- UC06
+Manager -- UC07
+Manager -- UC08
+Staff -- UC02
+Staff -- UC07
+Staff -- UC08
+Admin -- UC02
+Admin -- UC09
+
+@enduml
