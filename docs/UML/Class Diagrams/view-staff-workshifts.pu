@@ -33,18 +33,17 @@ class DeleteWorkshiftBoundary <<boundary>> {
 
 class ManageWorkshiftController <<control>> {
 
-    + view_staff_registered_workshift(): void
-    - validate_current_user(): Boolean
+    + staff_workshift(): void
     + register_workshift(): void
     + delete_workshift(): void
 }
 
 class User <<entity>> {
     - username: String
-    - workshifts: List<Workshift>
+    - workshifts: List<RegisteredWorkshift>
 }
 
-class Workshift <<entity>> {
+class RegisteredWorkshift <<entity>> {
     - day: String
     - dayshift: DayShift
 }
@@ -61,7 +60,7 @@ ViewStaffWorkshiftBoundary --> DeleteWorkshiftBoundary
 RegisterWorkshiftBoundary --> ManageWorkshiftController
 DeleteWorkshiftBoundary --> ManageWorkshiftController
 ManageWorkshiftController --> User
-User o-- Workshift
-Workshift *-- DayShift
+User o-- RegisteredWorkshift
+RegisteredWorkshift *-- DayShift
 
 @enduml

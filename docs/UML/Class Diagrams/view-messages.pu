@@ -1,0 +1,26 @@
+@startuml
+
+class ViewMessagesBoundary <<boundary>> {
+
+    - validate_current_user(): Boolean
+    + submit(): void
+}
+
+class MessageController <<control>> {
+
+    + messages(): Dictionary
+}
+
+class User <<entity>> {
+    - messages_received: List<Message>
+}
+
+class Message <<entity>> {
+    - body: String
+}
+
+ViewMessagesBoundary --> MessageController
+MessageController --> User
+User o-- Message
+
+@enduml

@@ -1,4 +1,5 @@
 @startuml
+left to right direction
 
 :Manager: as Manager
 :Guess: as Guess
@@ -25,10 +26,10 @@ Manager -- UC05
 Manager -- UC06
 Manager -- UC07
 Manager -- UC08
-Staff -- UC02
-Staff -- UC07
-Staff -- UC08
-Admin -- UC02
-Admin -- UC09
+Staff -up- UC02
+Staff -up- UC07
+Staff -up- UC08
+Admin -up- UC02
+Admin -up- UC09
 
 @enduml

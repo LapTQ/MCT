@@ -10,7 +10,7 @@ rectangle System {
 
 Staff -- UC08
 
-UC14 .> UC08: extends
-UC15 .> UC08: extends
+UC14 .> UC08: <<extends>>
+UC15 .> UC08: <<extends>>
 
 @enduml

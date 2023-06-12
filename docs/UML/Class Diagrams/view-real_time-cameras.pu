@@ -1,0 +1,29 @@
+@startuml
+
+class ViewCamerasBoundary <<boundary>> {
+
+    - validate_current_user(): Boolean
+    + submit(): void
+}
+
+class ViewCamerasController <<control>> {
+
+    + view_cameras(): List<Generator>
+    - video_feed_generator(): 2DArray
+    - get_visualize_pipelines(): 
+}
+
+class VisualizePipeline <<control>> {
+    - annot_queues: Dictionary<String, Queue<Dictionary>>
+    - video_queues: Dictionary<String, Queue<2DArray>>
+    - output_queues: Dictionary<String, Queue<2DArray>>
+}
+
+class Queue <<entity>>
+
+ViewCamerasBoundary --> ViewCamerasController
+ViewCamerasController --> Queue
+ViewCamerasController --> VisualizePipeline
+VisualizePipeline o-- Queue
+
+@enduml

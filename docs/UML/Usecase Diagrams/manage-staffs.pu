@@ -1,4 +1,6 @@
 @startuml
+left to right direction
+
 :Manager: as Manager
 
 rectangle System {
@@ -9,10 +11,10 @@ rectangle System {
     (View staff personal info) as UC07
 }
 
-UC10 .> UC04: extends
-UC11 .> UC10: extends
-UC07 .> UC10: extends
-UC12 .> UC10: extends
+UC10 .> UC04: <<extends>>
+UC11 .> UC10: <<extends>>
+UC07 .> UC10: <<extends>>
+UC12 .> UC10: <<extends>>
 
 Manager -- UC04
 @enduml

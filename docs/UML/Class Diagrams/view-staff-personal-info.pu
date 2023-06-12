@@ -3,14 +3,14 @@
 class ViewStaffPersonalInfoBoundary <<boundary>> {
     - username: String
     
+    - validate_current_user(): Boolean
     + set_username(): void
     + submit(): void
 }
 
-class ViewStaffPersonalInfoController <<control>> {
+class ManageStaffsController <<control>> {
 
     + user_info(): Dictionary
-    - validate_current_user(): Boolean
 }
 
 class User <<entity>> {
@@ -18,7 +18,7 @@ class User <<entity>> {
     - role: String
 }
 
-ViewStaffPersonalInfoBoundary --> ViewStaffPersonalInfoController
-ViewStaffPersonalInfoController --> User
+ViewStaffPersonalInfoBoundary --> ManageStaffsController
+ManageStaffsController --> User
 
 @enduml

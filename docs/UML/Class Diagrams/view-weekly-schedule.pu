@@ -1,0 +1,37 @@
+@startuml
+
+
+class ViewWeeklyScheduleBoundary <<boundary>> {
+
+    - validate_current_user(): Boolean
+    + submit(): void
+}
+
+class ViewWeeklyScheduleController <<control>> {
+
+    + weekly_schedule(): Dictionary
+}
+
+class User <<entity>> {
+    - username: String
+    - workshifts: List<RegisteredWorkshift>
+}
+
+class RegisteredWorkshift <<entity>> {
+    - day: String
+    - dayshift: DayShift
+}
+
+class DayShift <<entity>> {
+    - name: String
+    - start_time: Time
+    - end_time: Time
+}
+
+ViewWeeklyScheduleBoundary --> ViewWeeklyScheduleController
+ViewWeeklyScheduleController --> User
+User o-- RegisteredWorkshift
+RegisteredWorkshift *-- DayShift
+
+
+@enduml

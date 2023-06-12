@@ -1,0 +1,8 @@
+@startuml
+
+actor Staff as A
+boundary ViewStaffPersonalInfoBoundary as B1
+control ManageStaffsController as C
+entity User as E1
+
+@enduml

@@ -27,7 +27,7 @@ class User <<entity>> {
     - username: String
     - password: String
     - role: String
-    - workshifts: List<Workshift>
+    - workshifts: List<RegisteredWorkshift>
     - signin_timestamps: List<DateTime>
     - messages_received: List<Message>
 }
@@ -42,7 +42,7 @@ class Camera <<entity>> {
     - signin_user_id: Integer
 }
 
-class Workshift <<entity>> {
+class RegisteredWorkshift <<entity>> {
     - day: String
     - dayshift: DayShift
 }
@@ -61,11 +61,11 @@ LoginBoundary --> LoginController
 LoginController --> User
 LoginController --> Region
 LoginController --> Camera
-LoginController --> Workshift
+LoginController --> RegisteredWorkshift
 LoginController --> DayShift
 LoginController --> Message
-User o-- Workshift
-Workshift *-- DayShift
+User o-- RegisteredWorkshift
+RegisteredWorkshift *-- DayShift
 User o-- Message
 
 @enduml

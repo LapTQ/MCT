@@ -1,0 +1,79 @@
+@startuml
+
+class ManageStaffsBoundary <<boundary>> {
+
+    + request_to_view_staff_list()
+}
+
+class ViewStaffListBoudary <<boundary>> {
+
+    - validate_current_user(): Boolean
+    + submit(): void
+    + request_to_add_new_staff(): void
+    + request_to_view_staff_personal_info()
+    + request_to_view_staff_productivity()
+}
+
+class CreateAccountBoundary <<boundary>> {
+    - username: String
+    - password: String
+    - role: String
+    
+    - validate_current_user(): Boolean
+    + set_username(): void
+    + set_password(): void
+    + set_role(): void
+    + submit(): void
+
+}
+
+class ViewStaffPersonalInfoBoundary <<boundary>>
+
+class ViewStaffProductivity <<boudnary>> {
+    - username: String
+
+    - validate_current_user(): Boolean
+    + set_username(): void
+    + submit()
+}
+
+class ManageStaffsController <<control>> {
+
+    + staff_list(): Dictionary
+    + create_account(): void
+    + staff_productivity(): Dictionary
+}
+
+class User <<entity>> {
+    - id: Integer
+    - username: String
+    - password: String
+    - role: String
+    - productivities: List<Productivity>
+}
+
+class Productivity <<entity>> {
+    - date: Date
+    - dayshift: Dayshift
+    - arrival: Time
+    - staying: Interval
+}
+
+class Dayshift <<entity>> {
+    - start_time: Time
+    - end_time: Time
+}
+
+ManageStaffsBoundary --> ViewStaffListBoudary
+ViewStaffListBoudary --> CreateAccountBoundary
+ViewStaffListBoudary --> ViewStaffPersonalInfoBoundary
+ViewStaffListBoudary --> ViewStaffProductivity
+ViewStaffListBoudary --> ManageStaffsController
+CreateAccountBoundary --> ManageStaffsController
+ViewStaffPersonalInfoBoundary --> ManageStaffsController
+ViewStaffProductivity --> ManageStaffsController
+ManageStaffsController --> User
+User o-- Productivity
+Productivity *-- Dayshift
+
+@enduml
