@@ -30,6 +30,8 @@ class DayShift <<entity>> {
 
 ViewWeeklyScheduleBoundary --> ViewWeeklyScheduleController
 ViewWeeklyScheduleController --> User
+ViewWeeklyScheduleController --> RegisteredWorkshift
+ViewWeeklyScheduleController --> DayShift
 User o-- RegisteredWorkshift
 RegisteredWorkshift *-- DayShift
 

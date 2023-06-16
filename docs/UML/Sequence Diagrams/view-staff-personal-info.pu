@@ -1,8 +1,22 @@
 @startuml
 
-actor Staff as A
+actor Actor as A
 boundary ViewStaffPersonalInfoBoundary as B1
 control ManageStaffsController as C
-entity User as E1
+entity User as E
+
+
+A -> B1: choose to view staff info
+B1 -> B1: validate_current_user()
+alt Actor is Manager
+    A -> B1: set_username(username: String)
+end
+A -> B1: submit()
+
+
+
+B1 -> C: user_info(username: String)
+C -> E: <<get>>(key) 
+
 
 @enduml

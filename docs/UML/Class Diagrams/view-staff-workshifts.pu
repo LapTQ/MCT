@@ -1,8 +1,9 @@
 @startuml
 
 class ViewStaffWorkshiftBoundary <<boundary>> {
-    - username
+    - username: String
     
+    - validate_current_user(): Boolean
     + set_username(): void
     + submit(): void
     + request_to_register_workshift(): void
@@ -12,7 +13,7 @@ class ViewStaffWorkshiftBoundary <<boundary>> {
 class RegisterWorkshiftBoundary <<boundary>> {
     - username: String
     - day: String
-    - dayshift: String
+    - dayshift_name: String
 
     - validate_current_user(): Boolean
     + set_day(): void
@@ -23,7 +24,7 @@ class RegisterWorkshiftBoundary <<boundary>> {
 class DeleteWorkshiftBoundary <<boundary>> {
     - username: String
     - day: String
-    - dayshift: String
+    - dayshift_name: String
     
     - validate_current_user(): Boolean
     + set_day(): void

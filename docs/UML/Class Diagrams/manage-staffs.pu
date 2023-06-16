@@ -1,17 +1,12 @@
 @startuml
 
-class ManageStaffsBoundary <<boundary>> {
-
-    + request_to_view_staff_list()
-}
-
 class ViewStaffListBoudary <<boundary>> {
 
     - validate_current_user(): Boolean
     + submit(): void
     + request_to_add_new_staff(): void
-    + request_to_view_staff_personal_info()
-    + request_to_view_staff_productivity()
+    + request_to_view_staff_personal_info(): void
+    + request_to_view_staff_productivity(): void
 }
 
 class CreateAccountBoundary <<boundary>> {
@@ -34,12 +29,12 @@ class ViewStaffProductivity <<boudnary>> {
 
     - validate_current_user(): Boolean
     + set_username(): void
-    + submit()
+    + submit(): void
 }
 
 class ManageStaffsController <<control>> {
 
-    + staff_list(): Dictionary
+    + staff_list(): list<dict>
     + create_account(): void
     + staff_productivity(): Dictionary
 }
@@ -54,17 +49,16 @@ class User <<entity>> {
 
 class Productivity <<entity>> {
     - date: Date
-    - dayshift: Dayshift
+    - dayshift: DayShift
     - arrival: Time
     - staying: Interval
 }
 
-class Dayshift <<entity>> {
+class DayShift <<entity>> {
     - start_time: Time
     - end_time: Time
 }
 
-ManageStaffsBoundary --> ViewStaffListBoudary
 ViewStaffListBoudary --> CreateAccountBoundary
 ViewStaffListBoudary --> ViewStaffPersonalInfoBoundary
 ViewStaffListBoudary --> ViewStaffProductivity
@@ -74,6 +68,6 @@ ViewStaffPersonalInfoBoundary --> ManageStaffsController
 ViewStaffProductivity --> ManageStaffsController
 ManageStaffsController --> User
 User o-- Productivity
-Productivity *-- Dayshift
+Productivity *-- DayShift
 
 @enduml

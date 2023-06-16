@@ -1,0 +1,17 @@
+@startsalt
+
+{^==view weekly schedule
+    {/ Home }
+
+    .
+    Weekly schedule
+    .
+    {#
+        . | Monday | Tuesday | Wednesday | Thursday | Friday
+        morning | laptq | quangnn | bachlx | cuongdh | phonghh
+        afternoon | manhpc | laptq | dongpv | vuongnp | anhtt
+    }
+    .
+}
+
+@endsalt

@@ -17,6 +17,7 @@ class User <<entity>> {
 
 class Message <<entity>> {
     - body: String
+    - timestamp: Datetime
 }
 
 ViewMessagesBoundary --> MessageController

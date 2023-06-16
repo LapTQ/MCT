@@ -1,0 +1,18 @@
+@startsalt
+
+{^==register workshift
+    {/ Home }
+
+    .
+    Register workshift
+    .
+    {
+        Day | ^Monday^
+        Shift | ^Select^ morning^ afternoon^
+    }
+    .
+    [register]
+    .
+}
+
+@endsalt

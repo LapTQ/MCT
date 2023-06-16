@@ -1,0 +1,20 @@
+@startuml
+
+actor Manager as A
+boundary ViewCamerasBoundary as B
+control ViewCamerasController as C
+entity Monitor
+entity Queue
+entity VisualizePipeline as PLVis
+
+A -> B: choose to view cameras
+B -> B: validate_current_user()
+A -> B: submit()
+B -> C: view_cameras(session_id)
+C -> Monitor: register_display(\n session_id: Integer,\n cam_id: Integer)
+Monitor -> Queue: <<create>>(\n id: session_id)
+Monitor -> PLVis: add_output_queue(\n key: Integer, queue: Queue)
+Monitor --> C: Queue
+C --> B: List<Generator>
+
+@enduml

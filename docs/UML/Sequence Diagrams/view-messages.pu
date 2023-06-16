@@ -1,0 +1,17 @@
+@startuml
+
+actor Manager as A
+boundary ViewMessagesBoundary as B
+control MessageController as C
+entity User as E1
+entity Message as E2
+
+A -> B: choose to view messages
+B -> B: validate_current_user()
+A -> B: submit()
+B -> C: messages(username: String)
+C -> E1: <<get>>('messages')
+C -> E2: <<get>>(key)
+
+
+@enduml

@@ -1,0 +1,21 @@
+@startsalt
+
+{^==staff list
+    {/ Home }
+
+    .
+    Staff list 
+    .
+    [New staff]
+    .
+    {#
+        Username | Role | Productivity
+        manhpc  | engineer | 100% <&arrow-circle-right> Details
+        laptq | intern | 50% <&arrow-circle-right> Details
+
+    }
+    .
+    .
+}
+
+@endsalt

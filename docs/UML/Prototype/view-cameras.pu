@@ -1,0 +1,32 @@
+@startsalt
+
+{^==view cameras
+    {/ Home }
+
+    .
+    View cameras
+    .
+    {
+        {+
+            .
+            Cam 1 <&image>
+            .
+        } | {+
+            .
+            Cam 2 <&image>
+            .
+        }
+        {+
+            .
+            Cam 3 <&image>
+            .
+        } | {+
+            .
+            Cam 4 <&image>
+            .
+        }
+    }
+    .
+}
+
+@endsalt

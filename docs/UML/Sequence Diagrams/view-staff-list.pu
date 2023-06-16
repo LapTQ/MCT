@@ -1,0 +1,13 @@
+@startuml
+
+actor Manager as A
+boundary ViewStaffListBoudary as B
+control ManageStaffsController as C
+entity User as E
+
+A -> B: choose to view staff list
+B -> B: validate_current_user()
+B -> C: staff_list()
+C -> E: <<get>>(key)
+
+@enduml

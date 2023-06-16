@@ -1,0 +1,22 @@
+@startsalt
+
+{^==staff productivity
+    {/ Home }
+
+    .
+    Productivity report
+    .
+    {
+        Username: | laptq
+        Role: | intern
+    }
+    .
+    {#
+        Day | Date | Day shift | Arrival | Staying time
+        Tuesday | 09/06/2023 | afternoon | 13:29 | 04:16
+        Monday | 08/06/2023 | morning | 08:35 | 05:24
+    }
+    .
+}
+
+@endsalt

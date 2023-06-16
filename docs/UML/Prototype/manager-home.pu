@@ -1,0 +1,13 @@
+@startsalt
+
+{^==manager homepage
+    {/ Manage Staff | View Cameras }
+    {/ View weekly schedule | Messages <&bell> | Logout}
+
+    .
+    Hello quangnn!
+    .
+    .
+}
+
+@endsalt

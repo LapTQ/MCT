@@ -1,0 +1,255 @@
+@startuml
+
+class ViewStaffListBoudary <<boundary>> {
+
+    - validate_current_user(): bool
+    + submit(): void
+    + request_to_add_new_staff(): void
+    + request_to_view_staff_personal_info(): void
+    + request_to_view_staff_productivity(): void
+}
+
+class CreateAccountBoundary <<boundary>> {
+    - username: str
+    - password: str
+    - role: str
+    
+    - validate_current_user(): bool
+    + set_username(username: str): void
+    + set_password(password: str): void
+    + set_role(role: str): void
+    + submit(): void
+
+}
+
+class ViewStaffProductivity <<boudnary>> {
+    - username: str
+
+    - validate_current_user(): bool
+    + set_username(username: str): void
+    + submit(): void
+}
+
+class LoginBoundary <<boundary>> {
+    - username: str
+    - password: str
+    
+    + set_username(username: str): void
+    + set_password(password: str): void
+    + submit(): void
+}
+
+class ViewMessagesBoundary <<boundary>> {
+
+    - validate_current_user(): bool
+    + submit(): void
+}
+
+class ViewCamerasBoundary <<boundary>> {
+    - session_id: int
+
+    - validate_current_user(): bool
+    + submit(): void
+}
+
+class ViewStaffPersonalInfoBoundary <<boundary>> {
+    - username: str
+    
+    - validate_current_user(): bool
+    + set_username(username: str): void
+    + submit(): void
+}
+
+class ViewStaffWorkshiftBoundary <<boundary>> {
+    - username: str
+    
+    - validate_current_user(): bool
+    + set_username(username: str): void
+    + submit(): void
+    + request_to_register_workshift(): void
+    + request_to_delete_workshift(): void
+}
+
+class RegisterWorkshiftBoundary <<boundary>> {
+    - username: str
+    - day: str
+    - dayshift_name: str
+
+    - validate_current_user(): bool
+    + set_day(day: str): void
+    + set_dayshift(dayshift_name: str): void
+    + submit(): void
+}
+
+class DeleteWorkshiftBoundary <<boundary>> {
+    - username: str
+    - day: str
+    - dayshift_name: str
+    
+    - validate_current_user(): bool
+    + set_day(day: str): void
+    + set_dayshift(dayshift_name: str): void
+    + submit(): void
+}
+
+class ViewWeeklyScheduleBoundary <<boundary>> {
+
+    - validate_current_user(): bool
+    + submit(): void
+}
+
+class ManageStaffsController <<control>> {
+
+    + staff_list(): list<dict>
+    + create_account(username: str, password: str, role: str): void
+    + staff_productivity(username: str): dict
+    + user_info(username: str): dict
+}
+
+class LoginController <<control>> {
+
+    + login(username: str, password: str): void
+}
+
+class MessageController <<control>> {
+
+    + messages(username: str): list<dict>
+}
+
+class ViewCamerasController <<control>> {
+
+    + view_cameras(session_id: int): list<Generator>
+    
+}
+
+class ManageWorkshiftController <<control>> {
+
+    + staff_workshift(username: str): void
+    + register_workshift(username: str, day: str, dayshift_name: str): void
+    + delete_workshift(username: str, day: str, dayshift_name: str): void
+}
+
+class ViewWeeklyScheduleController <<control>> {
+
+    + weekly_schedule(): dict
+}
+
+class User <<entity>> {
+    - id: int
+    - username: str
+    - password: str
+    - role: str
+    - productivities: list<Productivity>
+    - messages_received: list<Message>
+    - workshifts: list<RegisteredWorkshift>
+
+    + User(username: str, password: str, role: str)
+    + check_password(password: str): bool
+    + get_username(): str
+    + get_role(): str
+    + get_messages(): list<Message>
+    + get_productivity(): list<Productivity>
+    + get_workshifts(): list<RegisteredWorkshift>
+    + delete_workshift(day: str, dayshift_name: str): void
+    + register_workshift(workshift: RegisteredWorkshift): void
+}
+
+class Productivity <<entity>> {
+    - date: datetime.date
+    - dayshift: DayShift
+    - arrival: datetime.time
+    - staying: datetime.timedelta
+
+    + get_date(): datetime.date
+    + get_dayshift: DayShift
+    + get_arrival(): datetime.time
+    + get_staying(): datetime.timedelta
+}
+
+class DayShift <<entity>> {
+    - name: str
+    - start_time: datetime.time
+    - end_time: datetime.time
+
+    + DayShift(name: str)
+    + get_name(): str
+    + get_start_time(): datetime.time
+    + get_end_time(): datetime.time
+}
+
+class Monitor <<entity>> {
+    - visualize_pipelines: dict<int, VisualizePipeline>
+
+    + signal_signin(user_id: int): void
+    + register_display(session_id: int, cam_id: int): Queue
+}
+
+class Message <<entity>> {
+    - body: str
+    - timestamp: datetime.datetime
+
+    + get_body(): str
+    + get_timestamp(): datetime.datetime
+}
+
+class VisualizePipeline <<entity>> {
+    - output_queues: dict<int, Queue>
+
+    + add_output_queue(key: int, queue: Queue): void
+}
+
+class Queue <<entity>> {
+    - id: int
+
+    + Queue(id: int)
+}
+
+class RegisteredWorkshift <<entity>> {
+    - day: str
+    - dayshift: DayShift
+
+    + RegisteredWorkshift(day: str, dayshift: DayShift)
+    + get_day(): str
+    + get_dayshift(): DayShift
+}
+
+ViewWeeklyScheduleBoundary --> ViewWeeklyScheduleController
+ViewWeeklyScheduleController --> User
+ViewWeeklyScheduleController --> RegisteredWorkshift
+ViewWeeklyScheduleController --> DayShift
+
+ViewStaffWorkshiftBoundary --> ManageWorkshiftController
+ViewStaffWorkshiftBoundary --> RegisterWorkshiftBoundary
+ViewStaffWorkshiftBoundary --> DeleteWorkshiftBoundary
+RegisterWorkshiftBoundary --> ManageWorkshiftController
+DeleteWorkshiftBoundary --> ManageWorkshiftController
+ManageWorkshiftController --> User
+User o-- RegisteredWorkshift
+RegisteredWorkshift *-- DayShift
+
+ViewCamerasBoundary --> ViewCamerasController
+ViewCamerasController --> Monitor
+Monitor o-- VisualizePipeline
+Monitor --> Queue
+VisualizePipeline o-- Queue
+
+ViewMessagesBoundary --> MessageController
+MessageController --> User
+User o-- Message
+
+LoginBoundary --> LoginController
+LoginController --> User
+LoginController --> Monitor
+
+ViewStaffListBoudary --> CreateAccountBoundary
+ViewStaffListBoudary --> ViewStaffPersonalInfoBoundary
+ViewStaffListBoudary --> ViewStaffProductivity
+ViewStaffListBoudary --> ManageStaffsController
+CreateAccountBoundary --> ManageStaffsController
+ViewStaffPersonalInfoBoundary --> ManageStaffsController
+ViewStaffProductivity --> ManageStaffsController
+ManageStaffsController --> User
+User o-- Productivity
+Productivity *-- DayShift
+
+@enduml

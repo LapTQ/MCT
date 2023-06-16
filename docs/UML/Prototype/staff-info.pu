@@ -1,0 +1,25 @@
+@startsalt
+
+{^==staff info
+    {/ Home }
+
+    .
+    Staff info 
+    .
+    {
+        Username: | laptq
+        Role: | intern
+    }
+    .
+    [New workshift]
+    .
+    Registered workshifts
+    {-
+        Day | Shift | Start time | End time | .
+        Monday | morning | 08:30 | 12:00 | [unregister]
+        Tuesday | afternoon | 13:30 | 18:00 | [unregister]
+    }
+    .
+}
+
+@endsalt

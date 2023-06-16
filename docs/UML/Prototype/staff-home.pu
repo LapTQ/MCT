@@ -1,0 +1,12 @@
+@startsalt
+
+{^==staff homepage
+    {/ Personal info | Logout}
+
+    .
+    Hello laptq!
+    .
+    .
+}
+
+@endsalt

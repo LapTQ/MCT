@@ -1,0 +1,51 @@
+@startuml
+
+entity User {
+    id : INT <<generated>>
+    --
+    username : VARCHAR(64)
+    password : VARCHAR(128)
+    role : VARCHAR(128)
+}
+
+entity DayShift {
+    id : INT <<generated>>
+    --
+    name : VARCHAR(32)
+    start_time : TIME
+    end_time: TIME
+}
+
+entity RegisteredWorkshift {
+    id: INT <<generated>>
+    --
+    user_id : INT <<FK>>
+    day : VARCHAR(28)
+    dayshift_id : INT <<FK>>
+}
+
+entity Message {
+    id : INT <<generated>>
+    --
+    recipient_id : INT <<FK>>
+    body : VARCHAR(140)
+    timestamp : DATETIME
+}
+
+entity Productivity {
+    id : INT <<generated>>
+    --
+    user_id : INT <<FK>>
+    date : DATE
+    dayshift_id : INT <<FK>>
+    arrival : TIME
+    staying : INTERVAL
+}
+
+User ||..o{ RegisteredWorkshift
+User ||..o{ Message
+User ||..o{ Productivity
+DayShift ||--o{ RegisteredWorkshift
+DayShift ||--o{ Productivity
+
+@enduml

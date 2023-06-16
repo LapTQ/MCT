@@ -1,0 +1,17 @@
+@startuml
+
+actor Manager as A
+boundary CreateAccountBoundary as B2
+control ManageStaffsController as C
+entity User as E
+
+A -> B2: choose to add new staff
+B2 -> B2: validate_current_user()
+A -> B2: set_username(username: String)
+A -> B2: set_password(password: String)
+A -> B2: set_role(role: String)
+A -> B2: submit()
+B2 -> C: create_account(username: String, \n password: String, role: String)
+C -> E: <<create>>(username: String, \n password: String, role: String)
+
+@enduml

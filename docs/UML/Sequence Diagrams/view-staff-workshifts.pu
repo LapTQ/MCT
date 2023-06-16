@@ -1,0 +1,23 @@
+@startuml
+
+actor Actor as A1
+boundary ViewStaffWorkshiftBoundary as B1
+control ManageWorkshiftController as C
+entity User as E1
+entity RegisteredWorkshift as E2
+entity DayShift as E3
+
+A1 -> B1: choose to view staff workshifts
+B1 -> B1: validate_current_user()
+
+alt Actor is Manager
+    B1 -> B1: set_username(username: String)
+end
+
+A1 -> B1: submit()
+B1 -> C: staff_workshift(username: String)
+C -> E1: <<get>>('workshift')
+C -> E2: <<get>>(key)
+C -> E3: <<get>>(key)
+
+@enduml

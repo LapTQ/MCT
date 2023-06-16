@@ -1,0 +1,18 @@
+@startuml
+
+actor Guess as A
+boundary LoginBoundary as B
+control LoginController as C
+entity User
+entity Monitor
+
+
+A -> B: choose to login
+A -> B: set_username(username: String)
+A -> B: set_password(password: String)
+A -> B: submit()
+B -> C: login(username: String, \n password: String)
+C -> User: check_password(password: String)
+C -> Monitor: signal_signin(user_id: Integer)
+
+@enduml

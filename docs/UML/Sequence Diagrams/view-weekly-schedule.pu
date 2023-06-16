@@ -1,0 +1,18 @@
+@startuml
+
+actor Manager as A
+boundary ViewWeeklyScheduleBoundary as B
+control ViewWeeklyScheduleController as C
+entity User as E1
+entity RegisteredWorkshift as E2
+entity DayShift as E3
+
+A -> B: choose to view weekly schedule
+B -> B: validate_current_user()
+A -> B: submit()
+B -> C: weekly_schedule()
+C -> E1: <<get>>('workshifts')
+C -> E2: <<get>>(key)
+C -> E3: <<get>>(key)
+
+@enduml

@@ -1,0 +1,26 @@
+@startsalt
+
+{^==messages
+    {/ Home }
+
+    .
+    Messages
+    .
+    {#
+        {
+            <&envelope-open> <i>a few seconds ago</i>
+            laptq is absent for too long  
+        }
+        {
+            <&envelope-open> <i>2 hours ago</i>
+            laptq arrived after 15 minutes late  
+        }
+        {
+            <&envelope-open> <i>2 hours ago</i>
+            laptq has not arrived
+    }
+    }
+    .
+}
+
+@endsalt

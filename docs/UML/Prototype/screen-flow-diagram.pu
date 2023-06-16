@@ -1,0 +1,88 @@
+@startuml
+
+!unquoted procedure SALT($x)
+"{{
+salt
+%invoke_procedure("_"+$x)
+}}" as $x
+!endprocedure
+
+!procedure _signin()
+{
+    sign in
+}
+!endprocedure
+
+!procedure _manager_homepage()
+{
+    manager homepage
+}
+!endprocedure
+
+!procedure _staff_homepage()
+{
+    staff homepage
+}
+!endprocedure
+
+!procedure _staff_list()
+{
+    staff list
+}
+!endprocedure
+
+!procedure _view_cameras()
+{
+    view cameras
+}
+!endprocedure
+
+!procedure _view_weekly_schedule()
+{
+    view weekly schedule
+}
+!endprocedure
+
+!procedure _messages()
+{
+    messages
+}
+!endprocedure
+
+!procedure _staff_info()
+{
+    staff info
+}
+!endprocedure
+
+!procedure _staff_productivity()
+{
+    staff productivity
+}
+!endprocedure
+
+!procedure _register_workshift()
+{
+    register workshift
+}
+!endprocedure
+
+!procedure _add_new_staff()
+{
+    add new staff
+}
+!endprocedure
+
+(*) --> SALT(signin)
+signin --> SALT(manager_homepage)
+signin --> SALT(staff_homepage)
+manager_homepage --> SALT(view_weekly_schedule)
+manager_homepage --> SALT(view_cameras)
+manager_homepage --> SALT(messages)
+manager_homepage --> SALT(staff_list)
+staff_list --> SALT(staff_info)
+staff_list --> SALT(staff_productivity)
+staff_list --> SALT(add_new_staff)
+staff_homepage --> SALT(staff_info)
+staff_homepage --> SALT(register_workshift)
+@enduml

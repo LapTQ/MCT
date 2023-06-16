@@ -1,0 +1,17 @@
+@startsalt
+
+{^==sign in
+    {/ Home }
+    .
+    Sign in
+    .
+    {
+        Username | "laptq   "
+        Password | "****    "
+    }
+    .
+    [sign in]
+    .
+}
+
+@endsalt

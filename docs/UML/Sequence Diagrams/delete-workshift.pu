@@ -1,0 +1,20 @@
+@startuml
+
+actor Staff as A
+boundary ViewStaffWorkshiftBoundary as B1
+boundary DeleteWorkshiftBoundary as B2
+control ManageWorkshiftController as C
+entity User as E3
+entity RegisteredWorkshift as E2
+
+A -> B1: request_to_delete_workshift()
+B1 -> B1: validate_current_user()
+A -> B2: set_day(day: String)
+A -> B2: set_dayshift(dayshift_name: String)
+A -> B2: submit()
+B2 -> C: delete_worshift(username: String, \n day: String, dayshift_name: String)
+C -> E3: delete_workshfit(day: String, \n dayshift_name: String)
+E3 ->x E2: <<destruct>>
+
+
+@enduml

@@ -1,0 +1,18 @@
+@startuml
+
+actor Manager as A
+boundary ViewStaffProductivity as B
+control ManageStaffsController as C
+entity User as E1
+entity Productivity as E2
+entity DayShift as E3
+
+A -> B: choose to view staff productivity
+B -> B: validate_current_user()
+A -> B: set_username(username: String)
+B -> C: staff_productivity(username: string)
+C -> E1: <<get>>('productivity')
+C -> E2: <<get>>(key)
+C -> E3: <<get>>(key)
+
+@enduml

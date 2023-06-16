@@ -1,0 +1,20 @@
+@startsalt
+
+{^==add new staff
+    {/ Home }
+
+    .
+    Create account
+    .
+    {
+        Username | "laptq     "
+        Password | "****      "
+        Repeat password | "****      "
+        Role | ^Select role^ manager^ engineer^ intern^
+    }
+    .
+    [create]
+    .
+}
+
+@endsalt
