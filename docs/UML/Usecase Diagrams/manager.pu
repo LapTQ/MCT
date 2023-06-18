@@ -1,0 +1,35 @@
+@startuml
+left to right direction
+
+:Manager: as Manager
+
+rectangle System {
+    (View real-time cameras) as (UC03)
+    (Manage staffs) as (UC04)
+    (Sign out) as (UC02)
+            (View staff personal info) as (UC07)
+        (View staff list) as UC10
+        (View weekly schedule) as (UC06)
+        (Get notified about \n staff's irregular behaviors) as (UC05)
+        (Add new staff) as UC11
+            (View staff productivity) as UC12
+            (View staff workshifts) as (UC08)
+            
+            
+
+}
+
+Manager -- UC02
+Manager -- UC03
+Manager -down- UC04
+UC04 <.down. UC05 : <<extends>>
+UC04 <.down. UC06 : <<extends>>
+UC04 <.down. UC10 : <<extends>>
+UC06 -[hidden]l- UC10
+UC05 -[hidden]l- UC06
+UC10 <.down. UC08 : <<extends>>
+UC10 <.down. UC07 : <<extends>>
+UC10 <.down. UC11: <<extends>>
+UC10 <.left. UC12: <<extends>>
+
+@enduml

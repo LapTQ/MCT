@@ -1,5 +1,9 @@
 @startuml
 
+allowmixing
+
+actor Manager
+
 class ViewMessagesBoundary <<boundary>> {
 
     - validate_current_user(): Boolean
@@ -20,8 +24,10 @@ class Message <<entity>> {
     - timestamp: Datetime
 }
 
-ViewMessagesBoundary --> MessageController
-MessageController --> User
+Manager -> ViewMessagesBoundary
+ViewMessagesBoundary -right-> MessageController
+MessageController -right-> User
+MessageController -> Message
 User o-- Message
 
 @enduml

@@ -1,6 +1,10 @@
 @startuml
 
-class LoginBoundary <<boundary>> {
+allowmixing
+
+actor Guess
+
+class SignBoundary <<boundary>> {
     - username: String
     - password: String
     
@@ -9,9 +13,9 @@ class LoginBoundary <<boundary>> {
     + submit(): void
 }
 
-class LoginController <<control>> {
+class SignController <<control>> {
 
-    + login(): void
+    + signin(): void
 }
 
 class User <<entity>> {
@@ -21,8 +25,10 @@ class User <<entity>> {
 
 class Monitor <<entity>>
 
-LoginBoundary --> LoginController
-LoginController --> User
-LoginController --> Monitor
+Guess -> SignBoundary
+SignBoundary -right-> SignController
+SignController -right-> User
+SignController -right-> Monitor
+User -[hidden]d- Monitor
 
 @enduml

@@ -2,21 +2,21 @@
 
 allowmixing
 
-actor Actor
-actor Manager
 actor Staff
 
-class ViewStaffWorkshiftBoundary <<boundary>> {
-    - username: String
+class DeleteWorkshiftBoundary <<boundary>> {
+    - day: String
+    - dayshift_name: String
     
     - validate_current_user(): Boolean
-    + set_username(): void
+    + set_day(): void
+    + set_dayshift(): void
     + submit(): void
 }
 
 class ManageWorkshiftController <<control>> {
 
-    + staff_workshift(): Dictionary
+    + delete_workshift(): void
 }
 
 class User <<entity>> {
@@ -35,13 +35,9 @@ class DayShift <<entity>> {
     - end_time: Time
 }
 
-Manager -up-|> Actor
-Staff -up-|> Actor
-Actor -> ViewStaffWorkshiftBoundary
-ViewStaffWorkshiftBoundary -right-> ManageWorkshiftController
+Staff -> DeleteWorkshiftBoundary
+DeleteWorkshiftBoundary -right-> ManageWorkshiftController
 ManageWorkshiftController -right-> User
-ManageWorkshiftController -> RegisteredWorkshift
-ManageWorkshiftController -> DayShift
 User o-- RegisteredWorkshift
 RegisteredWorkshift *-- DayShift
 

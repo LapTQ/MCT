@@ -9,9 +9,9 @@
     [New staff]
     .
     {#
-        Username | Role | Productivity
-        manhpc  | engineer | 100% <&arrow-circle-right> Details
-        laptq | intern | 50% <&arrow-circle-right> Details
+        Name | Role | Productivity
+        Manh PC  | engineer | 100% <&arrow-circle-right> Details
+        Lap TQ | intern | 50% <&arrow-circle-right> Details
 
     }
     .

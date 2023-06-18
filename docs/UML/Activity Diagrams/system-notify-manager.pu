@@ -1,0 +1,13 @@
+@startuml
+start
+repeat
+    :monitor staffs;
+    if (a staff arrives late \n or is absent from working area?) then (yes)
+        :send notification to manager;
+    else (no)
+    endif
+
+repeat while (the day shift ends?) is (no)
+->yes;
+stop
+@enduml

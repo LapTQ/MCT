@@ -7,14 +7,21 @@ class ViewStaffListBoudary <<boundary>> {
     + request_to_add_new_staff(): void
     + request_to_view_staff_personal_info(): void
     + request_to_view_staff_productivity(): void
+    + request_to_view_staff_workshift(): void
 }
 
 class CreateAccountBoundary <<boundary>> {
+    - name: str
+    - phone: str
+    - email: str
     - username: str
     - password: str
     - role: str
     
     - validate_current_user(): bool
+    + set_name(name: str): void
+    + set_phone(phone: str): void
+    + set_email(email: str): void
     + set_username(username: str): void
     + set_password(password: str): void
     + set_role(role: str): void
@@ -30,7 +37,7 @@ class ViewStaffProductivity <<boudnary>> {
     + submit(): void
 }
 
-class LoginBoundary <<boundary>> {
+class SigninBoundary <<boundary>> {
     - username: str
     - password: str
     
@@ -71,7 +78,6 @@ class ViewStaffWorkshiftBoundary <<boundary>> {
 }
 
 class RegisterWorkshiftBoundary <<boundary>> {
-    - username: str
     - day: str
     - dayshift_name: str
 
@@ -82,7 +88,6 @@ class RegisterWorkshiftBoundary <<boundary>> {
 }
 
 class DeleteWorkshiftBoundary <<boundary>> {
-    - username: str
     - day: str
     - dayshift_name: str
     
@@ -106,9 +111,9 @@ class ManageStaffsController <<control>> {
     + user_info(username: str): dict
 }
 
-class LoginController <<control>> {
+class SigninController <<control>> {
 
-    + login(username: str, password: str): void
+    + signin(username: str, password: str): void
 }
 
 class MessageController <<control>> {
@@ -124,7 +129,7 @@ class ViewCamerasController <<control>> {
 
 class ManageWorkshiftController <<control>> {
 
-    + staff_workshift(username: str): void
+    + staff_workshift(username: str): dict
     + register_workshift(username: str, day: str, dayshift_name: str): void
     + delete_workshift(username: str, day: str, dayshift_name: str): void
 }
@@ -136,6 +141,9 @@ class ViewWeeklyScheduleController <<control>> {
 
 class User <<entity>> {
     - id: int
+    - name: str
+    - phone: str
+    - email: str
     - username: str
     - password: str
     - role: str
@@ -145,6 +153,9 @@ class User <<entity>> {
 
     + User(username: str, password: str, role: str)
     + check_password(password: str): bool
+    + get_name(): str
+    + get_phone(): str
+    + get_email(): str
     + get_username(): str
     + get_role(): str
     + get_messages(): list<Message>
@@ -213,6 +224,14 @@ class RegisteredWorkshift <<entity>> {
     + get_dayshift(): DayShift
 }
 
+ManageWorkshiftController -> RegisteredWorkshift
+ManageWorkshiftController -> DayShift
+
+MessageController -> Message
+
+ManageStaffsController -> Productivity
+ManageStaffsController -> DayShift
+
 ViewWeeklyScheduleBoundary --> ViewWeeklyScheduleController
 ViewWeeklyScheduleController --> User
 ViewWeeklyScheduleController --> RegisteredWorkshift
@@ -229,7 +248,7 @@ RegisteredWorkshift *-- DayShift
 
 ViewCamerasBoundary --> ViewCamerasController
 ViewCamerasController --> Monitor
-Monitor o-- VisualizePipeline
+Monitor o--> VisualizePipeline
 Monitor --> Queue
 VisualizePipeline o-- Queue
 
@@ -237,13 +256,14 @@ ViewMessagesBoundary --> MessageController
 MessageController --> User
 User o-- Message
 
-LoginBoundary --> LoginController
-LoginController --> User
-LoginController --> Monitor
+SigninBoundary --> SigninController
+SigninController --> User
+SigninController --> Monitor
 
 ViewStaffListBoudary --> CreateAccountBoundary
 ViewStaffListBoudary --> ViewStaffPersonalInfoBoundary
 ViewStaffListBoudary --> ViewStaffProductivity
+ViewStaffListBoudary --> ViewStaffWorkshiftBoundary
 ViewStaffListBoudary --> ManageStaffsController
 CreateAccountBoundary --> ManageStaffsController
 ViewStaffPersonalInfoBoundary --> ManageStaffsController

@@ -1,0 +1,16 @@
+@startuml
+
+node Client <<device>> {
+    artifact WebBrowser
+}
+
+node WebServer {
+    artifact Flask
+}
+
+database Database
+
+Client -right- WebServer : HTTP/S requests
+WebServer -right- Database : Read/write data
+
+@enduml

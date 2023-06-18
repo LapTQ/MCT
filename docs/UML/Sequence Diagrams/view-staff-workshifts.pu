@@ -11,7 +11,7 @@ A1 -> B1: choose to view staff workshifts
 B1 -> B1: validate_current_user()
 
 alt Actor is Manager
-    B1 -> B1: set_username(username: String)
+    A1 -> B1: set_username(username: String)
 end
 
 A1 -> B1: submit()

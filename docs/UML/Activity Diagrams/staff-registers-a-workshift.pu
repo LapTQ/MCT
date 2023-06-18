@@ -3,9 +3,9 @@
 start
 :request to manage workshift;
 |System|
-:provide the date, time options;
+:provide the time slot options;
 |Staff|
-:select date, time;
+:select time slot;
 |System|
 if (there's no conflict?) then (yes)
     :save new workshift;

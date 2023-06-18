@@ -1,5 +1,11 @@
 @startuml
 
+allowmixing
+
+actor Actor
+actor Manager
+actor Staff
+
 class ViewStaffPersonalInfoBoundary <<boundary>> {
     - username: String
     
@@ -14,11 +20,17 @@ class ManageStaffsController <<control>> {
 }
 
 class User <<entity>> {
+    - name: String
+    - phone: String
+    - email: String
     - username: String
     - role: String
 }
 
-ViewStaffPersonalInfoBoundary --> ManageStaffsController
-ManageStaffsController --> User
+Manager -up-|> Actor
+Staff -up-|> Actor
+Actor -> ViewStaffPersonalInfoBoundary
+ViewStaffPersonalInfoBoundary -right-> ManageStaffsController
+ManageStaffsController -right-> User
 
 @enduml

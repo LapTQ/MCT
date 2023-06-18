@@ -7,22 +7,27 @@ start
 |Guess|
 :enter sign-in info;
 |System|
-if (sign-in info is correct?) then (yes)
-    fork
-        :record sign-in time;
-    fork again
-        if (the signed-in account is staff and a person detection appears check-in area?) then (yes)
+if (sign-in info is correct?) then (no)
+    :announce sign-in was failed;
+    stop
+else (yes)
+    if (the signed-in account is staff?) then (no)
+        stop
+    else (yes)
+        |Camera|
+        :capture check-in region;
+        |System|
+        if (a person detection appears in check-in region?) then (yes)
             :record check-in time and assign staff to the detection;
-            if (staff had been late) then (yes)
-                :announce the manager that the staff has come;
+            if (recorded check-in time > shift start time?) then (yes)
+                :notify manager about the staff's arrival;
             else (no)
+                stop
             endif
         else (no)
+            stop
         endif
-    end fork
-    stop
-else (no)
-    :announce sign-in was failed;
+    endif
     stop
 endif
 @enduml

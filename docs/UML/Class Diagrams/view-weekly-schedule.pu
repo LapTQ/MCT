@@ -1,5 +1,8 @@
 @startuml
 
+allowmixing
+
+actor Manager
 
 class ViewWeeklyScheduleBoundary <<boundary>> {
 
@@ -28,10 +31,13 @@ class DayShift <<entity>> {
     - end_time: Time
 }
 
-ViewWeeklyScheduleBoundary --> ViewWeeklyScheduleController
-ViewWeeklyScheduleController --> User
+Manager -> ViewWeeklyScheduleBoundary
+ViewWeeklyScheduleBoundary -right-> ViewWeeklyScheduleController
+ViewWeeklyScheduleController -right-> User
 ViewWeeklyScheduleController --> RegisteredWorkshift
 ViewWeeklyScheduleController --> DayShift
+User -[hidden]d- RegisteredWorkshift
+RegisteredWorkshift -[hidden]d- DayShift
 User o-- RegisteredWorkshift
 RegisteredWorkshift *-- DayShift
 

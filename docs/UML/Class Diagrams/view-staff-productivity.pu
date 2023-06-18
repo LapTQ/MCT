@@ -1,0 +1,45 @@
+@startuml
+
+allowmixing
+
+actor Manager
+
+class ViewStaffProductivity <<boudnary>> {
+    - username: String
+
+    - validate_current_user(): Boolean
+    + set_username(): void
+    + submit(): void
+}
+
+class ManageStaffsController <<control>> {
+
+    + staff_productivity(): Dictionary
+}
+
+class User <<entity>> {
+    - username: String
+    - productivities: List<Productivity>
+}
+
+class Productivity <<entity>> {
+    - date: Date
+    - dayshift: DayShift
+    - arrival: Time
+    - staying: Interval
+}
+
+class DayShift <<entity>> {
+    - start_time: Time
+    - end_time: Time
+}
+
+Manager -> ViewStaffProductivity
+ViewStaffProductivity -right-> ManageStaffsController
+ManageStaffsController -right-> User
+ManageStaffsController -> Productivity
+ManageStaffsController -> DayShift
+User o-- Productivity
+Productivity *-- DayShift
+
+@enduml

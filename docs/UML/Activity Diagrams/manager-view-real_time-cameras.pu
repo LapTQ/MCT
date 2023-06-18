@@ -7,6 +7,6 @@ repeat
 repeat while (tracking service has started?) is (no)
 ->yes;
 :draw staff tracking result to camera view;
-:stream camera view to display;
+:stream camera view to the display;
 stop
 @enduml

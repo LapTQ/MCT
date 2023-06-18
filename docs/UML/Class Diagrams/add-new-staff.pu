@@ -1,0 +1,45 @@
+@startuml
+
+allowmixing
+
+actor Manager
+
+class CreateAccountBoundary <<boundary>> {
+    - name: String
+    - phone: String
+    - email: String
+    - username: String
+    - password: String
+    - role: String
+    
+    - validate_current_user(): Boolean
+    + set_username(): void
+    + set_password(): void
+    + set_role(): void
+    + set_name(): void
+    + set_phone(): void
+    + set_email(): void
+    + submit(): void
+
+}
+
+class ManageStaffsController <<control>> {
+
+    + create_account(): void
+}
+
+class User <<entity>> {
+    - id: Integer
+    - name: String
+    - phone: String
+    - email: String
+    - username: String
+    - password: String
+    - role: String
+}
+
+Manager -> CreateAccountBoundary
+CreateAccountBoundary -right-> ManageStaffsController
+ManageStaffsController -right-> User
+
+@enduml

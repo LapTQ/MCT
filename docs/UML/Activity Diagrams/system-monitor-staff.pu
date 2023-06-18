@@ -3,11 +3,7 @@ start
 repeat
     :capture synchronized camera streams;
     :track and associate staff between cameras;
-    if (a staff does not check-in in time or a checked-in staff is absence from working area?) then (yes)
-        :send notification to manager;
-    else (no)
-    endif
-
+    :calculate staff's staying time;
 repeat while (the day shift ends?) is (no)
 ->yes;
 :save staying time;

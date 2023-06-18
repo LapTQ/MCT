@@ -7,6 +7,9 @@ entity User as E
 
 A -> B2: choose to add new staff
 B2 -> B2: validate_current_user()
+A -> B2: set_name(name: String)
+A -> B2: set_phone(phone: String)
+A -> B2: set_email(email: String)
 A -> B2: set_username(username: String)
 A -> B2: set_password(password: String)
 A -> B2: set_role(role: String)

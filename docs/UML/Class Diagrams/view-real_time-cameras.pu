@@ -1,5 +1,9 @@
 @startuml
 
+allowmixing
+
+actor Manager
+
 class ViewCamerasBoundary <<boundary>> {
     - session_id: Integer
 
@@ -9,8 +13,7 @@ class ViewCamerasBoundary <<boundary>> {
 
 class ViewCamerasController <<control>> {
 
-    + view_cameras(): List<Generator>
-    
+    + view_cameras(): List<Generator> 
 }
 
 class Monitor <<entity>> {
@@ -25,9 +28,10 @@ class Queue <<entity>> {
     - id: Integer
 }
 
-ViewCamerasBoundary --> ViewCamerasController
-ViewCamerasController --> Monitor
-Monitor o-- VisualizePipeline
+Manager -> ViewCamerasBoundary
+ViewCamerasBoundary -right-> ViewCamerasController
+ViewCamerasController -right-> Monitor
+Monitor o--> VisualizePipeline
 Monitor --> Queue
 VisualizePipeline o-- Queue
 

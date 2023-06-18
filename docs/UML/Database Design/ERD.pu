@@ -5,6 +5,9 @@ entity User {
     --
     username : VARCHAR(64)
     password : VARCHAR(128)
+    name: VARCHAR(128)
+    phone: VARCHAR(16)
+    email: VARCHAR(28)
     role : VARCHAR(128)
 }
 

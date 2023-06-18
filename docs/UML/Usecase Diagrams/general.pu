@@ -7,29 +7,35 @@ left to right direction
 :Admin: as Admin
 
 rectangle System {
-    (Sign in) as (UC01)
-    (Log out) as (UC02)
-    (View real-time cameras) as (UC03)
-    (Manage staffs) as (UC04)
-    (Get notified about staff's unexpected behaviors) as (UC05)
-    (View weekly schedule) as (UC06)
-    (View staff personal info) as (UC07)
-    (View staff workshifts) as (UC08)
     (Manage accounts) as (UC09)
+    (Sign out) as (UC02)
+    (Manage staffs) as (UC04)
+    (View real-time cameras) as (UC03)
+    (Manage workshifts) as (UC16)
+    (Manage personal info) as (UC17)    
+    (Sign in) as (UC01)
 }
 
-Guess -- UC01
+
+
+
+
+UC09 -[hidden]l- UC02
+UC02 -[hidden]l- UC03
+UC03 -[hidden]l- UC04
+UC03 -[hidden]d- UC17
+UC04 -[hidden]d- UC16
+UC16 -[hidden]l- UC01
+
+
+UC16 -down- Staff
+UC17 -- Staff
+UC02 -- Staff
+Manager -down- UC04
 Manager -- UC02
 Manager -- UC03
-Manager -- UC04
-Manager -- UC05
-Manager -- UC06
-Manager -- UC07
-Manager -- UC08
-Staff -up- UC02
-Staff -up- UC07
-Staff -up- UC08
-Admin -up- UC02
-Admin -up- UC09
+Admin -down- UC09
+Admin -- UC02
+UC01 -down- Guess
 
 @enduml

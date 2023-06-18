@@ -1,0 +1,27 @@
+@startuml
+
+allowmixing
+
+actor Manager
+
+class ViewStaffListBoudary <<boundary>> {
+
+    - validate_current_user(): Boolean
+    + submit(): void
+}
+
+class ManageStaffsController <<control>> {
+
+    + staff_list(): list<dict>
+}
+
+class User <<entity>> {
+    - name: String
+    - role: String
+}
+
+Manager -> ViewStaffListBoudary
+ViewStaffListBoudary -right-> ManageStaffsController
+ManageStaffsController -right-> User
+
+@enduml
