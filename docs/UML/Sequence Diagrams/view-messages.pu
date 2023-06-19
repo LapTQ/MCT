@@ -2,7 +2,7 @@
 
 actor Manager as A
 boundary ViewMessagesBoundary as B
-control MessageController as C
+control ManageStaffsController as C
 entity User as E1
 entity Message as E2
 

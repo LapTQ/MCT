@@ -10,7 +10,7 @@ class ViewMessagesBoundary <<boundary>> {
     + submit(): void
 }
 
-class MessageController <<control>> {
+class ManageStaffsController <<control>> {
 
     + messages(): Dictionary
 }
@@ -25,9 +25,9 @@ class Message <<entity>> {
 }
 
 Manager -> ViewMessagesBoundary
-ViewMessagesBoundary -right-> MessageController
-MessageController -right-> User
-MessageController -> Message
+ViewMessagesBoundary -right-> ManageStaffsController
+ManageStaffsController -right-> User
+ManageStaffsController -> Message
 User o-- Message
 
 @enduml

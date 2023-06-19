@@ -1,0 +1,27 @@
+@startuml
+
+class ManageStaffsController <<control>> {
+
+    + staff_list(): list<dict>
+    + create_account(username: str, password: str, role: str): void
+    + staff_productivity(username: str): dict
+    + user_info(username: str): dict
+    + weekly_schedule(): dict
+    + messages(username: str): list<dict>
+    + view_cameras(session_id: int): list<Generator> 
+}
+
+class AuthController <<control>> {
+
+    + signin(username: str, password: str): void
+    + signout(username: str): void
+}
+
+class ManageWorkshiftController <<control>> {
+
+    + staff_workshift(username: str): dict
+    + register_workshift(username: str, day: str, dayshift_name: str): void
+    + delete_workshift(username: str, day: str, dayshift_name: str): void
+}
+
+@enduml

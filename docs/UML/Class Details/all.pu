@@ -1,6 +1,6 @@
 @startuml
 
-class ViewStaffListBoudary <<boundary>> {
+class ViewStaffListBoundary <<boundary>> {
 
     - validate_current_user(): bool
     + submit(): void
@@ -29,7 +29,7 @@ class CreateAccountBoundary <<boundary>> {
 
 }
 
-class ViewStaffProductivity <<boudnary>> {
+class ViewStaffProductivityBoundary <<boudnary>> {
     - username: str
 
     - validate_current_user(): bool
@@ -43,6 +43,11 @@ class SigninBoundary <<boundary>> {
     
     + set_username(username: str): void
     + set_password(password: str): void
+    + submit(): void
+}
+
+class SignoutBoundary <<boundary>> {
+    
     + submit(): void
 }
 
@@ -109,22 +114,15 @@ class ManageStaffsController <<control>> {
     + create_account(username: str, password: str, role: str): void
     + staff_productivity(username: str): dict
     + user_info(username: str): dict
+    + weekly_schedule(): dict
+    + messages(username: str): list<dict>
+    + view_cameras(session_id: int): list<Generator>
 }
 
-class SigninController <<control>> {
+class AuthController <<control>> {
 
     + signin(username: str, password: str): void
-}
-
-class MessageController <<control>> {
-
-    + messages(username: str): list<dict>
-}
-
-class ViewCamerasController <<control>> {
-
-    + view_cameras(session_id: int): list<Generator>
-    
+    + signout(username: str): void
 }
 
 class ManageWorkshiftController <<control>> {
@@ -132,11 +130,6 @@ class ManageWorkshiftController <<control>> {
     + staff_workshift(username: str): dict
     + register_workshift(username: str, day: str, dayshift_name: str): void
     + delete_workshift(username: str, day: str, dayshift_name: str): void
-}
-
-class ViewWeeklyScheduleController <<control>> {
-
-    + weekly_schedule(): dict
 }
 
 class User <<entity>> {
@@ -224,18 +217,17 @@ class RegisteredWorkshift <<entity>> {
     + get_dayshift(): DayShift
 }
 
-ManageWorkshiftController -> RegisteredWorkshift
-ManageWorkshiftController -> DayShift
+ManageWorkshiftController --> RegisteredWorkshift
+ManageWorkshiftController --> DayShift
 
-MessageController -> Message
+ManageStaffsController --> Message
 
-ManageStaffsController -> Productivity
-ManageStaffsController -> DayShift
+ManageStaffsController --> Productivity
 
-ViewWeeklyScheduleBoundary --> ViewWeeklyScheduleController
-ViewWeeklyScheduleController --> User
-ViewWeeklyScheduleController --> RegisteredWorkshift
-ViewWeeklyScheduleController --> DayShift
+ViewWeeklyScheduleBoundary --> ManageStaffsController
+ManageStaffsController --> User
+ManageStaffsController --> RegisteredWorkshift
+ManageStaffsController --> DayShift
 
 ViewStaffWorkshiftBoundary --> ManageWorkshiftController
 ViewStaffWorkshiftBoundary --> RegisterWorkshiftBoundary
@@ -246,29 +238,28 @@ ManageWorkshiftController --> User
 User o-- RegisteredWorkshift
 RegisteredWorkshift *-- DayShift
 
-ViewCamerasBoundary --> ViewCamerasController
-ViewCamerasController --> Monitor
+ViewCamerasBoundary --> ManageStaffsController
+ManageStaffsController --> Monitor
 Monitor o--> VisualizePipeline
 Monitor --> Queue
 VisualizePipeline o-- Queue
 
-ViewMessagesBoundary --> MessageController
-MessageController --> User
+ViewMessagesBoundary --> ManageStaffsController
 User o-- Message
 
-SigninBoundary --> SigninController
-SigninController --> User
-SigninController --> Monitor
+SigninBoundary --> AuthController
+SignoutBoundary --> AuthController
+AuthController --> User
+AuthController --> Monitor
 
-ViewStaffListBoudary --> CreateAccountBoundary
-ViewStaffListBoudary --> ViewStaffPersonalInfoBoundary
-ViewStaffListBoudary --> ViewStaffProductivity
-ViewStaffListBoudary --> ViewStaffWorkshiftBoundary
-ViewStaffListBoudary --> ManageStaffsController
+ViewStaffListBoundary --> CreateAccountBoundary
+ViewStaffListBoundary --> ViewStaffPersonalInfoBoundary
+ViewStaffListBoundary --> ViewStaffProductivityBoundary
+ViewStaffListBoundary --> ViewStaffWorkshiftBoundary
+ViewStaffListBoundary --> ManageStaffsController
 CreateAccountBoundary --> ManageStaffsController
 ViewStaffPersonalInfoBoundary --> ManageStaffsController
-ViewStaffProductivity --> ManageStaffsController
-ManageStaffsController --> User
+ViewStaffProductivityBoundary --> ManageStaffsController
 User o-- Productivity
 Productivity *-- DayShift
 

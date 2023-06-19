@@ -11,7 +11,7 @@ class ViewCamerasBoundary <<boundary>> {
     + submit(): void
 }
 
-class ViewCamerasController <<control>> {
+class ManageStaffsController <<control>> {
 
     + view_cameras(): List<Generator> 
 }
@@ -29,8 +29,8 @@ class Queue <<entity>> {
 }
 
 Manager -> ViewCamerasBoundary
-ViewCamerasBoundary -right-> ViewCamerasController
-ViewCamerasController -right-> Monitor
+ViewCamerasBoundary -right-> ManageStaffsController
+ManageStaffsController -right-> Monitor
 Monitor o--> VisualizePipeline
 Monitor --> Queue
 VisualizePipeline o-- Queue

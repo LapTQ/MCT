@@ -1,0 +1,101 @@
+@startuml
+
+class User <<entity>> {
+    - id: int
+    - name: str
+    - phone: str
+    - email: str
+    - username: str
+    - password: str
+    - role: str
+    - productivities: list<Productivity>
+    - messages_received: list<Message>
+    - workshifts: list<RegisteredWorkshift>
+
+    + User(username: str, password: str, role: str)
+    + check_password(password: str): bool
+    + get_name(): str
+    + get_phone(): str
+    + get_email(): str
+    + get_username(): str
+    + get_role(): str
+    + get_messages(): list<Message>
+    + get_productivity(): list<Productivity>
+    + get_workshifts(): list<RegisteredWorkshift>
+    + delete_workshift(day: str, dayshift_name: str): void
+    + register_workshift(workshift: RegisteredWorkshift): void
+}
+
+class Productivity <<entity>> {
+    - date: datetime.date
+    - dayshift: DayShift
+    - arrival: datetime.time
+    - staying: datetime.timedelta
+
+    + get_date(): datetime.date
+    + get_dayshift: DayShift
+    + get_arrival(): datetime.time
+    + get_staying(): datetime.timedelta
+}
+
+class DayShift <<entity>> {
+    - name: str
+    - start_time: datetime.time
+    - end_time: datetime.time
+
+    + DayShift(name: str)
+    + get_name(): str
+    + get_start_time(): datetime.time
+    + get_end_time(): datetime.time
+}
+
+class Monitor <<entity>> {
+    - visualize_pipelines: dict<int, VisualizePipeline>
+
+    + signal_signin(user_id: int): void
+    + register_display(session_id: int, cam_id: int): Queue
+}
+
+class Message <<entity>> {
+    - body: str
+    - timestamp: datetime.datetime
+
+    + get_body(): str
+    + get_timestamp(): datetime.datetime
+}
+
+class VisualizePipeline <<entity>> {
+    - output_queues: dict<int, Queue>
+
+    + add_output_queue(key: int, queue: Queue): void
+}
+
+class Queue <<entity>> {
+    - id: int
+
+    + Queue(id: int)
+}
+
+class RegisteredWorkshift <<entity>> {
+    - day: str
+    - dayshift: DayShift
+
+    + RegisteredWorkshift(day: str, dayshift: DayShift)
+    + get_day(): str
+    + get_dayshift(): DayShift
+}
+
+
+User o-- RegisteredWorkshift
+RegisteredWorkshift *-- DayShift
+
+Monitor o--> VisualizePipeline
+Monitor --> Queue
+VisualizePipeline o-- Queue
+
+User o-- Message
+
+User o-- Productivity
+Productivity *-- DayShift
+
+@enduml

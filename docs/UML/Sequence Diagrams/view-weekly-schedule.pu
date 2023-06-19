@@ -2,7 +2,7 @@
 
 actor Manager as A
 boundary ViewWeeklyScheduleBoundary as B
-control ViewWeeklyScheduleController as C
+control ManageStaffsController as C
 entity User as E1
 entity RegisteredWorkshift as E2
 entity DayShift as E3

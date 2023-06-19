@@ -45,9 +45,40 @@ entity Productivity {
     staying : INTERVAL
 }
 
+entity Detection {
+    id : INT <<generated>>
+    --
+    user_id : INT <<FK>>
+    cam_id : INT <<FK>>
+    date : DATE
+    frame_time : TIME
+    frame_id : INT
+    track_id : INT
+    detection_mode : VARCHAR(28)
+    tracking_mode : VARCHAR(28)
+    det : VARCHAR(10000)
+}
+
+entity STA {
+    id : INT <<generated>>
+    --
+    det_id_1 : INT <<FK>>
+    det_id_2 : INT <<FK>>
+    loc_infer_mode : INT
+}
+
+entity Camera {
+    id : INT <<generated>>
+    --
+    address : VARCHAR(128)
+}
+
 User ||..o{ RegisteredWorkshift
 User ||..o{ Message
 User ||..o{ Productivity
+User |o..o{ Detection
+Camera ||..o{ Detection
+Detection ||..o{ STA
 DayShift ||--o{ RegisteredWorkshift
 DayShift ||--o{ Productivity
 

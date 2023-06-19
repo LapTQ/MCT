@@ -10,7 +10,7 @@ class ViewWeeklyScheduleBoundary <<boundary>> {
     + submit(): void
 }
 
-class ViewWeeklyScheduleController <<control>> {
+class ManageStaffsController <<control>> {
 
     + weekly_schedule(): Dictionary
 }
@@ -32,10 +32,10 @@ class DayShift <<entity>> {
 }
 
 Manager -> ViewWeeklyScheduleBoundary
-ViewWeeklyScheduleBoundary -right-> ViewWeeklyScheduleController
-ViewWeeklyScheduleController -right-> User
-ViewWeeklyScheduleController --> RegisteredWorkshift
-ViewWeeklyScheduleController --> DayShift
+ViewWeeklyScheduleBoundary -right-> ManageStaffsController
+ManageStaffsController -right-> User
+ManageStaffsController --> RegisteredWorkshift
+ManageStaffsController --> DayShift
 User -[hidden]d- RegisteredWorkshift
 RegisteredWorkshift -[hidden]d- DayShift
 User o-- RegisteredWorkshift

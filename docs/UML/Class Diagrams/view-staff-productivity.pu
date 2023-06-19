@@ -4,7 +4,7 @@ allowmixing
 
 actor Manager
 
-class ViewStaffProductivity <<boudnary>> {
+class ViewStaffProductivityBoundary <<boudnary>> {
     - username: String
 
     - validate_current_user(): Boolean
@@ -34,8 +34,8 @@ class DayShift <<entity>> {
     - end_time: Time
 }
 
-Manager -> ViewStaffProductivity
-ViewStaffProductivity -right-> ManageStaffsController
+Manager -> ViewStaffProductivityBoundary
+ViewStaffProductivityBoundary -right-> ManageStaffsController
 ManageStaffsController -right-> User
 ManageStaffsController -> Productivity
 ManageStaffsController -> DayShift

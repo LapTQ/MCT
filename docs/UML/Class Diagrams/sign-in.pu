@@ -13,7 +13,7 @@ class SignBoundary <<boundary>> {
     + submit(): void
 }
 
-class SignController <<control>> {
+class AuthController <<control>> {
 
     + signin(): void
 }
@@ -26,9 +26,9 @@ class User <<entity>> {
 class Monitor <<entity>>
 
 Guess -> SignBoundary
-SignBoundary -right-> SignController
-SignController -right-> User
-SignController -right-> Monitor
+SignBoundary -right-> AuthController
+AuthController -right-> User
+AuthController -right-> Monitor
 User -[hidden]d- Monitor
 
 @enduml

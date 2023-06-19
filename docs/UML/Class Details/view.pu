@@ -1,0 +1,112 @@
+@startuml
+
+class SigninBoundary <<boundary>> {
+    - username: str
+    - password: str
+    
+    + set_username(username: str): void
+    + set_password(password: str): void
+    + submit(): void
+}
+
+class SignoutBoundary <<boundary>> {
+    
+    + submit(): void
+}
+
+class CreateAccountBoundary <<boundary>> {
+    - name: str
+    - phone: str
+    - email: str
+    - username: str
+    - password: str
+    - role: str
+    
+    - validate_current_user(): bool
+    + set_name(name: str): void
+    + set_phone(phone: str): void
+    + set_email(email: str): void
+    + set_username(username: str): void
+    + set_password(password: str): void
+    + set_role(role: str): void
+    + submit(): void
+
+}
+
+class ViewStaffListBoundary <<boundary>> {
+
+    - validate_current_user(): bool
+    + submit(): void
+}
+
+class ViewStaffProductivityBoundary <<boudnary>> {
+    - username: str
+
+    - validate_current_user(): bool
+    + set_username(username: str): void
+    + submit(): void
+}
+
+class ViewStaffPersonalInfoBoundary <<boundary>> {
+    - username: str
+    
+    - validate_current_user(): bool
+    + set_username(username: str): void
+    + submit(): void
+}
+
+class ViewStaffWorkshiftBoundary <<boundary>> {
+    - username: str
+    
+    - validate_current_user(): bool
+    + set_username(username: str): void
+    + submit(): void
+}
+
+class RegisterWorkshiftBoundary <<boundary>> {
+    - day: str
+    - dayshift_name: str
+
+    - validate_current_user(): bool
+    + set_day(day: str): void
+    + set_dayshift(dayshift_name: str): void
+    + submit(): void
+}
+
+class DeleteWorkshiftBoundary <<boundary>> {
+    - day: str
+    - dayshift_name: str
+    
+    - validate_current_user(): bool
+    + set_day(day: str): void
+    + set_dayshift(dayshift_name: str): void
+    + submit(): void
+}
+
+class ViewMessagesBoundary <<boundary>> {
+
+    - validate_current_user(): bool
+    + submit(): void
+}
+
+class ViewCamerasBoundary <<boundary>> {
+    - session_id: int
+
+    - validate_current_user(): bool
+    + submit(): void
+}
+
+class ViewWeeklyScheduleBoundary <<boundary>> {
+
+    - validate_current_user(): bool
+    + submit(): void
+}
+
+ViewStaffWorkshiftBoundary --> RegisterWorkshiftBoundary
+ViewStaffWorkshiftBoundary --> DeleteWorkshiftBoundary
+ViewStaffListBoundary --> CreateAccountBoundary
+ViewStaffListBoundary --> ViewStaffPersonalInfoBoundary
+ViewStaffListBoundary --> ViewStaffProductivityBoundary
+ViewStaffListBoundary --> ViewStaffWorkshiftBoundary
+
+@enduml

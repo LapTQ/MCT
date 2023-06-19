@@ -2,7 +2,7 @@
 
 actor Manager as A
 boundary ViewCamerasBoundary as B
-control ViewCamerasController as C
+control ManageStaffsController as C
 entity Monitor
 entity Queue
 entity VisualizePipeline as PLVis

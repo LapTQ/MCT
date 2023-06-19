@@ -1,7 +1,7 @@
 @startuml
 
 actor Manager as A
-boundary ViewStaffProductivity as B
+boundary ViewStaffProductivityBoundary as B
 control ManageStaffsController as C
 entity User as E1
 entity Productivity as E2

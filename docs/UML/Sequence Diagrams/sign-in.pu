@@ -2,7 +2,7 @@
 
 actor Guess as A
 boundary SigninBoundary as B
-control SigninController as C
+control AuthController as C
 entity User
 entity Monitor
 
