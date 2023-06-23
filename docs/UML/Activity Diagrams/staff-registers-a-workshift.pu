@@ -7,10 +7,11 @@ start
 |Staff|
 :select time slot;
 |System|
-if (there's no conflict?) then (yes)
+:check for conflicts;
+if () then (no)
     :save new workshift;
     stop
-else (no)
+else (yes)
     :announce the registration was failed;
     stop
 @enduml

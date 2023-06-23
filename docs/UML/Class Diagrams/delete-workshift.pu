@@ -2,13 +2,15 @@
 
 allowmixing
 
-actor Staff
+actor Manager
 
 class DeleteWorkshiftBoundary <<boundary>> {
+    - username: String
     - day: String
     - dayshift_name: String
     
     - validate_current_user(): Boolean
+    + set_username(): void
     + set_day(): void
     + set_dayshift(): void
     + submit(): void
@@ -35,7 +37,7 @@ class DayShift <<entity>> {
     - end_time: Time
 }
 
-Staff -> DeleteWorkshiftBoundary
+Manager -> DeleteWorkshiftBoundary
 DeleteWorkshiftBoundary -right-> ManageWorkshiftController
 ManageWorkshiftController -right-> User
 User o-- RegisteredWorkshift

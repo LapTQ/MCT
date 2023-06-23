@@ -1,6 +1,6 @@
 @startuml
 
-actor Staff as A
+actor Manager as A
 boundary RegisterWorkshiftBoundary as B2
 control ManageWorkshiftController as C
 entity Dayshift as E1
@@ -9,6 +9,7 @@ entity User as E3
 
 A -> B2: choose to register workshift
 B2 -> B2: validate_current_user()
+A -> B2: set_username(username: String)
 A -> B2: set_day(day: String)
 A -> B2: set_dayshift(dayshift_name: String)
 A -> B2: submit()

@@ -13,7 +13,9 @@ rectangle System {
         (Get notified about \n staff's irregular behaviors) as (UC05)
         (Add new staff) as UC11
             (View staff productivity) as UC12
+            (Delete a workshift) as (UC15)
             (View staff workshifts) as (UC08)
+            (Register new workshift) as (UC14)
             
             
 
@@ -27,9 +29,12 @@ UC04 <.down. UC06 : <<extends>>
 UC04 <.down. UC10 : <<extends>>
 UC06 -[hidden]l- UC10
 UC05 -[hidden]l- UC06
+UC05 -[hidden]d- UC08
 UC10 <.down. UC08 : <<extends>>
 UC10 <.down. UC07 : <<extends>>
 UC10 <.down. UC11: <<extends>>
 UC10 <.left. UC12: <<extends>>
+UC08 <.right. UC14: <<extends>>
+UC08 <.left. UC15: <<extends>>
 
 @enduml

@@ -7,19 +7,23 @@ start
 |Guess|
 :enter sign-in info;
 |System|
-if (sign-in info is correct?) then (no)
+: check if sign-in info is correct;
+if () then (no)
     :announce sign-in was failed;
     stop
 else (yes)
-    if (the signed-in account is staff?) then (no)
+    : check if the signed-in account is staff;
+    if () then (no)
         stop
     else (yes)
         |Camera|
         :capture check-in region;
         |System|
-        if (a person detection appears in check-in region?) then (yes)
+        : check if a person detection appears in check-in region;
+        if () then (yes)
             :record check-in time and assign staff to the detection;
-            if (recorded check-in time > shift start time?) then (yes)
+            :check if recorded check-in time > shift start time;
+            if () then (yes)
                 :notify manager about the staff's arrival;
             else (no)
                 stop

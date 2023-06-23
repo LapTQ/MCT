@@ -64,20 +64,24 @@ class ViewStaffWorkshiftBoundary <<boundary>> {
 }
 
 class RegisterWorkshiftBoundary <<boundary>> {
+    - username: str
     - day: str
     - dayshift_name: str
 
     - validate_current_user(): bool
+    + set_username(username: str): void
     + set_day(day: str): void
     + set_dayshift(dayshift_name: str): void
     + submit(): void
 }
 
 class DeleteWorkshiftBoundary <<boundary>> {
+    - username: str
     - day: str
     - dayshift_name: str
     
     - validate_current_user(): bool
+    + set_username(username: str): void
     + set_day(day: str): void
     + set_dayshift(dayshift_name: str): void
     + submit(): void

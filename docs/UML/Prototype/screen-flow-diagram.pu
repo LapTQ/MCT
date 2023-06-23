@@ -84,5 +84,5 @@ staff_list --> SALT(staff_info)
 staff_list --> SALT(staff_productivity)
 staff_list --> SALT(add_new_staff)
 staff_homepage --> SALT(staff_info)
-staff_homepage --> SALT(register_workshift)
+staff_info --> SALT(register_workshift)
 @enduml

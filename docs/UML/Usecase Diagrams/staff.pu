@@ -4,24 +4,14 @@ left to right direction
 :Staff: as Staff
 
 rectangle System {
-    (Sign out) as (UC02)
-    (Manage personal info) as (UC17)
-        
-    (Manage workshifts) as (UC16)
-        
-        (Delete a workshift) as (UC15)
-        (View staff workshifts) as (UC08)
-        (Register new workshift) as (UC14)
-        (View staff personal info) as (UC07)
+    (Sign out) as (UC02)        
+    (View staff workshifts) as (UC08)
+    (View staff personal info) as (UC07)
         
 }
 
 Staff -- UC02
-Staff -down- UC17
-Staff -- UC16
-UC16 <.down.  UC08: <<extends>>
-UC08 <.down. UC14: <<extends>>
-UC08 <.down.  UC15: <<extends>>
-UC17 <.down.  UC07: <<extends>>
+Staff -down- UC07
+Staff -- UC08
 
 @enduml

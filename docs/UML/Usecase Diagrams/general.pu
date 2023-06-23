@@ -11,8 +11,8 @@ rectangle System {
     (Sign out) as (UC02)
     (Manage staffs) as (UC04)
     (View real-time cameras) as (UC03)
-    (Manage workshifts) as (UC16)
-    (Manage personal info) as (UC17)    
+    (View staff workshifts) as (UC08)
+    (View staff personal info) as (UC07)   
     (Sign in) as (UC01)
 }
 
@@ -23,13 +23,13 @@ rectangle System {
 UC09 -[hidden]l- UC02
 UC02 -[hidden]l- UC03
 UC03 -[hidden]l- UC04
-UC03 -[hidden]d- UC17
-UC04 -[hidden]d- UC16
-UC16 -[hidden]l- UC01
+UC03 -[hidden]d- UC07
+UC04 -[hidden]d- UC08
+UC08 -[hidden]l- UC01
 
 
-UC16 -down- Staff
-UC17 -- Staff
+UC08 -down- Staff
+UC07 -- Staff
 UC02 -- Staff
 Manager -down- UC04
 Manager -- UC02

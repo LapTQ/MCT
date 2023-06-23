@@ -4,7 +4,8 @@ start
 :request to view cameras;
 |System|
 repeat
-repeat while (tracking service has started?) is (no)
+:check if tracking service has started;
+repeat while () is (no)
 ->yes;
 :draw staff tracking result to camera view;
 :stream camera view to the display;
