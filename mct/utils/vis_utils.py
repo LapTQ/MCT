@@ -11,7 +11,7 @@ COLORS = [
 ]
 
 
-def plot_box(img, boxes, thickness=2):
+def plot_box(img, boxes, thickness=2, texts=None):
     """
     boxes: [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
     """
@@ -19,6 +19,9 @@ def plot_box(img, boxes, thickness=2):
         boxes = np.array(boxes)
 
     assert len(boxes.shape) == 2, "Invalid 'boxes' shape, must have dim == 2"
+
+    if texts is not None:
+        assert len(texts) == len(boxes)
 
     img = img.copy()
     ids = np.int32(boxes[:, 1])
@@ -42,7 +45,16 @@ def plot_box(img, boxes, thickness=2):
 
             y_text = xyxys[i, 1] - space if xyxys[i, 1] - space - expected_text_H > 0 else xyxys[i, 1] + space + expected_text_H    # type: ignore
             x_text = xyxys[i, 0] + space                                                                                            # type: ignore
-            cv2.putText(img, str(ids[i]) + (f' ({int(confs[i] * 100)})' if confs[i] != -1 else ''), (x_text, y_text), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, thickness=thickness)    # type: ignore
+            cv2.putText(
+                img, 
+                str(ids[i]) + \
+                    (f' ({int(confs[i] * 100)})' if confs[i] != -1 else '') + \
+                        (f' <{texts[i]}>' if texts else ''), 
+                (x_text, y_text), 
+                cv2.FONT_HERSHEY_SIMPLEX, 
+                1.0,
+                color, 
+                thickness=thickness)    # type: ignore
         cv2.rectangle(img, xyxys[i, :2], xyxys[i, 2:4], color=color, thickness=thickness)                                           # type: ignore
 
     return img

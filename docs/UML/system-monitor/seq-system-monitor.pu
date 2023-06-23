@@ -1,0 +1,61 @@
+
+
+' Công việc cần thực hiện:
+'   + có 3 loại thông tin cần gửi cho manager:
+'       - 1 người chưa đến làm quá 30 phút
+'       - 1 người mà muộn quá 30 phút đã đến làm
+'       - 1 người đã đến làm vắng quá 30 phút
+'   + luôn phải có bản ghi trong Productivity cho mỗi cặp (user, ngày, ca làm) dù người đó có arrive không
+'   + trong quá trình MCT cần tính (dù track có detect được không): lateness_interval (< max_lateness), absence_interval (< max_absence)
+'   + nếu người đó tới muộn thì ngay khi người đó tới phải gửi thông báo
+'   + thời điểm lưu db kết quả track, sta là sau ca làm (hoặc cuối ngày) => giảm latency
+'   + thời điểm lưu db về arrival và staying time là sau ca làm (hoặc cuối ngày) => giảm latency
+' Cách 1: Monitor phải <<create>>User ngay khi bản thân nó khởi tạo (để tính cả thời gian đến muộn nữa)
+'   Yêu cầu:
+'       - Ngay trong phần __init__ của User, nó phải load ca làm tiếp theo và chịu trách nhiệm tạo bản ghi trong Productivity.
+'         Khi ca làm kết thúc thì load ca làm mới và tạo bản ghi Productivity.
+
+
+'       - Trong phần update track của User, nó phải assert now() - frame_time < 1s (thì mới real-time được)
+
+'       - Ngay trong phần __init__ của User, phải chạy 1 thread luôn.
+
+'       - Việc lưu work area và kiểm tra xem detection nằm trong work area phải là tự User xử lý, chứ không phải Monitor
+
+'       - lateness_interval thì lưu trong User (Productivity) rồi, nhưng còn max_lateness thì sao?
+'           * Cách 1: Lưu trong User
+'               => Như vậy thì max_latency và max_absence sẽ được truy cập thông qua app.config
+'                  và việc gửi mail cho manager sẽ không phải do Monitor nữa mà sẽ do User
+'           * Cách 2: Lưu trong Monitor
+'               => Phải có 1 luồng xử lý riêng biệt để liên tục kiểm tra trạng thái arrival.
+'                   tuy nhiên, thế thì lại phải để Monitor kiểm soát những ca làm và Productivity
+'                   LOẠI
+
+'       - Xử lý ntn? Monitor cần gọi tới User (User phải được khai báo trước), nhưng để user lưu work area thì cần thông tin W, H của frame
+'       - phải có 1 cách để biết rằng tracking service đã khởi động. VD như
+'           Sau khi register cam, overlap,... thì phải monitor.start() để đánh dấu. Khi đánh dấu rồi thì mới gửi messages...
+
+
+' Cách 2: Chỉ khi nào nhận được signal_signin thì mới khởi tạo.
+'   Yêu cầu:
+'       - User phải định nghĩa các phương thức: check_late và gọi tới hàm này ngay trong phần __init__ của nó.
+'           for t in T:
+'               if signin_id is not None:
+'                   u = User(id)        # chạy hàm check_late, trong hàm này phải gửi thông báo đến manager
+'                   users.append(u)
+'       - Monitor phải <<destruct>> instance User này ngay khi ca làm của nó hết:
+'           for t in T:
+'               ...
+'               for u in users:
+'                   end_time = find_endtime(u)     # tìm thời điểm kết thúc của ca làm hiện tại (HOẶC gần nhất vì có thể t đã muộn hơn vài ms so với end_time)
+'                   if t > end_time:
+'                       <<destrut>>(u)
+'       _ Hoặc là phải tạo bản ghi trong bảng Productivity cho từng user (dù có arrive hay chưa) ngay khi ca làm mới CỦA NGƯỜI ĐÓ bắt đầu => vẫn cần quét qua TẤT CẢ các user ngay khi ca làm bắt đầu dù cho có signal_id chưa
+'           for t in T:
+'               ...
+'               for u in User.query.all():
+'                   if t > find_startime(u)     # hmmm với mọi t mà làm thế này thì rất tốn kém
+'                       p = Productivity(u, date, dayshift)
+'         HOẶC là tạo bản ghi Productivity trong __init__ của User. Với những user không trốn làm, thì sau mỗi ca tan phải lọc lấy những người này và tạo bản ghi Productivity
+'           => vẫn rất tốn kém
+'       => cách 2 này KHÔNG HỢP LÝ

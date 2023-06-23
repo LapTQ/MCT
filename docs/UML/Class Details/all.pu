@@ -164,6 +164,7 @@ class Productivity <<entity>> {
     - arrival: datetime.time
     - staying: datetime.timedelta
 
+    + Productivity(date: datetime.date, dayshift: DayShift)
     + get_date(): datetime.date
     + get_dayshift: DayShift
     + get_arrival(): datetime.time
@@ -192,6 +193,7 @@ class Message <<entity>> {
     - body: str
     - timestamp: datetime.datetime
 
+    + Message(body: str, timestamp: datetime.datetime)
     + get_body(): str
     + get_timestamp(): datetime.datetime
 }

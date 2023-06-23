@@ -5,16 +5,29 @@ boundary ViewCamerasBoundary as B
 control ManageStaffsController as C
 entity Monitor
 entity Queue
-entity VisualizePipeline as PLVis
+entity CameraPipeline
+entity MCMapPipeline
+entity VisualizePipeline
 
-A -> B: choose to view cameras
+A -> B: choose to \n view cameras
 B -> B: validate_current_user()
 A -> B: submit()
 B -> C: view_cameras(session_id)
+
 C -> Monitor: register_display(\n session_id: Integer,\n cam_id: Integer)
-Monitor -> Queue: <<create>>(\n id: session_id)
-Monitor -> PLVis: add_output_queue(\n key: Integer, queue: Queue)
-Monitor --> C: Queue
-C --> B: List<Generator>
+Monitor -> Monitor: is_started()
+alt cam_id not in Monitor.pl_visualize
+    Monitor -> Queue: <<create>>(\n id: Integer)
+    Monitor -> CameraPipeline: add_output_queue(\n key: Integer, queue: Queue)
+    Monitor -> Queue: <<create>>(\n id: Integer)
+    Monitor -> MCMapPipeline: add_output_queue(key: Integer, queue: Queue)
+    Monitor -> VisualizePipeline: <<create>>(iq_annot, iq_video)
+    Monitor ->> VisualizePipeline: start()
+end
+Monitor -> Queue: <<create>>(\n id: Integer)
+Monitor -> VisualizePipeline: add_output_queue(key: Integer, queue: Queue)
+C <-- Monitor: Queue
+B <-- C: List<Generator>
+
 
 @enduml

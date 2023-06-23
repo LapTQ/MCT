@@ -20,8 +20,8 @@
                 <tr>
                     <td><a href="{{ url_for('main.user', username=user.username) }}">{{ user.username }}</a></td>
                     <td>{{ user.role }}</td>
-                    <td>{{ user.late() }}/{{ user.productivities.count() }} late 
-                        {% set staying = user.staying() %}
+                    <td>{{ user.overall_latency() }}/{{ user.productivities.count() }} late 
+                        {% set staying = user.overall_staying() %}
                         {% if staying is not none %}
                             ({{ '%.0f'|format(staying * 100|float) }}% staying) 
                         {% endif %}

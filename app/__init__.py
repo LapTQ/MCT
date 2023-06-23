@@ -1,18 +1,6 @@
 from flask import Flask, current_app
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from flask_login import LoginManager
 from config import Config
-from flask_bootstrap import Bootstrap
-from flask_moment import Moment
-
-
-db = SQLAlchemy()
-migrate = Migrate()
-login = LoginManager()
-login.login_view = 'auth.login' # type: ignore
-bootstrap = Bootstrap()
-moment = Moment()
+from app.extensions import db, migrate, login, bootstrap, moment
 
 
 def create_app(config_class=Config):
@@ -27,9 +15,9 @@ def create_app(config_class=Config):
     moment.init_app(app)
 
 
-    from app.main.tasks import startup as main_startup
-    with app.app_context():
-        main_startup()
+    # from app.main.tasks import startup as main_startup
+    # with app.app_context():
+    #     main_startup()
 
 
     from app.auth import bp as auth_bp

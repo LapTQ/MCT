@@ -1,0 +1,56 @@
+@startuml
+
+control MonitorController
+entity Monitor
+entity User
+entity Tracker
+entity Queue
+entity CameraPipeline
+entity SCTPipeline
+entity Scene
+entity SyncPipeline
+entity STAPipeline
+entity MCMapPipeline
+
+MonitorController -> Monitor: <<create>>()
+Monitor -> User: load_workareas()
+User -> Scene: <<create>>(width: Integer, height: Integer, roi: Array)
+
+
+
+== ==
+
+MonitorController -> CameraPipeline: <<create>>(source: String, meta: Dictionary)
+MonitorController -> Tracker: <<create>>(detection_mode: String,\n tracking_mode: String, txt_path: String)
+MonitorController -> Monitor: register_camera(cam_id: Integer, \n pl_camera: CameraPipeline, tracker: Tracker)
+Monitor -> Queue: <<create>>
+Monitor -> CameraPipeline: add_output_queue(\n key: Integer, queue: Queue)
+Monitor -> SCTPipeline: <<create>>(iq: Queue, tracker: Tracker)
+
+
+MonitorController -> Scene: <<create>>(width: Integer, height: Integer, roi: Array)
+MonitorController -> Monitor: register_overlap(cam_id_primary: Integer,\n cam_id_secondary: Integer, scene_primary: Scene,\n scene_secondary: Scene, homo: Array)
+Monitor -> Queue: <<create>>
+Monitor -> CameraPipeline: add_output_queue(\n key: Integer, queue: Queue)
+Monitor -> SyncPipeline: <<create>>(iq_1: Queue, iq_2: Queue)
+Monitor -> Queue: <<create>>
+Monitor -> SCTPipeline: add_output_queue(key: Integer[2], queue: Queue)
+Monitor -> SyncPipeline: add_output_queue(key: Integer[2], queue: Queue)
+Monitor -> STAPipeline: <<create>>(scene_primary: Scene, scene_secondary: Scene, homo: Array,\n iq_sct_primary: Queue, iq_sct_secondary: Queue, iq_sync: Queue)
+
+
+MonitorController -> Monitor: register_checkin(cam_id: Integer, scene: Scene)
+Monitor -> Queue: <<create>>
+Monitor -> SCTPipeline: add_output_queue(key: Integer, queue: Queue)
+Monitor -> STAPipeline: add_output_queue(key: Integer[2], queue: Queue)
+Monitor -> MCMapPipeline: <<create>>(iq_scts: Dictionary<Integer, Queue>, iq_stas: Dictionary<Integer[2], Queue>,\n cam_id_ckin: Integer, scene_ckin: Scene, users: dict<Integer, User>)
+
+MonitorController -> Monitor: start()
+Monitor ->> MCMapPipeline: start()
+Monitor ->> STAPipeline: start()
+Monitor ->> SyncPipeline: start()
+Monitor ->> SCTPipeline: start()
+Monitor ->> CameraPipeline: start()
+Monitor ->> User: start()
+
+@enduml

@@ -1,7 +1,7 @@
 from flask import render_template, redirect, url_for, current_app, Response, flash, session, request, jsonify
 from flask_login import login_required, current_user
 
-from app import db
+from app.extensions import db
 from app.main import bp
 from app.models import User, RegisteredWorkshift, DayShift, Camera, Message, Notification, Productivity
 from app.main.forms import EmptyForm, RegisterWorkshiftForm
@@ -9,11 +9,11 @@ from app.main.forms import EmptyForm, RegisterWorkshiftForm
 from datetime import datetime, timedelta, date
 
 ##### START HERE #####
-from app.main.tasks import cams, sm_oq, config     # TODO thay ten bien
+from app.main.tasks import cams, sm_oq     # TODO thay ten bien
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from mct.utils.pipeline import MyQueue, Visualize
+from mct.utils.pipeline import MyQueue, VisualizePipeline
 import time
 from threading import Thread
 ##### END HERE #####
@@ -222,15 +222,15 @@ def view_cameras():
     for cid, cv in cams.items():
 
         if 'pl_vis' not in cv:
-            iq_vis_video = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Vis_Video<{cid}>')
-            iq_vis_annot = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Vis_Annot<{cid}>')
+            iq_vis_video = MyQueue(current_app.config['PIPELINE'].get('QUEUE_MAXSIZE'), name=f'IQ-Vis_Video<{cid}>')
+            iq_vis_annot = MyQueue(current_app.config['PIPELINE'].get('QUEUE_MAXSIZE'), name=f'IQ-Vis_Annot<{cid}>')
             cv['pl_camera'].add_output_queue(iq_vis_video, iq_vis_video.name)
             sm_oq[cid] = iq_vis_annot
-            pl_vis = Visualize(config, iq_vis_annot, iq_vis_video, name=f'Vis<{cid}>')
+            pl_vis = VisualizePipeline(current_app.config['PIPELINE'], iq_vis_annot, iq_vis_video, name=f'Vis<{cid}>')
             cv['pl_vis'] = pl_vis
             pl_vis.start()
 
-        iq_display = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Display<{cid}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>')   # type: ignore
+        iq_display = MyQueue(current_app.config['PIPELINE'].get('QUEUE_MAXSIZE'), name=f'IQ-Display<{cid}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>')   # type: ignore
         cv['pl_vis'].add_output_queue(iq_display, iq_display.name)
         cv['iq_display'] = iq_display
     ##### END HERE #####

@@ -17,10 +17,21 @@ class ManageStaffsController <<control>> {
 }
 
 class Monitor <<entity>> {
-    - visualize_pipelines: Dictionary<Integer, VisualizePipeline>
+    - pl_visualizes: Dictionary<Integer, VisualizePipeline>
+    - started: Boolean
+}
+
+class CameraPipeline <<entity>> {
+    - output_queues: Dictionary<Integer, Queue>
+}
+
+class MCMapPipeline <<entity>> {
+    - output_queues: Dictionary<Integer, Queue>
 }
 
 class VisualizePipeline <<entity>> {
+    - iq_annot: Queue
+    - iq_video: Queue
     - output_queues: Dictionary<Integer, Queue>
 }
 
@@ -33,6 +44,8 @@ ViewCamerasBoundary -right-> ManageStaffsController
 ManageStaffsController -right-> Monitor
 Monitor o--> VisualizePipeline
 Monitor --> Queue
-VisualizePipeline o-- Queue
+CameraPipeline o--> Queue
+MCMapPipeline o--> Queue
+VisualizePipeline *--> Queue
 
 @enduml

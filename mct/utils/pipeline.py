@@ -21,8 +21,8 @@ from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
 from filter import FilterBase, IQRFilter, GMMFilter
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
-from app import db
-from app.models import User, Message
+from app.extensions import db
+from app.models import User, Message, Scene
 from flask import current_app
 
 
@@ -36,12 +36,12 @@ logging.basicConfig(
 )
 
 
-class Config:
+class ConfigPipeline:
 
     def __init__(
             self, 
             config_path: str, 
-            name='Config'
+            name='ConfigPipeline'
     ) -> None:
         
         self.name = name
@@ -96,13 +96,13 @@ class Config:
         assert isinstance(self.config.get('QUEUE_TIMEOUT'), (float, int)) or self.config.get('QUEUE_TIMEOUT') is None
         assert isinstance(self.config.get('QUEUE_GET_MANY_SIZE'), int) or self.config.get('QUEUE_GET_MANY_SIZE') == 'all'
 
-        # camera pipeline
+        # camera
         
-        # SCT pipeline
+        # SCTPipeline
         assert self.config.get('DETECTION_MODE') in ['pose', 'box']
         assert self.config.get('TRACKING_MODE') in ['bytetrack']
         
-        # STA pipeline
+        # STAPipeline
         assert self.config.get('LOC_INFER_MODE') in [1, 2, 3]
         assert self.config.get('FP_FILTER') in [None, 'gmm', 'iqr']
         assert isinstance(self.config.get('FP_REMAP'), bool)
@@ -112,7 +112,7 @@ class Config:
         assert self.config.get('DIST_WINDOW_SIZE') >= 1 and self.config.get('DIST_WINDOW_SIZE') % 2 == 1
         assert self.config.get('DIST_WINDOW_BOUNDARY') >= 0
 
-        # display pipeline
+        # display
         assert self.config.get('DISPLAY_MODE') in ['show', 'save']
 
 
@@ -181,10 +181,10 @@ class Pipeline(ABC):
     @abstractmethod
     def __init__(
             self, 
-            config: Config,
+            config: ConfigPipeline,
             output_queues: Union[List[MyQueue], MyQueue, dict, None] = None,
             online_put_sleep: Union[int, float] = 0, 
-            name='Pipeline component'
+            name='Pipeline'
     ) -> None:
         
         self.config = config
@@ -267,17 +267,17 @@ class Pipeline(ABC):
         self.lock.release()
 
 
-class Camera(Pipeline):
+class CameraPipeline(Pipeline):
 
     def __init__(
             self,
-            config: Config, 
+            config: ConfigPipeline, 
             source: Union[int, str],
             meta: Union[dict, None] = None, 
             output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
             ret_img: bool = True,
-            name='Camera thread'
+            name='CameraPipeline'
     ) -> None:
         super().__init__(config, output_queues, online_put_sleep, name)
         
@@ -445,66 +445,16 @@ class Tracker:
             raise NotImplementedError()
 
 
-class Scene:
-
-    def __init__(
-            self,
-            width: Union[int, float, None] = None,
-            height: Union[int, float, None] = None,
-            roi: Union[np.ndarray, None] = None,
-            roi_test_offset=0,
-            name='Scene'
-    ) -> None:
-
-        self.width = width
-        self.height = height
-        
-        self.roi = roi   
-        self._check_roi()
-
-        self.roi_test_offset = roi_test_offset
-
-        self.name = name
-
-        logging.debug(f'{self.name}:\t initialized')
-    
-
-    def is_in_roi(self, x: np.ndarray) -> Union[bool, np.ndarray]:
-        not_np = False
-        if not isinstance(x, np.ndarray):
-            x = np.array(x)
-            not_np = True
-        
-        x = np.float32(x.reshape(-1, 2))    # type: ignore
-
-        ret = [cv2.pointPolygonTest(self.roi, p, True) >= self.roi_test_offset for p in x]      # type: ignore
-
-        if not_np and len(ret) == 1:
-            return ret[0]
-        else:
-            return np.array(ret, dtype=bool)
-        
-    
-    def has_roi(self) -> bool:
-        return self.roi is not None
-    
-
-    def _check_roi(self):
-        if self.roi is not None:
-            assert isinstance(self.roi, np.ndarray)
-            self.roi = np.int32(self.roi)   # type: ignore
-
-
-class SCT(Pipeline):
+class SCTPipeline(Pipeline):
 
     def __init__(
             self, 
-            config: Config, 
+            config: ConfigPipeline, 
             tracker: Tracker,
             input_queue: MyQueue,
             output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
-            name='SCT'
+            name='SCTPipeline'
     ) -> None:
         super().__init__(config, output_queues, online_put_sleep, name)
 
@@ -565,15 +515,15 @@ class SCT(Pipeline):
                 break
 
 
-class SyncFrame(Pipeline):
+class SyncPipeline(Pipeline):
 
     def __init__(
             self, 
-            config: Config, 
+            config: ConfigPipeline, 
             input_queues: List[MyQueue],
             output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
-            name='SyncFrame'
+            name='SyncPipeline'
     ) -> None:
         super().__init__(config, output_queues, online_put_sleep, name)
 
@@ -673,18 +623,18 @@ class SyncFrame(Pipeline):
         return [[] for _ in range(len(self.input_queues))]
 
 
-class STA(Pipeline):
+class STAPipeline(Pipeline):
 
     def __init__(
             self, 
-            config: Config, 
+            config: ConfigPipeline, 
             scenes: List[Scene],
             homo: Union[np.ndarray, None],
             sct_queues: List[MyQueue],
             sync_queue: MyQueue,
             output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
-            name='STA'
+            name='STAPipeline'
     ) -> None:
         super().__init__(config, output_queues, online_put_sleep, name)
         """
@@ -994,11 +944,11 @@ class STA(Pipeline):
         return [[], [], []]     # the last list is for matches
 
 
-class Visualize(Pipeline):
+class VisualizePipeline(Pipeline):
 
     def __init__(
             self, 
-            config: Config, 
+            config: ConfigPipeline, 
             annot_queue: MyQueue,
             video_queue: MyQueue,
             scene: Union[Scene, None] = None,
@@ -1158,17 +1108,17 @@ class Visualize(Pipeline):
         assert isinstance(self.video_queue, MyQueue), f'visualizing SCT requires video input queue, got {type(self.video_queue)}'
         
 
-class Display(Pipeline):
+class DisplayPipeline(Pipeline):
 
     def __init__(
             self,
-            config: Config,
+            config: ConfigPipeline,
             input_queue: MyQueue,
             width: Union[int, None] = None,
             height: Union[int, None] = None,
             fps: Union[int, None] = None,
             path: Union[str, None] = None,
-            name='Display thread'
+            name='DisplayPipeline thread'
     ) -> None:
         super().__init__(config, None, 0, name)
         
@@ -1259,14 +1209,14 @@ class Display(Pipeline):
             assert self.path is not None
 
 
-class Export(Pipeline):
+class ExportPipeline(Pipeline):
 
     def __init__(
             self,
-            config: Config,
+            config: ConfigPipeline,
             input_queue: MyQueue,
             path: str, 
-            name='Export'
+            name='ExportPipeline'
     ) -> None:
         super().__init__(config, None, 0, name)  # type: ignore
 
@@ -1346,12 +1296,12 @@ class Staff:
             
 
 
-class StaffMap(Pipeline):
+class MCMapPipeline(Pipeline):
 
     def __init__(
             self,
             app,
-            config: Config,
+            config: ConfigPipeline,
             sct_queues: dict,
             sta_queues: dict,
             checkin_scene: Scene,
@@ -1496,6 +1446,10 @@ class StaffMap(Pipeline):
             
             start_time = mid_time
 
+
+            # TODO end of the day: logout all users
+            # TODO 
+
                 
 
 
@@ -1600,33 +1554,33 @@ class StaffMap(Pipeline):
 
 def main(kwargs):
 
-    config = Config(kwargs['config'])
+    config = ConfigPipeline(kwargs['config'])
 
     # input queues
-    iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-1-Input-Queue')
-    iq_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-2-Input-Queue')
+    iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-1-Input-Queue')
+    iq_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-2-Input-Queue')
     
     iq_sync_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-1-Input-Queue')
     iq_sync_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-2-Input-Queue')
     
-    iq_sta_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-1-InputSCT-Queue')
-    iq_sta_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-2-InputSCT-Queue')
-    iq_sta_sync = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-InputSync-Queue')
+    iq_sta_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-1-InputSCT-Queue')
+    iq_sta_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-2-InputSCT-Queue')
+    iq_sta_sync = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-InputSync-Queue')
 
     iq_exp_sta = MyQueue(config.get('QUEUE_MAXSIZE'), name='ExportSTA-Input-Queue')
 
     # ONLY USE META IF CAPTURING VIDEOS
     meta_1 = yaml.safe_load(open(kwargs['meta_1'], 'r'))
     meta_2 = yaml.safe_load(open(kwargs['meta_2'], 'r'))
-    pl_camera_1_noretimg = Camera(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_sct_1, iq_sync_1], ret_img=False, name='Camera-1-NoRetImg')
-    pl_camera_2_noretimg = Camera(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_sct_2, iq_sync_2], ret_img=False, name='Camera-2-NoRetImg')
+    pl_camera_1_noretimg = CameraPipeline(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_sct_1, iq_sync_1], ret_img=False, name='CameraPipeline-1-NoRetImg')
+    pl_camera_2_noretimg = CameraPipeline(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_sct_2, iq_sync_2], ret_img=False, name='CameraPipeline-2-NoRetImg')
     
     tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_1'], name='Tracker-1')
     tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_2'], name='Tracker-2')
-    pl_sct_1 = SCT(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_1], name='SCT-1')
-    pl_sct_2 = SCT(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_2], name='SCT-2')
+    pl_sct_1 = SCTPipeline(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_1], name='SCTPipeline-1')
+    pl_sct_2 = SCTPipeline(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_2], name='SCTPipeline-2')
     
-    pl_sync = SyncFrame(config, [iq_sync_1, iq_sync_2], iq_sta_sync)
+    pl_sync = SyncPipeline(config, [iq_sync_1, iq_sync_2], iq_sta_sync)
     
     roi_2 = load_roi(kwargs['roi'], pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
     if kwargs['camera_1'] == kwargs['camera_2']:
@@ -1642,9 +1596,9 @@ def main(kwargs):
         roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo)) # type: ignore
     scene_1 = Scene(pl_camera_1_noretimg.width, pl_camera_1_noretimg.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
     scene_2 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
-    pl_sta = STA(config, [scene_1, scene_2], homo, [iq_sta_sct_1, iq_sta_sct_2], iq_sta_sync, [iq_exp_sta], name='STA')
+    pl_sta = STAPipeline(config, [scene_1, scene_2], homo, [iq_sta_sct_1, iq_sta_sct_2], iq_sta_sync, [iq_exp_sta], name='STAPipeline')
 
-    pl_exp = Export(config, iq_exp_sta, kwargs['out_sta_txt'])
+    pl_exp = ExportPipeline(config, iq_exp_sta, kwargs['out_sta_txt'])
 
     # start
     pl_camera_1_noretimg.start()
@@ -1682,12 +1636,12 @@ def main(kwargs):
 
 def main2(kwargs):
 
-    config = Config(kwargs['config'])
+    config = ConfigPipeline(kwargs['config'])
 
     # input queues
-    iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-<1>-Input-Queue')
-    iq_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-<2>-Input-Queue')
-    iq_sct_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCT-<3>-Input-Queue')
+    iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-<1>-Input-Queue')
+    iq_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-<2>-Input-Queue')
+    iq_sct_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-<3>-Input-Queue')
     
     iq_sync_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<*1, 2>-Input-Queue')
     iq_sync_21 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<1, *2>-Input-Queue')
@@ -1695,31 +1649,31 @@ def main2(kwargs):
     iq_sync_32 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<2, *3>-Input-Queue')
     
     
-    iq_sta_sct_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<*1, 2>-InputSCT-Queue')
-    iq_sta_sct_21 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<1, *2>-InputSCT-Queue')
-    iq_sta_sync_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<1, 2>-InputSync-Queue')
-    iq_sta_sct_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<*2, 3>-InputSCT-Queue')
-    iq_sta_sct_32 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<2, *3>-InputSCT-Queue')
-    iq_sta_sync_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STA-<2, 3>-InputSync-Queue')
+    iq_sta_sct_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<*1, 2>-InputSCT-Queue')
+    iq_sta_sct_21 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<1, *2>-InputSCT-Queue')
+    iq_sta_sync_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<1, 2>-InputSync-Queue')
+    iq_sta_sct_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<*2, 3>-InputSCT-Queue')
+    iq_sta_sct_32 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<2, *3>-InputSCT-Queue')
+    iq_sta_sync_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<2, 3>-InputSync-Queue')
 
     # ONLY USE META IF CAPTURING VIDEOS
     meta_1 = yaml.safe_load(open(kwargs['meta_1'], 'r'))
     meta_2 = yaml.safe_load(open(kwargs['meta_2'], 'r'))
     meta_3 = yaml.safe_load(open(kwargs['meta_3'], 'r'))
 
-    pl_camera_1_noretimg = Camera(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_sct_1, iq_sync_12], ret_img=False, name='Camera-<1>-NoRetImg')
-    pl_camera_2_noretimg = Camera(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_sct_2, iq_sync_21, iq_sync_23], ret_img=False, name='Camera-<2>-NoRetImg')
-    pl_camera_3_noretimg = Camera(config, kwargs['camera_3'], meta=meta_3, output_queues=[iq_sct_3, iq_sync_32], ret_img=False, name='Camera-<3>-NoRetImg')
+    pl_camera_1_noretimg = CameraPipeline(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_sct_1, iq_sync_12], ret_img=False, name='CameraPipeline-<1>-NoRetImg')
+    pl_camera_2_noretimg = CameraPipeline(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_sct_2, iq_sync_21, iq_sync_23], ret_img=False, name='CameraPipeline-<2>-NoRetImg')
+    pl_camera_3_noretimg = CameraPipeline(config, kwargs['camera_3'], meta=meta_3, output_queues=[iq_sct_3, iq_sync_32], ret_img=False, name='CameraPipeline-<3>-NoRetImg')
     
     tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_1'], name='Tracker-<1>')
     tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_2'], name='Tracker-<2>')
     tracker3 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_3'], name='Tracker-<3>')
-    pl_sct_1 = SCT(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_12], name='SCT-<1>')
-    pl_sct_2 = SCT(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_21, iq_sta_sct_23], name='SCT-<2>')
-    pl_sct_3 = SCT(config, tracker=tracker3, input_queue=iq_sct_3, output_queues=[iq_sta_sct_32], name='SCT-<3>')
+    pl_sct_1 = SCTPipeline(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_12], name='SCTPipeline-<1>')
+    pl_sct_2 = SCTPipeline(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_21, iq_sta_sct_23], name='SCTPipeline-<2>')
+    pl_sct_3 = SCTPipeline(config, tracker=tracker3, input_queue=iq_sct_3, output_queues=[iq_sta_sct_32], name='SCTPipeline-<3>')
     
-    pl_sync_12 = SyncFrame(config, [iq_sync_12, iq_sync_21], iq_sta_sync_12)
-    pl_sync_23 = SyncFrame(config, [iq_sync_23, iq_sync_32], iq_sta_sync_23)
+    pl_sync_12 = SyncPipeline(config, [iq_sync_12, iq_sync_21], iq_sta_sync_12)
+    pl_sync_23 = SyncPipeline(config, [iq_sync_23, iq_sync_32], iq_sta_sync_23)
     
     roi_21 = load_roi(kwargs['roi_21'], pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
     homo_12 = load_homo(kwargs['matches_12'])
@@ -1731,8 +1685,8 @@ def main2(kwargs):
     scene_21 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_21, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<1, *2>')
     scene_23 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_23, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<*2, 3>')
     scene_32 = Scene(pl_camera_3_noretimg.width, pl_camera_3_noretimg.height, roi_32, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<2, *3>')
-    pl_sta_12 = STA(config, [scene_12, scene_21], homo_12, [iq_sta_sct_12, iq_sta_sct_21], iq_sta_sync_12, name='STA-<1, 2>')
-    pl_sta_23 = STA(config, [scene_23, scene_32], homo_23, [iq_sta_sct_23, iq_sta_sct_32], iq_sta_sync_23, name='STA-<2, 3>')
+    pl_sta_12 = STAPipeline(config, [scene_12, scene_21], homo_12, [iq_sta_sct_12, iq_sta_sct_21], iq_sta_sync_12, name='STAPipeline-<1, 2>')
+    pl_sta_23 = STAPipeline(config, [scene_23, scene_32], homo_23, [iq_sta_sct_23, iq_sta_sct_32], iq_sta_sync_23, name='STAPipeline-<2, 3>')
 
     # start
     pl_camera_1_noretimg.start()

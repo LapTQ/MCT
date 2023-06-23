@@ -1,0 +1,106 @@
+@startuml
+
+class Monitor <<entity>> {
+    - pl_cameras: Dictionary<Integer, CameraPipeline>
+    - trackers: Dictionary<Integer, Tracker>
+    - pl_scts: Dictionary<Integer, SCTPipeline>
+    - pl_stas: Dictionary<Integer[2], STAPipeline>
+    - pl_mcmap: MCMapPipeline
+    - users: dict<Integer, User>
+    - started: Boolean
+
+    + register_camera()
+    + register_overlap()
+    + register_checkin()
+    + start()
+    + is_started()
+    + signal_signin(user_id)
+}
+
+class Queue <<entity>>
+
+class Tracker <<entity>> {
+    - detection_mode: String
+    - tracking_mode: String
+    - txt_path: String
+}
+
+class SCTPipeline <<entity>> {
+    - iq: Queue
+}
+
+class Pipeline <<entity>> {
+    - output_queues: Dictionary<Integer, Queue>
+
+    + start()
+    + add_output_queue(): void
+    + remove_output_queue(): Queue
+}
+
+class CameraPipeline <<entity>> {
+    - source: String
+    - meta: Dictionary
+    - signin_uid: Integer
+}
+
+class SyncPipeline <<entity>> {
+    - iq_1: Queue
+    - iq_2: Queue
+}
+
+class STAPipeline <<entity>> {
+    - scene_primary: Scene
+    - scene_secondary: Scene
+    - homo: Array
+    - iq_sct_primary: Queue
+    - iq_sct_secondary: Queue
+    - iq_sync: Queue
+}
+
+class MCMapPipeline <<entity>> {
+    - iq_scts: Dictionary<Integer, Queue>
+    - iq_stas: Dictionary<Integer[2], Queue>
+    - cam_id_ckin: Integer
+    - scene_ckin: Scene
+    - users: Dictionary<Integer, User>
+    - output_queues: Dictionary<Integer, Queue>
+}
+
+class Scene <<entity>> {
+    - width: Integer
+    - height: Integer
+    - roi: Array
+}
+
+class User <<entity>> {
+    - scene_workareas: List<Scene>
+    - detection: 
+}
+
+Monitor o-- CameraPipeline
+Monitor o-- Tracker
+Monitor o--> SCTPipeline
+Pipeline <|-down- CameraPipeline
+Pipeline <|-down- SCTPipeline
+Pipeline <|-down- SyncPipeline
+Pipeline <|-down- STAPipeline
+Pipeline <|-down- MCMapPipeline
+Pipeline o-- Queue
+Monitor -> Queue
+Monitor -> Scene
+Monitor -> SyncPipeline
+Monitor -> STAPipeline
+Monitor o-- STAPipeline
+Monitor o--> MCMapPipeline
+Monitor o--> User
+SCTPipeline *-- Queue
+SCTPipeline *-- Tracker
+SyncPipeline *-- Queue
+STAPipeline *-- Queue
+STAPipeline *-- Scene
+MCMapPipeline *-- Queue
+MCMapPipeline *-- Scene
+MCMapPipeline *--> User
+User o--> Scene
+
+@enduml

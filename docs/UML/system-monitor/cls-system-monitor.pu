@@ -1,0 +1,23 @@
+@startuml
+
+class Monitor <<entity>> {
+    - pl_cameras: Dictionary<Integer, CameraPipeline>
+
+    + register_camera(cam_id: Integer, )
+    + signal_signin(user_id: Integer)
+    + register_display(session_id: Integer, cam_id)
+
+}
+
+class Pipeline <<entity>> {
+    - output_queues: List<Queue>
+
+    + add_output_queue(): void
+    + remove_output_queue(): Queue
+}
+
+class CameraPipeline <<entity>>
+
+Pipeline <|- CameraPipeline
+
+@enduml
