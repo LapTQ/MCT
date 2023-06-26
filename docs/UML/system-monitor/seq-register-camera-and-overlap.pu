@@ -15,14 +15,14 @@ entity MCMapPipeline
 MonitorController -> Monitor: <<create>>()
 Monitor -> User: load_workareas()
 User -> Scene: <<create>>(width: Integer, height: Integer, roi: Array)
+Monitor -> User: load_next_workshift()
 
 
 
 == ==
-
-MonitorController -> CameraPipeline: <<create>>(source: String, meta: Dictionary)
-MonitorController -> Tracker: <<create>>(detection_mode: String,\n tracking_mode: String, txt_path: String)
-MonitorController -> Monitor: register_camera(cam_id: Integer, \n pl_camera: CameraPipeline, tracker: Tracker)
+MonitorController -> Monitor: register_camera(\n cam_id: Integer, address: String)
+Monitor -> CameraPipeline: <<create>>(source: String, meta: Dictionary)
+Monitor -> Tracker: <<create>>(detection_mode: String,\n tracking_mode: String, txt_path: String)
 Monitor -> Queue: <<create>>
 Monitor -> CameraPipeline: add_output_queue(\n key: Integer, queue: Queue)
 Monitor -> SCTPipeline: <<create>>(iq: Queue, tracker: Tracker)
@@ -39,6 +39,7 @@ Monitor -> SyncPipeline: add_output_queue(key: Integer[2], queue: Queue)
 Monitor -> STAPipeline: <<create>>(scene_primary: Scene, scene_secondary: Scene, homo: Array,\n iq_sct_primary: Queue, iq_sct_secondary: Queue, iq_sync: Queue)
 
 
+MonitorController -> Scene: <<create>>(width: Integer, height: Integer, roi: Array)
 MonitorController -> Monitor: register_checkin(cam_id: Integer, scene: Scene)
 Monitor -> Queue: <<create>>
 Monitor -> SCTPipeline: add_output_queue(key: Integer, queue: Queue)
@@ -51,6 +52,5 @@ Monitor ->> STAPipeline: start()
 Monitor ->> SyncPipeline: start()
 Monitor ->> SCTPipeline: start()
 Monitor ->> CameraPipeline: start()
-Monitor ->> User: start()
 
 @enduml

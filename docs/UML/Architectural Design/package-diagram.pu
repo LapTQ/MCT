@@ -1,12 +1,12 @@
 @startuml
 
-package View
+package View 
 
 package Control
 
 package Model
 
-View .right.> Control
-Control .right.> Model
+View <.right.> Control: "        "
+Control .right.> Model: "        "
 
 @enduml

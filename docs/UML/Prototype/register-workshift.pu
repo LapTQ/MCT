@@ -7,8 +7,8 @@
     Register workshift
     .
     {
-        Day | ^Monday^
-        Shift | ^Select^ morning^ afternoon^
+        Day | ^Monday              ^
+        Shift | ^ Select             ^ morning (8:30 - 12:00) ^ afternoon (13:30 - 16:00) ^
     }
     .
     [register]

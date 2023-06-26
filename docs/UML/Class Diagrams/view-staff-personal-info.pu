@@ -25,6 +25,7 @@ class User <<entity>> {
     - email: String
     - username: String
     - role: String
+    - address: String
 }
 
 Manager -up-|> Actor

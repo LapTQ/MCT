@@ -1,4 +1,5 @@
 @startuml
+left to right direction
 
 node Client <<device>> {
     artifact WebBrowser
@@ -10,7 +11,7 @@ node WebServer {
 
 database Database
 
-Client -right- WebServer : HTTP/S requests
-WebServer -right- Database : Read/write data
+Client -down- WebServer : HTTP/S requests
+WebServer -down- Database : Read/write data
 
 @enduml

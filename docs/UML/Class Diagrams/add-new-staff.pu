@@ -11,6 +11,7 @@ class CreateAccountBoundary <<boundary>> {
     - username: String
     - password: String
     - role: String
+    - address: String
     
     - validate_current_user(): Boolean
     + set_username(): void
@@ -19,6 +20,7 @@ class CreateAccountBoundary <<boundary>> {
     + set_name(): void
     + set_phone(): void
     + set_email(): void
+    + set_address(): void
     + submit(): void
 
 }
@@ -36,6 +38,7 @@ class User <<entity>> {
     - username: String
     - password: String
     - role: String
+    - address: String
 }
 
 Manager -> CreateAccountBoundary

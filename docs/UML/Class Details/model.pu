@@ -8,6 +8,7 @@ class User <<entity>> {
     - username: str
     - password: str
     - role: str
+    - address: str
     - productivities: list<Productivity>
     - messages_received: list<Message>
     - workshifts: list<RegisteredWorkshift>
@@ -19,6 +20,7 @@ class User <<entity>> {
     + get_email(): str
     + get_username(): str
     + get_role(): str
+    + get_addess(): str
     + get_messages(): list<Message>
     + get_productivity(): list<Productivity>
     + get_workshifts(): list<RegisteredWorkshift>

@@ -7,10 +7,14 @@
     Create account
     .
     {
-        Username | "laptq     "
-        Password | "****      "
-        Repeat password | "****      "
-        Role | ^Select role^ manager^ engineer^ intern^
+        Full name | "Tran Quoc Lap"
+        Phone | "             "
+        Email | "             "
+        Address | "             "
+        Username | "laptq        "
+        Password | "****         "
+        Repeat password | "****         "
+        Role | ^Select role ^ manager^ sales associate^ warehouse staff ^
     }
     .
     [create]
