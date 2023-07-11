@@ -9,7 +9,7 @@ entity Message as E2
 A -> B: choose to view messages
 B -> B: validate_current_user()
 A -> B: submit()
-B -> C: messages(username: String)
+B -> C: messages(username)
 C -> E1: <<get>>('messages')
 C -> E2: <<get>>(key)
 

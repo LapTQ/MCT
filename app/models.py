@@ -7,57 +7,14 @@ import json
 import time
 import numpy as np
 from typing import Union, List, Dict
-import cv2
+import logging
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+from mct.utils.pipeline import Scene
 
 
-class Scene:
-
-    def __init__(
-            self,
-            width: Union[int, float, None] = None,
-            height: Union[int, float, None] = None,
-            roi: Union[np.ndarray, None] = None,
-            roi_test_offset: Union[int, float] = 0,
-            name='Scene'
-    ) -> None:
-
-        self.width = width
-        self.height = height
-        
-        self.roi = roi   
-        self._check_roi()
-        self.roi_test_offset = roi_test_offset
-
-        self.name = name
-    
-
-    def is_in_roi(self, x: Union[tuple, list, np.ndarray]) -> Union[bool, np.ndarray]:
-        """Check if point(s) (x, y) is in the scene's roi.
-        
-        If x is not a numpy array represent only 1 point, then return bool object.
-        """
-        is_numpy = True
-        if not isinstance(x, np.ndarray):
-            x = np.array(x)
-            is_numpy = False
-        
-        x = np.float32(x.reshape(-1, 2))    # type: ignore
-        ret = [cv2.pointPolygonTest(self.roi, p, True) >= self.roi_test_offset for p in x]      # type: ignore
-
-        if not is_numpy and len(ret) == 1:
-            return ret[0]
-        else:
-            return np.array(ret, dtype=bool)
-        
-    
-    def has_roi(self) -> bool:
-        return self.roi is not None
-    
-
-    def _check_roi(self):
-        if self.roi is not None:
-            assert isinstance(self.roi, np.ndarray)
-            self.roi = np.int32(self.roi)   # type: ignore
+logger = logging.getLogger(__name__)
 
 
 class User(UserMixin, db.Model):
@@ -73,9 +30,6 @@ class User(UserMixin, db.Model):
     notifications = db.relationship('Notification', backref='user', lazy='dynamic')
     productivities = db.relationship('Productivity', backref='user', lazy='dynamic')
     regions = db.relationship('Region', primaryjoin='User.role == Region.role', lazy='dynamic')
-
-    max_latency = datetime.timedelta(seconds=current_app.config['MAX_LATENCY'])
-    max_absence = datetime.timedelta(seconds=current_app.config['MAX_ABSENCE'])
     
 
     __table_args__ = (
@@ -163,8 +117,16 @@ class User(UserMixin, db.Model):
             scene = Scene(W, H, roi, current_app.config['PIPELINE'].get('ROI_TEST_OFFSET'))
             self.scene_workareas[cid].append(scene)
 
+        logger.info('Loaded workareas for user %s', self.username)
+
     
     def load_next_workshift(self):
+
+        if not hasattr(self, 'max_latency'):
+            self.max_latency = datetime.timedelta(seconds=current_app.config['MAX_LATENCY'])
+
+        if not hasattr(self, 'max_absence'):
+            self.max_absence = datetime.timedelta(seconds=current_app.config['MAX_ABSENCE'])
 
         weekday_id_to_name = {
             0: 'Monday',
@@ -191,8 +153,9 @@ class User(UserMixin, db.Model):
             if workshift is not None:
                 if now < datetime.datetime.combine(date, dayshift.start_time):
                     self.next_workshift = workshift
-                    print(f'next workshift: {self.next_workshift}')
                     break
+        
+        logger.info('Loaded next workshift %s', self.next_workshift)
         
         self.productivity_created = False
         self.arrived = False
@@ -200,7 +163,8 @@ class User(UserMixin, db.Model):
         self.n_misses = 0
         self.absence_alert_sent = False
         self.absence = datetime.timedelta(0)
-        self.staying = self.next_workshift.dayshift.start_time - self.next_workshift.dayshift.end_time
+        self.staying = datetime.datetime.combine(today, self.next_workshift.dayshift.start_time) - \
+             datetime.datetime.combine(today, self.next_workshift.dayshift.end_time)
         self.last_in_roi = self.next_workshift.dayshift.start_time
 
 
@@ -210,7 +174,9 @@ class User(UserMixin, db.Model):
             msg = Message(recipient=manager, body=message)
             db.session.add(msg)
             manager.add_notification('unread_message_count', manager.new_messages())
-        db.session.commit()        
+        db.session.commit()  
+
+        logger.info('Sent alert from %s to managers: %s', self.username, message)      
     
 
     def update_detection(self, cid, dtime, loc):
@@ -228,7 +194,8 @@ class User(UserMixin, db.Model):
 
         assert hasattr(self, 'scene_workareas')
         assert dtime is not None
-        assert datetime.datetime.now() - dtime < datetime.timedelta(seconds=current_app.config['PIPELINE'].get('DETECTION_EXPIRE_TIME'))
+        dtime = datetime.datetime.fromtimestamp(dtime)
+        assert datetime.datetime.now() - dtime < datetime.timedelta(seconds=current_app.config['DETECTION_EXPIRE_TIME'])
         assert hasattr(self, 'next_workshift')
         
         if isinstance(loc, np.ndarray):
@@ -329,6 +296,48 @@ class User(UserMixin, db.Model):
             self.load_next_workshift()
     
 
+    def update_hint(self, cam_id, track_id):
+
+        if not hasattr(self, '_hint_cam_id') or self._hint_cam_id is None:
+            self._hint_cam_id = cam_id
+        
+        if not hasattr(self, '_hint_track_id') or self._hint_track_id is None:
+            self._hint_track_id = track_id
+
+        if not hasattr(self, '_hint_age'):
+            self._hint_age = -1
+        
+        if not hasattr(self, '_hint_history'):
+            self._hint_history = []
+
+        if cam_id is None or track_id is None:
+            if self._hint_age >= 0:
+                self._hint_age += 1
+        else:
+            self._hint_history.append((cam_id, track_id))
+            self._hint_age = 0
+        
+        if self._hint_age > current_app.config['SWITCH_CAM_MAX_AGE']:
+            if len(self._hint_history) > 0:
+                freq = {}
+                for i, m in enumerate(self._hint_history):
+                    freq[m] = freq.get(m, 0) + i                # more weight on newer candidate
+                self._hint_cam_id, self._hint_track_id = max(freq, key=freq.get)    # type: ignore
+                self._hint_age = 0
+                self._hint_history = []
+
+    
+    def get_hint(self):
+        if not hasattr(self, '_hint_cam_id'):
+            self._hint_cam_id = None
+        
+        if not hasattr(self, '_hint_track_id'):
+            self._hint_track_id = None
+        
+        return self._hint_cam_id, self._hint_track_id
+
+    
+
 @login.user_loader
 def load_user(id):
     return User.query.get(int(id))
@@ -361,9 +370,7 @@ class RegisteredWorkshift(db.Model):
     )
 
     def __repr__(self):
-        username = db.session.get(User, self.user_id).username
-        dayshift_name = db.session.get(DayShift, self.dayshift_id).name
-        return f"RegisteredWorkshift(username={username}, day={self.day}, workshift_name={dayshift_name})"
+        return f"RegisteredWorkshift(username={self.user.username}, day={self.day}, workshift_name={self.dayshift.name})"
     
     def __str__(self):
         return self.__repr__()

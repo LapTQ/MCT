@@ -3,17 +3,10 @@ from flask_login import login_user, current_user, logout_user, login_required
 from werkzeug.urls import url_parse
 from datetime import datetime
 
-from app import db
+from app.extensions import db, monitor
 from app.auth import bp
 from app.models import User, Region
 from app.auth.forms import LoginForm, CreateAccountForm
-
-##### START HERE #####
-from app.main.tasks import cams     # TODO thay ten bien
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
-##### END HERE #####
 
 
 @bp.route('/login', methods=['GET', 'POST'])
@@ -37,8 +30,7 @@ def login():
         ##### START HERE #####
         # TODO xu ly sign-in vs check-in
         if user.role in ['intern', 'engineeer']:
-            checkin_cam_id = Region.query.filter_by(type='checkin').first().primary_cam_id
-            cams[checkin_cam_id]['pl_camera'].signal_signin(user.id)
+            monitor.signal_signin(user.id)
         ##### END HERE #####
     
         next_page = request.args.get('next')

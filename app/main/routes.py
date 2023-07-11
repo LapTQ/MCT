@@ -9,11 +9,7 @@ from app.main.forms import EmptyForm, RegisterWorkshiftForm
 from datetime import datetime, timedelta, date
 
 ##### START HERE #####
-from app.main.tasks import cams, sm_oq     # TODO thay ten bien
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
-from mct.utils.pipeline import MyQueue, VisualizePipeline
+from app.extensions import monitor
 import time
 from threading import Thread
 ##### END HERE #####
@@ -203,10 +199,8 @@ def productivity(username):
     return render_template('productivity.html', user=user, productivity_report=productivity_report)
     
 
-
-    
-
-
+def get_display_key(cam_id, user_id, csrf_token):
+    return f'Display-<cam_id={cam_id}, user_id={user_id}, session_csrf={csrf_token}>'
 
 
 @bp.route('/view_cameras')
@@ -217,38 +211,46 @@ def view_cameras():
         return redirect(url_for('main.index'))
     
     cameras = Camera.query.all()
-    
-    ##### START HERE #####
-    for cid, cv in cams.items():
 
-        if 'pl_vis' not in cv:
-            iq_vis_video = MyQueue(current_app.config['PIPELINE'].get('QUEUE_MAXSIZE'), name=f'IQ-Vis_Video<{cid}>')
-            iq_vis_annot = MyQueue(current_app.config['PIPELINE'].get('QUEUE_MAXSIZE'), name=f'IQ-Vis_Annot<{cid}>')
-            cv['pl_camera'].add_output_queue(iq_vis_video, iq_vis_video.name)
-            sm_oq[cid] = iq_vis_annot
-            pl_vis = VisualizePipeline(current_app.config['PIPELINE'], iq_vis_annot, iq_vis_video, name=f'Vis<{cid}>')
-            cv['pl_vis'] = pl_vis
-            pl_vis.start()
-
-        iq_display = MyQueue(current_app.config['PIPELINE'].get('QUEUE_MAXSIZE'), name=f'IQ-Display<{cid}><USER_ID={current_user.id}><SESSION_CSRF={session["csrf_token"]}>')   # type: ignore
-        cv['pl_vis'].add_output_queue(iq_display, iq_display.name)
-        cv['iq_display'] = iq_display
-    ##### END HERE #####
-    
+    for camera in cameras:
+        key = get_display_key(camera.id, current_user.id, session['csrf_token'])    # type: ignore
+        monitor.register_display(
+            cam_id=camera.id,
+            key=key
+        )
+        
     return render_template('view_cameras.html', cameras=cameras)
 
 
 @bp.route('/_video_feed/<cam_id>')
+@login_required
 def video_feed(cam_id):
+    
+    cam_id = int(cam_id)
+
+    # get display queue
+    key = get_display_key(cam_id, current_user.id, session['csrf_token'])   # type: ignore
+    while True:
+        display_queue = monitor.get_display_queue(cam_id, key)
+        if display_queue is not None:
+            break
+        time.sleep(1)
+
     class FakeCamera:
 
-        def __init__(self):
+        def __init__(self, app, cam_id, key, display_queue):
             self.frame = None
             self.last_access = 0
 
+            self.app = app
 
-        def start(self, app, cam_id):
-            Thread(target=self._thread, args=(app, cam_id)).start()
+            self.cam_id = cam_id
+            self.key = key
+            self.display_queue = display_queue
+
+
+        def start(self):
+            Thread(target=self._thread).start()
             while True:
                 self.last_access = time.time()
                 if self.frame is None:
@@ -256,40 +258,37 @@ def video_feed(cam_id):
                 yield self.frame
 
         
-        def _thread(self, app, cam_id):
+        def _thread(self):
             import cv2
 
-            with app.app_context():
-                ##### START HERE #####
-                # while 'iq_display' not in cams[cam_id]:
-                #     pass
-                iq_display = cams[cam_id]['iq_display']
+            with self.app.app_context():
+                
+                
+
+                # stream video
                 while True:
 
-                    if iq_display.empty():
+                    if self.display_queue.empty():
                         continue
                     
-                    frame = iq_display.get()
-                    frame_img = frame['frame_img']
-                    frame_img = cv2.resize(frame_img, (480, 240))
+                    item = self.display_queue.get()
+                    img = item['frame_img']
+                    img = cv2.resize(img, (480, 240))
                     
-                    imgbyte = cv2.imencode('.jpg', frame_img)[1].tobytes()
+                    imgbyte = cv2.imencode('.jpg', img)[1].tobytes()
 
                     if time.time() - self.last_access > 3:
-                        if 'pl_vis' in cams[cam_id]:
-                            pl_vis = cams[cam_id]['pl_vis']
-                            pl_vis.remove_output_queue(iq_display.name)
-                            if len(pl_vis.output_queues) == 0:
-                                cams[cam_id]['pl_camera'].remove_output_queue(pl_vis.video_queue.name)
-                                del pl_vis
-                                del sm_oq[cam_id]
-
-                ##### END HERE #####
+                        monitor.withdraw_display(self.cam_id, self.key)
                         break
 
                     self.frame = (b'--frame\r\n'
                                   b'Content-Type: image/jpeg\r\n\r\n' + imgbyte + b'\r\n')
     
-    return Response(FakeCamera().start(current_app._get_current_object(), int(cam_id)), # type: ignore
+    return Response(FakeCamera(
+        app=current_app._get_current_object(), # type: ignore
+        cam_id=cam_id,
+        key=key,
+        display_queue=display_queue
+    ).start(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 

@@ -9,14 +9,14 @@ entity User as E3
 
 A -> B2: choose to register workshift
 B2 -> B2: validate_current_user()
-A -> B2: set_username(username: String)
-A -> B2: set_day(day: String)
-A -> B2: set_dayshift(dayshift_name: String)
+A -> B2: set_username(username)
+A -> B2: set_day(day)
+A -> B2: set_dayshift(dayshift_name)
 A -> B2: submit()
-B2 -> C: register_worshift(username: String, \n day: String, dayshift_name: String)
-C -> E1: <<create>>(name: String)
-C -> E2: <<create>>(day: String, dayshift: DayShift)
-C -> E3: register_workshift(workshift: RegisteredWorkshift)
+B2 -> C: register_worshift(username, \n day, dayshift_name)
+C -> E1: <<create>>(name)
+C -> E2: <<create>>(day, dayshift)
+C -> E3: register_workshift(workshift)
 
 
 

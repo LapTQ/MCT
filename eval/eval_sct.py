@@ -1,10 +1,13 @@
 import os
 from pathlib import Path
 
-DATASET_NAME = '2d_v3'
-GT_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/gt'
-TRACKER_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v3/YOLOXs_pretrained-640-ByteTrack/sct'
-TRACKERS_TO_EVAL = 'YOLOXs_pretrained-640-ByteTrack'
+DATASET_NAME = '2d_v4'
+GT_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/gt'
+TRACKER_FOLDER = '/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v4/YOLOv7box_pretrained-640-ByteTrack/sct'
+TRACKERS_TO_EVAL = 'YOLOv7box_pretrained-640-ByteTrack'
+SEQ_LENGTH = 5000
+IM_WIDTH = 1920
+IM_HEIGHT = 1080
 
 
 EXTENSION = '.txt'
@@ -39,9 +42,9 @@ def prepare_for_eval():
 name={os.path.splitext(vid_name)[0]}
 imDir=img1
 frameRate=30
-seqLength=1000
-imWidth=1920
-imHeight=1080
+seqLength={SEQ_LENGTH}
+imWidth={IM_WIDTH}
+imHeight={IM_HEIGHT}
 imExt=.jpg"""
             f.write(msg)
 

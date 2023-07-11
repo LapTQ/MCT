@@ -1,158 +1,86 @@
 from threading import Thread
 from flask import current_app
-import time
-from queue import Queue
 import cv2
 
-from app.extensions import db
-from app.models import Camera, Region, CameraMatchingPoint, Scene
+from app.extensions import monitor
+from app.models import Camera, Region, CameraMatchingPoint
 import json
 
 import numpy as np
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
-from mct.utils.pipeline import CameraPipeline as PLCamera, SCTPipeline as PLSCT, VisualizePipeline as PLVisualize, STAPipeline as PLSTA, SyncPipeline as PLSync, MCMapPipeline as PLStaffManager, Tracker, MyQueue
-
-
-cams = {}
-sm_oq = {}
+sys.path.append(str(Path(__file__).parent.parent.parent))
+from mct.utils.pipeline import Scene
 
 
 def async_startup(app):
     with app.app_context():
 
         config = app.config['PIPELINE']
+        W = config.get('CAMERA_FRAME_WIDTH')
+        H = config.get('CAMERA_FRAME_HEIGHT')
 
-        for c in Camera.query.all():
-            cams[c.id] = {'num': c.num, 
-                          'address': c.address}
-            # break           
+        assert W is not None
+        assert H is not None
+
+        # register cameras
+        for camera in Camera.query.all():
             
-        sm_iq_sct = {}
-        sm_iq_sta = {}
-        
+            meta_path = f'data/recordings/2d_v4/meta/{camera.num}_00011_2023-04-15_08-30-00-000000.yaml'
+            txt_path=f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{camera.num}_00011_2023-04-15_08-30-00-000000.txt'
 
-        import yaml
-        for cid, cv in cams.items():
-            meta = yaml.safe_load(open(f'data/recordings/2d_v4/meta/{cv["num"]}_00011_2023-04-15_08-30-00-000000.yaml', 'r'))
-            iq_sct = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-SCTPipeline<{cid}>')
+            monitor.register_camera(
+                cam_id=camera.id,
+                address=camera.address,
+                meta_path=meta_path,
+                txt_path=txt_path,
+            )
+
+        # register overlapping regions
+        for region in Region.query.filter_by(type='overlap').all():
             
-            sm_iq_sct[cid] = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-SM_SCT<{cid}>')
-            
-            pl_camera = PLCamera(config, cv['address'], meta, [iq_sct], ret_img=False, online_put_sleep=config.get('CAMERA_SLEEP_MUL_FACTOR') / meta['fps'], name=f'CameraPipeline<{cid}>')   # Needed to run mock checkin
-            cv['pl_camera'] = pl_camera
-            
-            tracker = Tracker(config.get('DETECTION_MODE'), config.get('TRACKING_MODE'), f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{cv["num"]}_00011_2023-04-15_08-30-00-000000.txt')
-            cv['pl_sct'] = PLSCT(config, tracker, iq_sct, [sm_iq_sct[cid]], online_put_sleep=pl_camera.online_put_sleep, name=f'SCTPipeline<{cid}>')
-            
+            # create scene object for primary camera
+            roi_primary = np.array(json.loads(region.points))
+            roi_primary[:, 0] *= W
+            roi_primary[:, 1] *= H
+            roi_primary = roi_primary.reshape(-1, 1, 2)
+            scene_primary = Scene(W, H, roi_primary, config.get('ROI_TEST_OFFSET'))
 
-        stas = {}
-        for r in Region.query.filter_by(type='overlap').all():
-            cpid = r.primary_cam_id
-            pw = cams[cpid]['pl_camera'].width
-            ph = cams[cpid]['pl_camera'].height
-            proi = np.array(json.loads(r.points))
-            proi[:, 0] *= pw
-            proi[:, 1] *= ph
-            proi = proi.reshape(-1, 1, 2)
+            # create scene object for secondary camera
+            # note that in camera matching points, the primary (source) and secondary (destination) camera are reversed
+            matches = np.array(json.loads(
+                CameraMatchingPoint.query.filter_by(
+                    primary_cam_id=region.secondary_cam_id, 
+                    secondary_cam_id=region.primary_cam_id,
+                ).first().points
+            )).astype('int32')
+            homo, _ = cv2.findHomography(matches[:, :2], matches[:, 2:])
+            roi_secondary = cv2.perspectiveTransform(roi_primary, np.linalg.inv(homo))
+            scene_secondary = Scene(W, H, roi_secondary, config.get('ROI_TEST_OFFSET'))
 
-            csid = r.secondary_cam_id
-            sw = cams[csid]['pl_camera'].width
-            sh = cams[csid]['pl_camera'].height
-            m = np.array(json.loads(CameraMatchingPoint.query.filter_by(primary_cam_id=csid, secondary_cam_id=cpid).first().points))
-            m = m.astype('int32')
-            H, _ = cv2.findHomography(m[:, :2], m[:, 2:])
-            sroi = cv2.perspectiveTransform(proi, np.linalg.inv(H))
-            
-            ps = Scene(pw, ph, proi, config.get('ROI_TEST_OFFSET'))
-            ss = Scene(sw, sh, sroi, config.get('ROI_TEST_OFFSET'))
+            # register overlap
+            monitor.register_overlap(
+                cam_id_primary=region.primary_cam_id,
+                cam_id_secondary=region.secondary_cam_id,
+                scene_primary=scene_primary,
+                scene_secondary=scene_secondary,
+                homo=homo
+            )
 
-            iq_sync_s = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Sync<(*{csid}, {cpid})>')
-            iq_sync_p = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-Sync<({csid}, *{cpid})>')
-            cams[csid]['pl_camera'].add_output_queue(iq_sync_s, iq_sync_s.name)
-            cams[cpid]['pl_camera'].add_output_queue(iq_sync_p, iq_sync_p.name)
-
-            iq_sta_sct_s = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-STA_SCT<(*{csid}, {cpid})>')
-            iq_sta_sct_p = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-STA_SCT<({csid}, *{cpid})>')
-            iq_sta_sync = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-STA_Sync<({csid}, {cpid})>')
-            cams[csid]['pl_sct'].add_output_queue(iq_sta_sct_s, iq_sta_sct_s.name)
-            cams[cpid]['pl_sct'].add_output_queue(iq_sta_sct_p, iq_sta_sct_p.name)
-            
-            sm_iq_sta[(csid, cpid)] = MyQueue(config.get('QUEUE_MAXSIZE'), name=f'IQ-SM_STA<({csid}, {cpid})>')
-
-            online_put_sleep = min(cams[cpid]['pl_camera'].online_put_sleep, cams[csid]['pl_camera'].online_put_sleep)
-            
-            stas[(csid, cpid)] = {
-                'pl_sync': PLSync(
-                    config, 
-                    [iq_sync_s, iq_sync_p], 
-                    [iq_sta_sync], 
-                    online_put_sleep=online_put_sleep, 
-                    name=f'Sync<({csid}, {cpid})>'),
-                'pl_sta': PLSTA(
-                    config, 
-                    [ss, ps], 
-                    H, 
-                    [iq_sta_sct_s, iq_sta_sct_p], 
-                    iq_sta_sync, 
-                    [sm_iq_sta[(csid, cpid)]], 
-                    online_put_sleep=online_put_sleep, 
-                    name=f'STAPipeline<({csid}, {cpid})>')
-            }
-
-        ckr = Region.query.filter_by(type='checkin').first()
-        ckw = cams[ckr.primary_cam_id]['pl_camera'].width
-        ckh = cams[ckr.primary_cam_id]['pl_camera'].height
-        ckroi = np.array(json.loads(ckr.points))
-        ckroi[:, 0] *= ckw
-        ckroi[:, 1] *= ckh
-        ckroi = ckroi.reshape(-1, 1, 2)
-        cks = Scene(ckw, ckh, ckroi, config.get('ROI_TEST_OFFSET'))
-
-        pl_sm = PLStaffManager(
-            current_app._get_current_object(), # type: ignore
-            config, 
-            sm_iq_sct, 
-            sm_iq_sta, 
-            cks, 
-            ckr.primary_cam_id, 
-            sm_oq, 
-            online_put_sleep=min(cv['pl_camera'].online_put_sleep for cv in cams.values())
+        # register check-in region
+        region = Region.query.filter_by(type='checkin').first()
+        roi = np.array(json.loads(region.points))
+        roi[:, 0] *= W
+        roi[:, 1] *= H
+        roi = roi.reshape(-1, 1, 2)
+        scene = Scene(W, W, roi, config.get('ROI_TEST_OFFSET'))
+        monitor.register_checkin(
+            cam_id=region.primary_cam_id,
+            scene=scene
         )
 
-        for cid, cv in cams.items():
-            cv['pl_camera'].start()
-
-        if config.get('RUNNING_MODE') == 'offline':
-            for cid, cv in cams.items():
-                cv['pl_camera'].join()
-        
-        for cid, cv in cams.items():
-            cv['pl_sct'].start()
-
-        for cv in stas.values():
-            cv['pl_sync'].start()
-        
-        if config.get('RUNNING_MODE') == 'offline':
-            for cid, cv in cams.items():            ##############
-                cv['pl_sct'].join()
-            
-            for cv in stas.values():                ##############
-                cv['pl_sync'].join()
-
-        for cv in stas.values():
-            cv['pl_sta'].start()
-        
-        if config.get('RUNNING_MODE') == 'offline':
-            for cv in stas.values():
-                cv['pl_sta'].join()
-
-        pl_sm.start()
-
-
-
-
+        # start
+        monitor.start()
 
 
 def startup():

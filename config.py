@@ -18,3 +18,4 @@ class Config:
     GAP_SAVE_DB_TRACKING = 10           # seconds
     DETECTION_EXPIRE_TIME = 0.2         # seconds
     MAX_ABSENCE_FRAMES = 10             # frames
+    SWITCH_CAM_MAX_AGE = 30             # frames

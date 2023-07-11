@@ -304,8 +304,8 @@ def visualize_from_txt(vid_path, txt_path, **kwargs):
             if 'correspondence' in kwargs:
                 correspondence = kwargs['correspondence'][kwargs['correspondence'][:, 1] == vid_id]
                 for id1, id2 in correspondence[:, [2, 5]]:
-                    dets[dets[:, 1] == id1, 1] = 100 - id1
-                    dets2[dets2[:, 1] == id2, 1] = 100 - id1
+                    dets[dets[:, 1] == id1, 1] = 100 - id2
+                    dets2[dets2[:, 1] == id2, 1] = 100 - id2
 
             vis_img = plot_box(frame, dets)
             cv2.putText(vis_img, str(n_uniques_1), (800, 80), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 255), thickness=6)
@@ -352,7 +352,7 @@ def show(vid_path1, vid_path2):
 
         cv2.imshow(os.path.split(vid_path1)[1], collage)
 
-        key = cv2.waitKey(20)
+        key = cv2.waitKey(10)
         if key == 27 or not _:
             break
         elif key == ord('q'):
@@ -373,18 +373,19 @@ if __name__ == '__main__':
 
     ROOT_DIR = os.path.join(HERE, 'recordings/2d_v4')
     VID_DIR = os.path.join(HERE, 'recordings/2d_v4/videos')
-    TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v4/YOLOv8l_pretrained-640-ByteTrack/sct')
+    TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct')
     GT_DIR = os.path.join(HERE, 'recordings/2d_v4/gt_pose')
 
-    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('42_*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(GT_DIR).glob('42_*.txt')])
-    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('43_*.avi')])
-    txt_list2 = sorted([str(path) for path in Path(GT_DIR).glob('43_*.txt')])
+    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('42_00011*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
+    txt_list1 = sorted([str(path) for path in Path(TRACKER_DIR).glob('42_00011*.txt')])
+    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('43_00011*.avi')])
+    txt_list2 = sorted([str(path) for path in Path(TRACKER_DIR).glob('43_00011*.txt')])
     #
     # correspondence = np.loadtxt(f'{ROOT_DIR}/pred_mct_gtgt_correspondences.txt', delimiter=',', dtype=int)   # pred_mct_gtgt_correspondences.txt true_mct_gtgt_correspondences.txt
+    correspondence = np.loadtxt(f'{ROOT_DIR}/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/pred/18_frame2track_42_43.txt', delimiter=',', dtype=int)
     #
     for vid_path1, txt_path1, vid_path2, txt_path2 in zip(vid_list1, txt_list1, vid_list2, txt_list2):
-        visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True, vid_path2=vid_path2, txt_path2=txt_path2) # , correspondence=correspondence
+        visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence) # , correspondence=correspondence
 
     # for vid_path1, txt_path1 in zip(vid_list1, txt_list1):
     #     visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True) # , correspondence=correspondence

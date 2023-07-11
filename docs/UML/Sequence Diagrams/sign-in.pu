@@ -8,11 +8,11 @@ entity Monitor
 
 
 A -> B: choose to signin
-A -> B: set_username(username: String)
-A -> B: set_password(password: String)
+A -> B: set_username(username)
+A -> B: set_password(password)
 A -> B: submit()
-B -> C: signin(username: String, \n password: String)
-C -> User: check_password(password: String)
-C -> Monitor: signal_signin(user_id: Integer)
+B -> C: signin(username, \n password)
+C -> User: check_password(password)
+C -> Monitor: signal_signin(user_id)
 
 @enduml

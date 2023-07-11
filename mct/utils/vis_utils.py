@@ -11,7 +11,7 @@ COLORS = [
 ]
 
 
-def plot_box(img, boxes, thickness=2, texts=None):
+def plot_box(img, boxes, thickness=2, texts=None, text_prefix=None):
     """
     boxes: [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
     """
@@ -41,7 +41,7 @@ def plot_box(img, boxes, thickness=2, texts=None):
         else:
             color = COLORS[ids[i] % len(COLORS)]    # type: ignore
             space = 5
-            expected_text_H = 30
+            expected_text_H = 60
 
             y_text = xyxys[i, 1] - space if xyxys[i, 1] - space - expected_text_H > 0 else xyxys[i, 1] + space + expected_text_H    # type: ignore
             x_text = xyxys[i, 0] + space                                                                                            # type: ignore
@@ -49,10 +49,10 @@ def plot_box(img, boxes, thickness=2, texts=None):
                 img, 
                 str(ids[i]) + \
                     (f' ({int(confs[i] * 100)})' if confs[i] != -1 else '') + \
-                        (f' <{texts[i]}>' if texts else ''), 
+                        (f'<{text_prefix}{texts[i]}>' if texts is not None and texts[i] != -1 else ''), 
                 (x_text, y_text), 
                 cv2.FONT_HERSHEY_SIMPLEX, 
-                1.0,
+                2.0,
                 color, 
                 thickness=thickness)    # type: ignore
         cv2.rectangle(img, xyxys[i, :2], xyxys[i, 2:4], color=color, thickness=thickness)                                           # type: ignore
@@ -64,13 +64,14 @@ def plot_loc(img, locs, radius=8, texts=None, text_thickness=2):
     # locs: [[frame, id, x, y, ...],...]
     if not isinstance(locs, np.ndarray):
         locs = np.array(locs)
+    
+    img = img.copy()
 
     assert len(locs.shape) == 2, "Invalid 'locs' shape, must have dim == 2"
     
     if texts is not None:
         assert len(texts) == len(locs)
 
-    img = img.copy()
     ids = np.int32(locs[:, 1])
     xyxy = np.int32(locs[:, 2:4])
 

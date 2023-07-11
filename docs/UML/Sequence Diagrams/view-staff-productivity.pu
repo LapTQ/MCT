@@ -9,8 +9,8 @@ entity DayShift as E3
 
 A -> B: choose to view staff productivity
 B -> B: validate_current_user()
-A -> B: set_username(username: String)
-B -> C: staff_productivity(username: string)
+A -> B: set_username(username)
+B -> C: staff_productivity(username)
 C -> E1: <<get>>('productivity')
 C -> E2: <<get>>(key)
 C -> E3: <<get>>(key)

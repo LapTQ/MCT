@@ -1,0 +1,11 @@
+cam_name,track_id,person_id
+CAM_43,2,fd64
+CAM_43,1,fd64
+CAM_42,1,fd64
+CAM_42,2,fd64
+CAM_42,4,fd64
+CAM_42,3,fd64
+CAM_41,1,fd64
+CAM_41,2,fd64
+CAM_41,4,fd64
+CAM_41,3,fd64

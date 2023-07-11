@@ -1,4 +1,4 @@
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Any
 from queue import Queue
 from threading import Lock, Thread
 from datetime import datetime
@@ -10,8 +10,6 @@ import sys
 import yaml
 from abc import ABC, abstractmethod
 import numpy as np
-from copy import deepcopy
-
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
@@ -20,20 +18,77 @@ from map_utils import hungarian, map_mono
 from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
 from filter import FilterBase, IQRFilter, GMMFilter
 
-sys.path.append(str(Path(__file__).parent.parent.parent))
-from app.extensions import db
-from app.models import User, Message, Scene
-from flask import current_app
+
+logger = logging.getLogger(__name__)
+
+# logger.setLevel(logging.INFO)
+# formatter = logging.Formatter('%(asctime)s\t|%(funcName)30s\t|%(lineno)d\t|%(levelname)s\t|%(message)s')
+
+# handler = logging.StreamHandler(sys.stdout)
+# handler.setFormatter(formatter)
+# logger.addHandler(handler)
+
+#logging.FileHandler("~/Downloads/log.txt"),
 
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s\t|%(thread)d\t|%(funcName)s\t|%(lineno)d\t|%(levelname)s\t|%(message)s',
+    format='%(asctime)s\t|%(funcName)20s\t|%(lineno)d\t|%(levelname)s\t|%(message)s',
     handlers=[
         #logging.FileHandler("~/Downloads/log.txt"),
         logging.StreamHandler(sys.stdout)
     ]
 )
+
+
+class Scene:
+
+    def __init__(
+            self,
+            width: Union[int, float, None] = None,
+            height: Union[int, float, None] = None,
+            roi: Union[np.ndarray, None] = None,
+            roi_test_offset: Union[int, float] = 0,
+            name='Scene'
+    ) -> None:
+
+        self.width = width
+        self.height = height
+        
+        self.roi = roi   
+        self._check_roi()
+        self.roi_test_offset = roi_test_offset
+
+        self.name = name
+    
+
+    def is_in_roi(self, x: Union[tuple, list, np.ndarray]) -> Union[bool, np.ndarray]:
+        """Check if point(s) (x, y) is in the scene's roi.
+        
+        If x is not a numpy array represent only 1 point, then return bool object.
+        """
+        is_numpy = True
+        if not isinstance(x, np.ndarray):
+            x = np.array(x)
+            is_numpy = False
+        
+        x = np.float32(x.reshape(-1, 2))    # type: ignore
+        ret = [cv2.pointPolygonTest(self.roi, p, True) >= self.roi_test_offset for p in x]      # type: ignore
+
+        if not is_numpy and len(ret) == 1:
+            return ret[0]
+        else:
+            return np.array(ret, dtype=bool)
+        
+    
+    def has_roi(self) -> bool:
+        return self.roi is not None
+    
+
+    def _check_roi(self):
+        if self.roi is not None:
+            assert isinstance(self.roi, np.ndarray)
+            self.roi = np.int32(self.roi)   # type: ignore
 
 
 class ConfigPipeline:
@@ -48,7 +103,7 @@ class ConfigPipeline:
 
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
-            logging.info(f'{self.name}:\t loading config at {config_path}')
+            logger.info(f'{self.name}:\t loading config at {config_path}')
         self._check_config()
 
         self.stopped = False
@@ -56,7 +111,7 @@ class ConfigPipeline:
 
         self.lock = Lock()
         
-        logging.info(f'{self.name}:\t initilized')
+        logger.info(f'{self.name}:\t initilized')
 
     
     def get(self, attr:str):
@@ -67,7 +122,7 @@ class ConfigPipeline:
         self.lock.acquire()
         if not self.stopped:
             self.stopped = True
-            logging.info(f'{self.name}:\t stop locked')
+            logger.info(f'{self.name}:\t stop locked')
         self.lock.release()
 
 
@@ -78,7 +133,7 @@ class ConfigPipeline:
     def switch_pausing(self) -> None:
         self.lock.acquire()
         self.pausing = not self.pausing
-        logging.info(f'{self.name}:\t pausing switched')
+        logger.info(f'{self.name}:\t pausing switched')
         self.lock.release()
 
 
@@ -121,7 +176,7 @@ class MyQueue:
     def __init__(
             self, 
             maxsize: int, 
-            name='Queue'
+            name: Any = 'Queue'
     ) -> None:
         self.name = name
         self.maxsize = maxsize
@@ -129,18 +184,18 @@ class MyQueue:
 
         self.lock = Lock()
 
-        logging.debug(f'{self.name}:\t initilized')
+        logger.debug(f'{self.name}:\t initilized')
     
 
     def get(self, block=True, timeout=None):
         ret = self.queue.get(block, timeout)
-        logging.debug(f'{self.name}:\t dequeue 1 item, containing {self.queue.qsize()}')
+        logger.debug(f'{self.name}:\t dequeue 1 item, containing {self.queue.qsize()}')
         return ret
     
 
     def put(self, item, block=True, timeout=None) -> None:
         self.queue.put(item, block, timeout)
-        logging.debug(f'{self.name}:\t enqueue 1 item, containing {self.queue.qsize()}')
+        logger.debug(f'{self.name}:\t enqueue 1 item, containing {self.queue.qsize()}')
 
 
     def empty(self) -> bool:
@@ -157,7 +212,7 @@ class MyQueue:
             old_queue = self.queue
             self.queue = Queue(self.maxsize)
             
-            logging.debug(f'{self.name}:\t dequeue {len(ret)} items (/{size} requested).')
+            logger.debug(f'{self.name}:\t dequeue {len(ret)} items (/{size} requested).')
             
             self.lock.release()
             
@@ -169,7 +224,7 @@ class MyQueue:
                 if not self.queue.empty():
                     ret.append(self.queue.get(block, timeout))
             
-            logging.debug(f'{self.name}:\t dequeue {len(ret)} items (/{size} requested).')
+            logger.debug(f'{self.name}:\t dequeue {len(ret)} items (/{size} requested).')
             
             self.lock.release()
 
@@ -205,15 +260,19 @@ class Pipeline(ABC):
 
     def start(self) -> None:
         self.thread.start()
+
+        logger.info(f'{self.name}:\t started')
     
 
     def join(self) -> None:
         self.thread.join()
 
+        logger.info(f'{self.name}:\t joined')
+
 
     def stop(self) -> None:
         if not self.config.is_stopped():
-            logging.info(f'{self.name}:\t triggering config stop...')
+            logger.info(f'{self.name}:\t triggering config stop...')
             self.config.stop()
             self.output_queues = {}
 
@@ -250,7 +309,7 @@ class Pipeline(ABC):
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
         
-            logging.debug(f"{self.name}:\t put to {oq.name} with message: {msg}")
+            logger.debug(f"{self.name}:\t put to {oq.name} with message: {msg}")
         self.lock.release()
         
 
@@ -259,12 +318,16 @@ class Pipeline(ABC):
         assert key not in self.output_queues, f'{key} already exists in output_queues'
         self.output_queues[key] = queue # type: ignore
         self.lock.release()
+        
+        logger.info(f'{self.name}:\t added output queue with key {key}. Having {len(self.output_queues)} output queues.')
 
     
     def remove_output_queue(self, key):
         self.lock.acquire()
         del self.output_queues[key] # type: ignore
         self.lock.release()
+
+        logger.info(f'{self.name}:\t removed output queue with key {key}. Remaining {len(self.output_queues)} output queues.')
 
 
 class CameraPipeline(Pipeline):
@@ -290,10 +353,10 @@ class CameraPipeline(Pipeline):
         self.ret_img = ret_img
 
         ##### START HERE #####
-        self.signin_sid = None
+        self.signin_user_id = None
         ##### END HERE #####
         
-        logging.info(f'{self.name}:\t initilized')
+        logger.info(f'{self.name}:\t initilized')
 
     
     def _start(self) -> None:
@@ -310,7 +373,7 @@ class CameraPipeline(Pipeline):
             self.trigger_pause()
 
             if not self.cap.isOpened():
-                logging.info(f'{self.name}:\t problem connecting to {self.source}')
+                logger.info(f'{self.name}:\t problem connecting to {self.source}')
                 self.stop()
                 break
 
@@ -325,9 +388,9 @@ class CameraPipeline(Pipeline):
                     ret = False
 
             if not ret:
-                logging.info(f'{self.name}:\t disconnected from {self.source}')
+                logger.info(f'{self.name}:\t disconnected from {self.source}')
                 if self.config.get('RUNNING_MODE') == 'online' or self.ret_img:
-                    logging.info(f'{self.name}:\t sleeping a few second before stop all')
+                    logger.info(f'{self.name}:\t sleeping a few second before stop all')
                     time.sleep(self.config.get('ONLINE_SLEEP_BEFORE_STOP'))
                     self.stop()
                 break
@@ -341,7 +404,7 @@ class CameraPipeline(Pipeline):
 
             ##### START HERE #####
             # mock check-in
-            if '<1>' in self.name:
+            if '<cam_id=1>' in self.name:
                 if frame_id == 184:
                     self.signal_signin(4)
                 elif frame_id == 479:
@@ -349,16 +412,16 @@ class CameraPipeline(Pipeline):
                 elif frame_id == 878:
                     self.signal_signin(5)
 
-            signin_sid = self._observe_signin()
-            if signin_sid is not None:
-                logging.debug(f'{self.name}: get sign-in signal')
+            signin_user_id = self._observe_signin()
+            if signin_user_id is not None:
+                logger.info(f'{self.name}: get sign-in signal')
             ##### END HERE #####
             
             out_item = {
                 'frame_img': frame,
                 'frame_id': frame_id,
                 'frame_time': frame_time,
-                'signin_sid': signin_sid
+                'signin_user_id': signin_user_id
             }
             
             end_time = time.time()
@@ -370,7 +433,7 @@ class CameraPipeline(Pipeline):
             self._put_to_output_queues(out_item)
 
             start_time = end_time
-            logging.debug(f"{self.name}:\t slept {sleep}")
+            logger.info(f"{self.name}:\t slept {sleep}")
 
         self.cap.release()
 
@@ -391,12 +454,12 @@ class CameraPipeline(Pipeline):
     
     ###### START HERE ######
     def _observe_signin(self):
-        signin_sid, self.signin_sid = self.signin_sid, None
-        return signin_sid
+        signin_user_id, self.signin_user_id = self.signin_user_id, None
+        return signin_user_id
         
 
     def signal_signin(self, sid):
-        self.signin_sid = sid
+        self.signin_user_id = sid
     ###### END HERE ######
         
 
@@ -421,11 +484,11 @@ class Tracker:
                 self.seq = np.loadtxt(txt_path)
             except:
                 self.seq = np.loadtxt(txt_path, delimiter=',')
-            logging.info(f'{self.name}:\t load tracking result from .txt at {txt_path}')
+            logger.info(f'{self.name}:\t load tracking result from .txt at {txt_path}')
         
         self.name = name
 
-        logging.info(f'{self.name}:\t initialized with DETECTION_MODE={self.detection_mode}, TRACKING_MODE={self.tracking_mode}')
+        logger.info(f'{self.name}:\t initialized with DETECTION_MODE={self.detection_mode}, TRACKING_MODE={self.tracking_mode}')
         
     
     def infer(self, img: Union[np.ndarray, None], frame_id: Union[int, None] = None) -> np.ndarray:
@@ -437,7 +500,7 @@ class Tracker:
             # if detection_mode == 'pose' => [[frame_id, track_id, x1, y1, w, h, conf, -1, -1, -1, *[kpt_x, kpt_y, kpt_conf], ...]] (N x 61)
             dets = self.seq[self.seq[:, 0] == frame_id]
 
-            logging.debug(f'{self.name}:\t frame {frame_id} detected {len(dets)} people')
+            logger.debug(f'{self.name}:\t frame {frame_id} detected {len(dets)} people')
 
             return dets
 
@@ -462,7 +525,7 @@ class SCTPipeline(Pipeline):
         
         self.input_queue = input_queue
 
-        logging.info(f'{self.name}:\t initialized')
+        logger.info(f'{self.name}:\t initialized')
 
     
     def _start(self) -> None:
@@ -481,7 +544,7 @@ class SCTPipeline(Pipeline):
 
             T = len(items)
 
-            logging.debug(f'{self.name}:\t processing {T} frames')
+            logger.debug(f'{self.name}:\t processing {T} frames')
 
             mid_time = time.time()
             pre_time = mid_time - start_time
@@ -491,11 +554,12 @@ class SCTPipeline(Pipeline):
                 
                 out_item = {
                     'frame_id': item['frame_id'],
+                    'frame_time': item['frame_time'],
                     'sct_output': dets,
                     'sct_detection_mode': self.tracker.detection_mode,
                     'sct_tracking_mode': self.tracker.tracking_mode,
                     ##### START HERE #####
-                    'signin_sid': item['signin_sid']
+                    'signin_user_id': item['signin_user_id']
                     ##### END HERE #####
                 }
 
@@ -507,7 +571,7 @@ class SCTPipeline(Pipeline):
                 self._put_to_output_queues(out_item)
 
                 mid_time = end_time
-                logging.debug(f'{self.name}:\t slept {sleep}')
+                logger.debug(f'{self.name}:\t slept {sleep}')
 
             start_time = mid_time
 
@@ -532,7 +596,7 @@ class SyncPipeline(Pipeline):
 
         self.wait_list = self._new_wait_list()
 
-        logging.debug(f'{self.name}:\t initialized')
+        logger.debug(f'{self.name}:\t initialized')
 
     
     def _start(self) -> None:
@@ -555,7 +619,7 @@ class SyncPipeline(Pipeline):
             
             # do not map if the number of pairs are so small
             if min(len(self.wait_list[0]), len(self.wait_list[1])) < self.config.get('MIN_TIME_CORRESPONDENCES'):
-                logging.debug(f'{self.name}:\t wait list not enough for mapping time, waiting...')
+                logger.debug(f'{self.name}:\t wait list not enough for mapping time, waiting...')
                 continue
             
             active_list = self.wait_list
@@ -580,20 +644,20 @@ class SyncPipeline(Pipeline):
 
             # add un-processed items to wait list
             if T > 0:
-                logging.debug(f'{self.name}:\t processing {T} pairs of frames')
+                logger.debug(f'{self.name}:\t processing {T} pairs of frames')
                 self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
                 self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
-            logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
-            logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.input_queues[1].name} to wait list')
+            logger.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
+            logger.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.input_queues[1].name} to wait list')
             
-            logging.debug(f'{self.name}:\t processing {T} frames')
+            logger.debug(f'{self.name}:\t processing {T} frames')
 
             mid_time = time.time()
             pre_time = mid_time - start_time
             
             for i, j in zip(c1_adict_matched, c2_adict_matched):
 
-                logging.debug(f"{self.name}:\t sync frame_id={adict['frame_id'][0][i]} ({datetime.fromtimestamp(adict['frame_time'][0][i]).strftime('%M-%S-%f')}) with frame_id={adict['frame_id'][1][j]} ({datetime.fromtimestamp(adict['frame_time'][1][j]).strftime('%M-%S-%f')})")
+                logger.debug(f"{self.name}:\t sync frame_id={adict['frame_id'][0][i]} ({datetime.fromtimestamp(adict['frame_time'][0][i]).strftime('%M-%S-%f')}) with frame_id={adict['frame_id'][1][j]} ({datetime.fromtimestamp(adict['frame_time'][1][j]).strftime('%M-%S-%f')})")
 
                 out_item = {
                     'frame_id_match': (adict['frame_id'][0][i], adict['frame_id'][1][j])
@@ -607,7 +671,7 @@ class SyncPipeline(Pipeline):
                 self._put_to_output_queues(out_item)
 
                 mid_time = end_time
-                logging.debug(f'{self.name}:\t slept {sleep}')
+                logger.debug(f'{self.name}:\t slept {sleep}')
             
             start_time = mid_time
             
@@ -659,7 +723,7 @@ class STAPipeline(Pipeline):
         self.distances = []     # record distances for FP elimination
         self.wait_list = self._new_wait_list()
 
-        logging.info(f'{self.name}:\t initialized')
+        logger.info(f'{self.name}:\t initialized')
 
 
     def _start(self) -> None:
@@ -681,8 +745,6 @@ class STAPipeline(Pipeline):
 
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
-
-            # TODO CHUYEN 1 SO FRAME CUOI VE WAITING LIST => WINDOW
 
             # reorganize items
             adict = {
@@ -713,13 +775,13 @@ class STAPipeline(Pipeline):
         
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
+            logger.debug(f'{self.name}:\t processing {T} pairs of frames')
             del adict['frame_id_match']
             for k in adict:
                 adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
                 adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
             
-            logging.debug(f"{self.name}:\t infer location from detection with LOC_INFER_MODE={self.lim}")
+            logger.debug(f"{self.name}:\t infer location from detection with LOC_INFER_MODE={self.lim}")
             adict['in_roi'] = [[], []]
 
             for t in range(T):
@@ -762,7 +824,7 @@ class STAPipeline(Pipeline):
                         locs_in_roi = cv2.perspectiveTransform(locs_in_roi.reshape(-1, 1, 2), self.homo)
                         locs_in_roi = locs_in_roi.reshape(-1, 2) if locs_in_roi  is not None else np.empty((0, 2))
                     adict['in_roi'][c].append(dets_in_roi)
-                    logging.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
+                    logger.debug(f'{self.name}:\t camera {c + 1} frame {adict["frame_id"][c][t]} found {len(dets_in_roi)}/{len(dets)} objects in ROI')
                     
                     # store location history, both inside-only and inide-outside
                     assert dets_in_roi.shape[1] in (10, 61, 9), 'expect track_id is of index 1' # ATTENTION: 9 is for output of CVAT only @@
@@ -770,7 +832,7 @@ class STAPipeline(Pipeline):
                     self.history[-1][3][c].update({id: loc for id, loc in zip(np.int32(dets_in_roi[:, 1]), locs_in_roi.tolist())})       # type: ignore
             
             ub = 2e9
-            logging.debug(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.ws}, WINDOW_BOUNDARY={self.wb}")
+            logger.debug(f"{self.name}:\t calculating cost with WINDOW_SIZE={self.ws}, WINDOW_BOUNDARY={self.wb}")
             for iter_n in range(2 if self.filter and self.config.get('FP_REMAP') else 1):
                 matches = []
                 for t in range(T - self.wb):    # postponse the last BOUNDARY frames for the next iteration
@@ -801,7 +863,7 @@ class STAPipeline(Pipeline):
                     
                     mi1s, mi2s = hungarian(cost, gate=gate)
                     if len(mi1s) > 0:
-                        logging.debug(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
+                        logger.debug(f'{self.name}:\t pair frame_id ({adict["frame_id"][0][t]}, {adict["frame_id"][1][t]}) found {len(mi1s)} matches')
                     for i1, i2 in zip(mi1s, mi2s):  # type: ignore
                         h1 = h1_ids[i1]
                         h2 = h2_ids[i2]
@@ -816,7 +878,7 @@ class STAPipeline(Pipeline):
                     ub = self.filter(np.array(d).reshape(-1, 1))             # type: ignore
                     matches = matches[matches[:, 3] <= ub]                  
                     
-                    logging.debug(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
+                    logger.debug(f"{self.name}:\t applied FP_FLITER={self.config.get('FP_FILTER')}")
             
             self.distances.extend(matches[:, 3].tolist())       # type: ignore
             
@@ -846,7 +908,7 @@ class STAPipeline(Pipeline):
                 self._put_to_output_queues(out_item)
 
                 mid_time = end_time
-                logging.debug(f'{self.name}:\t slept {sleep}')
+                logger.debug(f'{self.name}:\t slept {sleep}')
             
             start_time = mid_time
             
@@ -926,7 +988,7 @@ class STAPipeline(Pipeline):
                     locs[0].append(slice[j][0][c1_id])
                     locs[1].append(slice[j][1][c2_id])
                     ns[i] += 1
-        logging.debug(f'{self.name}:\t window size for ID pairs {c1_id, c2_id}: nl, nr = {ns}')
+        logger.debug(f'{self.name}:\t window size for ID pairs {c1_id, c2_id}: nl, nr = {ns}')
 
         return np.array(locs[0]), np.array(locs[1])
 
@@ -967,7 +1029,7 @@ class VisualizePipeline(Pipeline):
 
         self.wait_list = self._new_wait_list()
 
-        logging.info(f'{self.name}:\t initialized')
+        logger.info(f'{self.name}:\t initialized')
 
     
     def _start(self):
@@ -1010,12 +1072,12 @@ class VisualizePipeline(Pipeline):
             # add un-processed items to wait list
             self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
             self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
-            logging.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.annot_queue.name} to wait list')
-            logging.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.video_queue.name} to wait list')   # type: ignore
+            logger.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.annot_queue.name} to wait list')
+            logger.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.video_queue.name} to wait list')   # type: ignore
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logging.debug(f'{self.name}:\t processing {T} pairs of frames')
+            logger.debug(f'{self.name}:\t processing {T} pairs of frames')
             for k in adict:
                 if len(adict[k][0]) > 0:
                     adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
@@ -1040,12 +1102,13 @@ class VisualizePipeline(Pipeline):
                 if self.scene is not None and self.scene.has_roi():
                     frame_img = plot_roi(frame_img, self.scene.roi, self.config.get('VIS_ROI_THICKNESS'))
 
+                # expecting dets to be in the format of [uid, tid, x1, y1, x2, y2, score, ...]
                 if detection_mode == 'box':
-                    frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=dets[:, 0])
+                    frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=np.int32(dets[:, 0]), text_prefix='user_id=')
                 elif detection_mode == 'pose':
-                    frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=dets[:, 0])
-                    for kpt in dets[:, 10:]:
-                        frame_img = plot_skeleton_kpts(frame_img, kpt.T, 3)
+                    frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=np.int32(dets[:, 0]), text_prefix='user_id=')
+                    # for kpt in dets[:, 10:]:
+                    #     frame_img = plot_skeleton_kpts(frame_img, kpt.T, 3)
                 else:
                     raise NotImplementedError()
                 
@@ -1054,10 +1117,10 @@ class VisualizePipeline(Pipeline):
                     frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
 
                 ##### START HERE #####
-                if 'signin_sid' in adict:
-                    signin_sid = adict['signin_sid'][0][t]
-                    if signin_sid is not None:
-                        cv2.putText(frame_img, f'user<{signin_sid}> signed in', (300, 100), cv2.FONT_HERSHEY_TRIPLEX, 8.0, (0, 255, 0), thickness=3)
+                if 'signin_user_id' in adict:
+                    signin_user_id = adict['signin_user_id'][0][t]
+                    if signin_user_id is not None:
+                        cv2.putText(frame_img, f'user<{signin_user_id}> signed in', (300, 100), cv2.FONT_HERSHEY_TRIPLEX, 4.0, (0, 0, 255), thickness=3)
                 ##### END HERE #####
                 
                 out_item = {
@@ -1073,7 +1136,7 @@ class VisualizePipeline(Pipeline):
                 self._put_to_output_queues(out_item, f"frame_id={adict['frame_id'][1][t]}")
 
                 mid_time = end_time
-                logging.debug(f'{self.name}:\t slept {sleep}')
+                logger.debug(f'{self.name}:\t slept {sleep}')
             
             start_time = mid_time
             
@@ -1133,7 +1196,7 @@ class DisplayPipeline(Pipeline):
         self.fps = fps
         self._check_fps()
         
-        logging.info(f'{self.name}:\t initilized')
+        logger.info(f'{self.name}:\t initilized')
     
     def _start(self) -> None:
 
@@ -1146,7 +1209,7 @@ class DisplayPipeline(Pipeline):
 
             self.trigger_pause()
 
-            logging.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
+            logger.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
             items = self.input_queue.get_many(
                 size=self.config.get('QUEUE_GET_MANY_SIZE'),
                 block=self.config.get('QUEUE_GET_BLOCK'),
@@ -1174,7 +1237,7 @@ class DisplayPipeline(Pipeline):
 
                 frame_img = cv2.resize(frame_img, (self.width, self.height))
 
-                logging.debug(f'{self.name}:\t {self.mode} from {self.input_queue.name}\t frame_id={frame_id}')
+                logger.debug(f'{self.name}:\t {self.mode} from {self.input_queue.name}\t frame_id={frame_id}')
                 
                 if self.mode == 'show':
                     cv2.imshow(self.name, frame_img)
@@ -1225,7 +1288,7 @@ class ExportPipeline(Pipeline):
         self.path = path
         self._check_path()
 
-        logging.info(f'{self.name}:\t initialized')
+        logger.info(f'{self.name}:\t initialized')
 
 
     def _start(self) -> None:
@@ -1240,7 +1303,7 @@ class ExportPipeline(Pipeline):
                 timeout=self.config.get('QUEUE_TIMEOUT')
             )
 
-            logging.debug(f'{self.name}:\t processing {len(items)} frames')
+            logger.debug(f'{self.name}:\t processing {len(items)} frames')
 
             for item in items:
                 print(str(item), file=f)
@@ -1254,46 +1317,16 @@ class ExportPipeline(Pipeline):
     def _check_path(self):
         parent, filename = os.path.split(self.path)
         if not os.path.exists(parent) and parent != '':
-            logging.debug(f'{self.name}:\t create directory {parent}')
+            logger.debug(f'{self.name}:\t create directory {parent}')
             os.makedirs(parent)
 
 
 ##### START HERE #####
-
-class Staff:
-
-    MAX_AGE = 30
-
-    def __init__(self, sid, cid, tid):
-        self.sid = sid
-        
-        self.cid = cid
-        self.tid = tid
-        self.age = -1
-        self.mat_his = []
-
-    
-    def update(self, mat):
-                
-        if mat is None:
-            if self.age >= 0:
-                self.age += 1
-        else:
-            self.mat_his.append(mat)
-            self.age = 0
-        
-        if self.age > Staff.MAX_AGE:
-            if len(self.mat_his) > 0:
-                freq = {}
-                for i, m in enumerate(self.mat_his):
-                    freq[m] = freq.get(m, 0) + i                # more weight on newer candidate
-                self.cid, self.tid = max(freq, key=freq.get)    # type: ignore
-                self.age = 0
-                self.mat_his = []
-        
-        return self.cid, self.tid
+  
             
-            
+
+sys.path.append(str(Path(__file__).parent.parent.parent))           
+from app.models import User
 
 
 class MCMapPipeline(Pipeline):
@@ -1301,6 +1334,7 @@ class MCMapPipeline(Pipeline):
     def __init__(
             self,
             app,
+            db,
             config: ConfigPipeline,
             sct_queues: dict,
             sta_queues: dict,
@@ -1308,11 +1342,12 @@ class MCMapPipeline(Pipeline):
             checkin_cid: int,
             output_queues: Union[dict, None] = None,
             online_put_sleep: Union[int, float] = 0,
-            name='Staff Map'
+            name='MCMapPipeline'
     ) -> None:
         super().__init__(config, output_queues, online_put_sleep, name)
 
         self.app = app
+        self.db = db
 
         self.sct_queues = sct_queues
         self.sta_queues = sta_queues
@@ -1321,9 +1356,21 @@ class MCMapPipeline(Pipeline):
         self.checkin_cid = checkin_cid
         self._check_checkin_cid()
 
-        self.staffs = []
-
         self.wait_list = self._new_wait_list()
+
+        logger.info(f'{self.name}:\t initialized')
+
+        self._load_users()
+
+    
+    def _load_users(self):
+        self.users = {}
+        with self.app.app_context():
+            users = User.query.filter(User.role.in_(['intern', 'engineer'])).all()
+            for user in users:
+                self.users[user.id] = user
+                user.load_workareas()
+                user.load_next_workshift()
         
     
     def _start(self) -> None:
@@ -1367,43 +1414,61 @@ class MCMapPipeline(Pipeline):
             pre_time = mid_time - start_time
 
             for t in range(T):
-                signin_sid = active_list[0][self.checkin_cid][t]['signin_sid']
-                if signin_sid is not None:
+
+                # process sign in
+                signin_user_id = active_list[0][self.checkin_cid][t]['signin_user_id']
+                if signin_user_id is not None:
                     dets = active_list[0][self.checkin_cid][t]['sct_output']
                     locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'), (self.checkin_scene.width / 2, self.checkin_scene.height)) # type: ignore
                     in_roi_idxs = self.checkin_scene.is_in_roi(locs)
                     dets_in_roi = dets[in_roi_idxs]
-                    assert len(dets_in_roi) == 1
-                    tid = int(dets_in_roi[0][1])
-                    self.staffs.append(Staff(signin_sid, self.checkin_cid, tid))
+                    if len(dets_in_roi) > 1:
+                        raise ValueError(f'Found {len(dets_in_roi)} detections in checkin area')
+                    elif len(dets_in_roi) == 1:
+                        tid = int(dets_in_roi[0][1])
+                        with self.app.app_context():
+                            self.users[signin_user_id].update_hint(self.checkin_cid, tid)
                 
-                stf_pres = [(stf.cid, stf.tid) for stf in self.staffs]
-                obj_curs = {(cid, int(d[1])): d
+                sct_outputs = {(cid, int(d[1])): d
                             for cid, cv in active_list[0].items() 
                             for d in cv[t]['sct_output']}
-
-                mat_curs = {}
+                matches = {}
                 for (cid1, cid2), cv in active_list[1].items():
                     for tid1, tid2 in cv[t]['matches']:
-                        mat_curs[(cid1, tid1)] = (cid2, tid2)
-                        mat_curs[(cid2, tid2)] = (cid1, tid1)
+                        matches[(cid1, tid1)] = (cid2, tid2)
+                        matches[(cid2, tid2)] = (cid1, tid1)
 
-                # for cid, cv in active_list[0].items():
-                #     print(f'CID<{cid}>(frame_id={cv[t]["frame_id"]})', end='\t')
-                # print()
-
-                dets = {cid: [] for cid in active_list[0]}
-                for i, (cid, tid) in enumerate(stf_pres):
-                    self.staffs[i].update(mat_curs.get((cid, tid), None))
-                    d = obj_curs.get((self.staffs[i].cid, self.staffs[i].tid), None)
-                    if d is not None:
-                        d[0] = self.staffs[i].sid       # replace trivial frame_id in sct_output with staff_id
-                        dets[self.staffs[i].cid].append(d)
+                out_visualize = {cam_id: [] for cam_id in active_list[0]}
                 
-                for cid in dets:
-                    dets[cid] = np.array(dets[cid])     # type: ignore
-                    if len(dets[cid]) == 0:
-                        dets[cid] = np.empty((0, 10))   # type: ignore
+                with self.app.app_context():
+                    for user in self.users.values():
+                        hint_cid, hint_tid = user.get_hint()
+                        match = matches.get((hint_cid, hint_tid), (None, None))
+                        user.update_hint(*match)
+                        det = sct_outputs.get((hint_cid, hint_tid), None)
+                        if det is None:
+                            loc = None
+                            dtime = min([cv[t]['frame_time'] for cv in active_list[0].values()])
+                            cid = None
+                        else:
+                            loc = calc_loc(np.expand_dims(det, axis=0), self.config.get('LOC_INFER_MODE'))[0]
+                            dtime = active_list[0][hint_cid][t]['frame_time']
+                            cid = hint_cid
+
+                            del sct_outputs[(hint_cid, hint_tid)]
+
+                            det[0] = user.id    # replace trivial frame_id in sct_output with user id
+                            out_visualize[cid].append(det)
+                        # user.update_detection(cid, dtime, loc)
+                
+                for (cid, tid), d in sct_outputs.items():
+                    d[0] = -1
+                    out_visualize[cid].append(d)
+                
+                for cid in out_visualize:
+                    out_visualize[cid] = np.array(out_visualize[cid])   # type: ignore
+                    if len(out_visualize[cid]) == 0:    
+                        out_visualize[cid] =  np.empty((0, 10))          # type: ignore , whatever, as long as dim2 >= 2
 
                 
                 
@@ -1413,13 +1478,14 @@ class MCMapPipeline(Pipeline):
                 time.sleep(sleep)
 
                 self.lock.acquire()
+                # expecting key of the output queue is camera ID
                 for cid, oq in self.output_queues.items():  # type: ignore
                     oq.put(                                
                         {
                             'frame_id': active_list[0][cid][t]['frame_id'],
-                            'sct_output': np.array(dets[cid]),
+                            'sct_output': out_visualize[cid],
                             'sct_detection_mode': active_list[0][cid][t]['sct_detection_mode'],
-                            'signin_sid': signin_sid if cid == self.checkin_cid else None
+                            'signin_user_id': signin_user_id if cid == self.checkin_cid else None
                         },
                         block=self.config.get('QUEUE_PUT_BLOCK'),
                         timeout=self.config.get('QUEUE_TIMEOUT')
@@ -1427,33 +1493,9 @@ class MCMapPipeline(Pipeline):
                 self.lock.release()
                     
                 mid_time = end_time
-                logging.debug(f'{self.name}:\t slept {sleep}')
+                logger.debug(f'{self.name}:\t slept {sleep}')
 
-
-
-
-                # if active_list[0][self.checkin_cid][t]['frame_id'] in [100, 300, 500]:
-                #     with self.app.app_context():
-                #         managers = User.query.filter_by(role='manager').all()
-                #         for user in managers:
-                #             msg = Message(recipient=user, body='a staff was late')
-                #             db.session.add(msg)
-                #             user.add_notification('unread_message_count', user.new_messages())
-                #             db.session.commit()
-                #         print(">>>>>>>>>>> message sent")
-
-
-            
             start_time = mid_time
-
-
-            # TODO end of the day: logout all users
-            # TODO 
-
-                
-
-
-
 
 
 
@@ -1547,8 +1589,358 @@ class MCMapPipeline(Pipeline):
         return [{}, {}] # sct and sta
 
 
+class Monitor:
+
+    def __init__(self, name='Monitor'):
+        self.name = name
+
+
+    def init_app(self, app, db):
+        self.app = app
+        self.db = db
+        self.config = app.config['PIPELINE']
+
+        logger.info(f'{self.name}:\t initialized with app and db')
+
+
+    def register_camera(
+            self,
+            cam_id: int,
+            address: str,
+            meta_path: str,
+            txt_path: str,
+    ) -> None:
+        
+        logger.info(f'{self.name}:\t registering camera {cam_id}')
+        
+        if not hasattr(self, 'pl_cameras'):
+            self.pl_cameras = {}
+        
+        if not hasattr(self, 'pl_scts'):
+            self.pl_scts = {}
+
+        # create camera pipeline
+        meta = yaml.safe_load(open(meta_path, 'r'))
+        pl_camera = CameraPipeline(
+            config=self.config,
+            source=address,
+            meta=meta,
+            online_put_sleep=self.config.get('CAMERA_SLEEP_MUL_FACTOR') / meta['fps'],
+            name=f'PL Camera-<cam_id={cam_id}>',
+        )
+
+        # create tracker
+        tracker = Tracker(
+            detection_mode=self.config.get('DETECTION_MODE'), 
+            tracking_mode=self.config.get('TRACKING_MODE'), 
+            txt_path=txt_path,
+        )
+        
+        # commit output queue to camera pipeline
+        queue = MyQueue(self.config.get('QUEUE_MAXSIZE'), name=f'IQ-SCT-<cam_id={cam_id}>')
+        pl_camera.add_output_queue(queue, queue.name)
+        
+        # create sct pipeline
+        pl_sct = SCTPipeline(
+            config=self.config,
+            tracker=tracker,
+            input_queue=queue,
+            online_put_sleep=pl_camera.online_put_sleep,
+            name=f'PL SCT-<cam_id={cam_id}>',
+        )
+
+        self.pl_cameras[cam_id] = pl_camera
+        self.pl_scts[cam_id] = pl_sct
+    
+    
+    def register_overlap(
+            self,
+            cam_id_primary: int,
+            cam_id_secondary: int,
+            scene_primary: Scene,
+            scene_secondary: Scene,
+            homo: np.ndarray,
+    ) -> None:
+
+        logger.info(f'{self.name}:\t registering overlapping area from sec_id={cam_id_secondary} to pri_id={cam_id_primary}')
+
+        if not hasattr(self, 'pl_stas'):
+            self.pl_stas = {}
+
+        if not hasattr(self, 'pl_syncs'):
+            self.pl_syncs = {}
+        
+        # create sync pipeline
+        oq_cam_secondary = MyQueue(
+            self.config.get('QUEUE_MAXSIZE'), 
+            name=f'IQ-Sync-<*sec={cam_id_secondary}, pri={cam_id_primary}>'
+        )
+        oq_cam_primary = MyQueue(
+            self.config.get('QUEUE_MAXSIZE'), 
+            name=f'IQ-Sync-<sec={cam_id_secondary}, *pri={cam_id_primary}>'
+        )
+        self.pl_cameras[cam_id_secondary].add_output_queue(oq_cam_secondary, oq_cam_secondary.name)
+        self.pl_cameras[cam_id_primary].add_output_queue(oq_cam_primary, oq_cam_primary.name)
+
+        pl_sync = SyncPipeline(
+            config=self.config,
+            input_queues=[oq_cam_secondary, oq_cam_primary],
+            online_put_sleep=min(self.pl_cameras[cam_id_secondary].online_put_sleep, self.pl_cameras[cam_id_primary].online_put_sleep),
+            name=f'PL Sync-<sec={cam_id_secondary}, pri={cam_id_primary}>',
+        )
+
+        # commit output queues to sct and sync
+        oq_sct_secondary = MyQueue(
+            self.config.get('QUEUE_MAXSIZE'), 
+            name=f'IQ-STA_SCT-<*sec={cam_id_secondary}, pri={cam_id_primary}>'
+        )
+        oq_sct_primary = MyQueue(
+            self.config.get('QUEUE_MAXSIZE'),
+            name=f'IQ-STA_SCT-<sec={cam_id_secondary}, *pri={cam_id_primary}>'
+        )
+        oq_sync = MyQueue(
+            self.config.get('QUEUE_MAXSIZE'),
+            name=f'IQ-STA_SYNC-<sec={cam_id_secondary}, pri={cam_id_primary}>'
+        )
+        self.pl_scts[cam_id_secondary].add_output_queue(oq_sct_secondary, oq_sct_secondary.name)
+        self.pl_scts[cam_id_primary].add_output_queue(oq_sct_primary, oq_sct_primary.name)
+        pl_sync.add_output_queue(oq_sync, oq_sync.name)
+
+        # create sta pipeline
+        pl_sta = STAPipeline(
+            config=self.config,
+            scenes=[scene_secondary, scene_primary],
+            homo=homo,
+            sct_queues=[oq_sct_secondary, oq_sct_primary],
+            sync_queue=oq_sync,
+            online_put_sleep=pl_sync.online_put_sleep,
+            name=f'PL STA-<sec={cam_id_secondary}, pri={cam_id_primary}>'
+        )
+
+        self.pl_syncs[(cam_id_secondary, cam_id_primary)] = pl_sync
+        self.pl_stas[(cam_id_secondary, cam_id_primary)] = pl_sta
+
+    
+    def register_checkin(
+            self,
+            cam_id: int,
+            scene: Scene,
+    ) -> None:
+        assert hasattr(self, 'pl_scts')
+        assert hasattr(self, 'pl_cameras')
+        assert cam_id in self.pl_scts
+
+        self.checkin_cid = cam_id
+
+        # commit output queues to sct and sta
+        oq_scts = {}
+        for cid, pl in self.pl_scts.items():
+            queue = MyQueue(
+                self.config.get('QUEUE_MAXSIZE'), 
+                name=f'IQ-MCMap_SCT-<cam_id={cid}>'
+            )
+            pl.add_output_queue(queue, queue.name)
+            oq_scts[cid] = queue
+        
+        oq_stas = {}
+        for (cid_sec, cid_pri), pl in self.pl_stas.items():
+            queue = MyQueue(
+                self.config.get('QUEUE_MAXSIZE'), 
+                name=f'IQ-MCMap_STA-<sec={cid_sec}, pri={cid_pri}>'
+            )
+            pl.add_output_queue(queue, queue.name)
+            oq_stas[(cid_sec, cid_pri)] = queue
+        
+        # create MCMap pipeline
+        self.pl_mcmap = MCMapPipeline(
+            app=self.app,
+            db=self.db,
+            config=self.config,
+            sct_queues=oq_scts,
+            sta_queues=oq_stas,
+            checkin_scene=scene,
+            checkin_cid=cam_id,
+            online_put_sleep=min([pl.online_put_sleep for pl in self.pl_cameras.values()]),
+        )
+    
+
+    def start(self):
+        
+        # start camera pipelines
+        for pl in self.pl_cameras.values():
+            pl.start()
+        
+        if self.config.get('RUNNING_MODE') == 'offline':
+            for pl in self.pl_cameras.values():
+                pl.join()
+        
+        # start SCT pipelines
+        for pl in self.pl_scts.values():
+            pl.start()            
+
+        # # start Sync pipelines
+        # for pl in self.pl_syncs.values():
+        #     pl.start()
+        
+        # if self.config.get('RUNNING_MODE') == 'offline':
+        #     for pl in self.pl_scts.values():
+        #         pl.join()
+
+        #     for pl in self.pl_syncs.values():
+        #         pl.join()
+
+        # # start STA pipelines
+        # for pl in self.pl_stas.values():
+        #     pl.start()
+
+        # if self.config.get('RUNNING_MODE') == 'offline':
+        #     for pl in self.pl_stas.values():
+        #         pl.join()
+
+        # # start MCMap pipeline
+        # self.pl_mcmap.start()
+
+
+    def register_display(self, cam_id: int, key: str):
+        """Register a display for a camera.
+        
+        Args:
+            cam_id (int): Camera ID.
+            key (str): Key for the display. The client can access to the display queue with this key.
+        """
+
+        assert hasattr(self, 'pl_cameras')
+        assert cam_id in self.pl_cameras
+
+        lock = Lock()
+
+        # create visualize pipeline if not exists
+        if not hasattr(self, 'pl_visualizes'):
+            self.pl_visualizes = {}
+
+        lock.acquire()
+        if cam_id not in self.pl_visualizes:
+            pl_visualize = self._create_visualize(cam_id)
+            pl_visualize.start()
+        else:
+            pl_visualize = self.pl_visualizes[cam_id]
+        lock.release()
+
+        # commit output queue to visualize
+        if not hasattr(self, 'display_queues'):
+            self.display_queues = {}
+
+        lock.acquire()
+        if cam_id not in self.display_queues:
+            self.display_queues[cam_id] = {}
+
+        if key not in self.display_queues[cam_id]:
+            oq_visualize = MyQueue(
+                self.config.get('QUEUE_MAXSIZE'),
+                name=key
+            )
+            pl_visualize.add_output_queue(oq_visualize, oq_visualize.name)
+            self.display_queues[cam_id][key] = oq_visualize
+        lock.release()
+    
+    
+    def _create_visualize(self, cam_id: int) -> VisualizePipeline:
+        
+        assert cam_id in self.pl_cameras
+        oq_video = MyQueue(
+            self.config.get('QUEUE_MAXSIZE'),
+            name=f'IQ-Visualize_Video-<cam_id={cam_id}>'
+        )
+        oq_annot = MyQueue(
+            self.config.get('QUEUE_MAXSIZE'),
+            name=cam_id     # must be exactly cam_id
+        )
+        self.pl_cameras[cam_id].add_output_queue(oq_video, oq_video.name)
+        self.pl_mcmap.add_output_queue(oq_annot, oq_annot.name)
+
+        pl_visualize = VisualizePipeline(
+            config=self.config,
+            annot_queue=oq_annot,
+            video_queue=oq_video,
+            name=f'PL Visualize-<cam_id={cam_id}>'
+        )
+        self.pl_visualizes[cam_id] = pl_visualize
+
+        return pl_visualize
+        
+
+    def get_display_queue(self, cam_id: int, key: str):
+        """Return display queue of a camera to a client session."""
+        if not hasattr(self, 'display_queues'):
+            return None
+        elif cam_id not in self.display_queues:
+            return None
+        else:
+            return self.display_queues[cam_id].get(key, None)
+
+    
+    def withdraw_display(self, cam_id: int, key: str):
+        
+        if not hasattr(self, 'display_queues'):
+            return
+        
+        lock = Lock()
+
+        lock.acquire()
+        if cam_id not in self.pl_visualizes:
+            lock.release()
+            return
+
+        if cam_id not in self.display_queues:
+            lock.release()
+            return
+        
+        if key not in self.display_queues[cam_id]:
+            lock.release()
+            return
+        
+        # remove output queue from visualize
+        pl_visualize = self.pl_visualizes[cam_id]
+        pl_visualize.remove_output_queue(key)
+        display_queue = self.display_queues[cam_id][key]
+        del self.display_queues[cam_id][key]
+        del display_queue
+        
+        # stop visualize if no display queue
+        if len(self.display_queues[cam_id]) == 0:
+
+            logger.info(f'Destructing VisualizePipeline for camera {cam_id}...')
+
+            # pl_visualize.stop()
+            oq_video = pl_visualize.video_queue
+            oq_annot = pl_visualize.annot_queue
+            del self.pl_visualizes[cam_id]
+            del pl_visualize
+            self.pl_cameras[cam_id].remove_output_queue(oq_video.name)
+            self.pl_mcmap.remove_output_queue(oq_annot.name)
+            del oq_video
+            del oq_annot
+            del self.display_queues[cam_id]
+        
+        lock.release()
+
+        
+    def signal_signin(self, user_id):
+        self.pl_cameras[self.checkin_cid].signal_signin(user_id)
+
+        
+
+
+
+
+
+
+
+
+
 
 ##### END HERE #####
+
 
 
 
@@ -1754,7 +2146,7 @@ if __name__ == '__main__':
 
     }
     
-    # main(kwargs)
+    main(kwargs)
 
     kwargs2 = {
         'config': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/config_pred_mct_trackertracker_18.yaml',
@@ -1777,7 +2169,7 @@ if __name__ == '__main__':
 
     }
 
-    main2(kwargs2)
+    # main2(kwargs2)
 
 
 

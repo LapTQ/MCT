@@ -8,12 +8,12 @@ entity RegisteredWorkshift as E2
 
 A -> B2: choose to delete workshift
 B2 -> B2: validate_current_user()
-B2 -> B2: set_username(username: String)
-B2 -> B2: set_day(day: String)
-B2 -> B2: set_dayshift(dayshift_name: String)
+B2 -> B2: set_username(username)
+B2 -> B2: set_day(day)
+B2 -> B2: set_dayshift(dayshift_name)
 A -> B2: submit()
-B2 -> C: delete_worshift(username: String, \n day: String, dayshift_name: String)
-C -> E3: delete_workshfit(day: String, \n dayshift_name: String)
+B2 -> C: delete_worshift(username, \n day, dayshift_name)
+C -> E3: delete_workshfit(day, \n dayshift_name)
 E3 ->x E2: <<destruct>>
 
 

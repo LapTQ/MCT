@@ -1,6 +1,6 @@
-from flask import Flask, current_app
+from flask import Flask
+from app.extensions import db, migrate, login, bootstrap, moment, monitor
 from config import Config
-from app.extensions import db, migrate, login, bootstrap, moment
 
 
 def create_app(config_class=Config):
@@ -13,11 +13,12 @@ def create_app(config_class=Config):
     login.init_app(app)
     bootstrap.init_app(app)
     moment.init_app(app)
+    monitor.init_app(app, db)
 
 
-    # from app.main.tasks import startup as main_startup
-    # with app.app_context():
-    #     main_startup()
+    from app.main.tasks import startup as main_startup
+    with app.app_context():
+        main_startup()
 
 
     from app.auth import bp as auth_bp

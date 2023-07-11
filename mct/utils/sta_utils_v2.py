@@ -6,9 +6,9 @@ import os
 import time
 import sys
 import logging
-from pipeline import *
+from pipeline import main
 import yaml
-from map_utils import map_mono
+from map_utils import map_mono, hungarian
 from datetime import datetime
 from vis_utils import plot_box, plot_loc, plot_roi, plot_skeleton_kpts
 from general import load_roi, load_homo
@@ -220,7 +220,8 @@ def visualize_sta_result(
         validate_sta_path,
         roi_path,
         matches_path,
-        out_path
+        out_path,
+        mode # 'box', 'pose'
 ):
     cap_1 = cv2.VideoCapture(cam_1_path)
     cap_2 = cv2.VideoCapture(cam_2_path)
@@ -277,7 +278,7 @@ def visualize_sta_result(
             )
             writer_created = True
 
-        if 1084 <= p <= 1149 or 1703 <= p <= 1917 or 2137 <= p <= 2310:
+        if 1057 <= p <= 1156 or 1662 <= p <= 1895 or 2937 <= p <= 3095:
         
             black = np.zeros_like(fim_2)
             
@@ -291,7 +292,7 @@ def visualize_sta_result(
             fim_1 = plot_box(fim_1, dets_1)
             fim_2 = plot_box(fim_2, dets_2)
 
-            if dets_1.shape[1] == 61:
+            if mode == 'pose':
                 kpts_1 = dets_1[:, 10:]
                 kpts_2 = dets_2[:, 10:]
 
@@ -352,7 +353,140 @@ def visualize_sta_result(
         writer.release()    # type: ignore
 
 
-        
+def frame2track(
+        cam1_id,
+        cam2_id,
+        video_id,
+        pred_mct_trackertracker_path,
+        validate_pred_mct_trackertracker_path
+    ):
+
+    with open(pred_mct_trackertracker_path, 'r') as f:
+        pred = f.read().strip().split('\n')
+        pred = [eval(i) for i in pred]
+
+    with open(validate_pred_mct_trackertracker_path, 'r') as f:
+        true = f.read().strip().split('\n') 
+        true = [eval(i) for i in true]
+
+    matches = {}
+    ID1s = []
+    ID2s = []
+    co_occurs = ([], [])
+    for item in pred:
+        for m in item['matches']:
+            m = tuple(m)
+            matches[m] = matches.get(m, 0) + 1
+
+            if m[0] not in ID1s:
+                ID1s.append(m[0])
+            if m[1] not in ID2s:
+                ID2s.append(m[1])
+
+            for i in range(2):
+                ids = list(item['locs'][i].keys())
+                for id1 in ids:
+                    for id2 in ids:
+                        if id1 < id2 and (id1, id2) not in co_occurs[i]:
+                            co_occurs[i].append((id1, id2))
+    
+    for id in ID1s:
+        sub_m = {}
+        for m in matches:
+            if m[0] == id:
+                sub_m[m[1]] = matches[m]
+        for id1 in sub_m:
+            for id2 in sub_m:
+                if id1 < id2 and (id1, id2) in co_occurs[1]:
+                    id3 = id1 if sub_m[id1] < sub_m[id2] else id2
+                    matches[(id, id3)] = -1
+    
+    for id in ID2s:
+        sub_m = {}
+        for m in matches:
+            if m[1] == id:
+                sub_m[m[0]] = matches[m]
+        for id1 in sub_m:
+            for id2 in sub_m:
+                if id1 < id2 and (id1, id2) in co_occurs[0]:
+                    id3 = id1 if sub_m[id1] < sub_m[id2] else id2
+                    matches[(id3, id)] = -1
+
+    # print(matches)
+    matches = [k for k, v in matches.items() if v > 0]
+    # for k in matches:
+    #     print(f'{cam1_id},{video_id},{k[0]},{cam2_id},{video_id},{k[1]}')
+
+    true_matches = []
+    for item in true:
+        mm = item['matches']['TP'] + item['matches']['FN']
+        for m in mm:
+            m = tuple(m)
+            if m not in true_matches:
+                true_matches.append(m)
+    
+    print(true_matches)
+
+    matches = set(matches)
+    true_matches = set(true_matches)
+    TP = matches.intersection(true_matches)
+    FP = matches.difference(true_matches)
+    FN = true_matches.difference(matches)
+    print(f'TP: {len(TP)}, FP: {len(FP)}, FN: {len(FN)}')
+
+
+def eval_reid(
+        cam1_id,
+        cam2_id,
+        video_id,
+        pred_reid_path,
+        validate_pred_mct_trackertracker_path
+):
+    with open(validate_pred_mct_trackertracker_path, 'r') as f:
+        true = f.read().strip().split('\n') 
+        true = [eval(i) for i in true]
+
+    true_matches = []
+    for item in true:
+        mm = item['matches']['TP'] + item['matches']['FN']
+        for m in mm:
+            m = tuple(m)
+            if m not in true_matches:
+                true_matches.append(m)
+    
+    # print(true_matches)
+
+    with open(pred_reid_path, 'r') as f:
+        pred = f.read().strip().split('\n')[1:]
+        pred = [i.split(',') for i in pred]
+        pred = [(str(i[0]), int(i[1]), str(i[2])) for i in pred]
+        pred = [i for i in pred if i[0] == f'CAM_{cam1_id}' or i[0] == f'CAM_{cam2_id}']
+    
+    matches = {}
+    for item in pred:
+        if item[2] not in matches:
+            matches[item[2]] = []
+        matches[item[2]].append((int(item[0][4:]), item[1]))
+    # print(matches)
+
+    pred_matches = []
+    for k, v in matches.items():
+        for i in v:
+            for j in v:
+                if i[0] == cam1_id and j[0] == cam2_id:
+                    pred_matches.append((i[1], j[1]))
+    
+    print(pred_matches)
+
+    matches = set(pred_matches)
+    true_matches = set(true_matches)
+    TP = matches.intersection(true_matches)
+    FP = matches.difference(true_matches)
+    FN = true_matches.difference(matches)
+    print(f'TP: {len(TP)}, FP: {len(FP)}, FN: {len(FN)}')
+            
+
+    
 
 
 
@@ -362,8 +496,8 @@ if __name__ == '__main__':
         '2d_v1': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(0, 16)},
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(19, 25)},
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'range_': range(1, 13)},
-        #'2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': range(1, 13)},
-        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(12, 13)},
+        '2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': range(1, 13)},
+        #'2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(1, 13)},
     }
     for video_set in VIDEO_SET:
         VIDEO_SET[video_set]['video_set_dir'] = str(HERE / '../../data/recordings' / video_set)
@@ -385,7 +519,7 @@ if __name__ == '__main__':
     
 
     video_set = '2d_v4'
-    tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack'
+    tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack-IDfixed'
     for config_pred_option in [18]:
     
 
@@ -433,87 +567,87 @@ if __name__ == '__main__':
             ################# make ground truth ##################
             # make pseudotrue sct gt-tracker
             out_pseudotrue_sct_gttracker1_path = str(Path(video_set_dir) / tracker_name / 'pseudotrue' / 'sct_gttracker' / f'{cam1_id}_{video_id}.txt')
-            main({
-                'config': config_true_path,
+            # main({
+            #     'config': config_true_path,
             
-                'meta_1': meta1_path,
-                'meta_2': meta1_path,
-                'camera_1': vid1_path,
-                'camera_2': vid1_path,
+            #     'meta_1': meta1_path,
+            #     'meta_2': meta1_path,
+            #     'camera_1': vid1_path,
+            #     'camera_2': vid1_path,
                 
-                'sct_1': gt_txt1_path,
-                'sct_2': tracker_txt1_path,
+            #     'sct_1': gt_txt1_path,
+            #     'sct_2': tracker_txt1_path,
 
-                'roi': roi_path,
-                'matches': matches_path,
+            #     'roi': roi_path,
+            #     'matches': matches_path,
 
-                'out_sta_txt': out_pseudotrue_sct_gttracker1_path,
-                'out_sct_vid_1': None,
-                'out_sct_vid_2': None,
-                'out_sta_vid': None
-            })
+            #     'out_sta_txt': out_pseudotrue_sct_gttracker1_path,
+            #     'out_sct_vid_1': None,
+            #     'out_sct_vid_2': None,
+            #     'out_sta_vid': None
+            # })
 
             out_pseudotrue_sct_gttracker2_path = str(Path(video_set_dir) / tracker_name / 'pseudotrue' / 'sct_gttracker' / f'{cam2_id}_{video_id}.txt')
-            main({
-                'config': config_true_path,
+            # main({
+            #     'config': config_true_path,
             
-                'meta_1': meta2_path,
-                'meta_2': meta2_path,
-                'camera_1': vid2_path,
-                'camera_2': vid2_path,
+            #     'meta_1': meta2_path,
+            #     'meta_2': meta2_path,
+            #     'camera_1': vid2_path,
+            #     'camera_2': vid2_path,
                 
-                'sct_1': gt_txt2_path,
-                'sct_2': tracker_txt2_path,
+            #     'sct_1': gt_txt2_path,
+            #     'sct_2': tracker_txt2_path,
 
-                'roi': roi_path,
-                'matches': None,
+            #     'roi': roi_path,
+            #     'matches': None,
 
-                'out_sta_txt': out_pseudotrue_sct_gttracker2_path,
-                'out_sct_vid_1': None,
-                'out_sct_vid_2': None,
-                'out_sta_vid': None
-            })
+            #     'out_sta_txt': out_pseudotrue_sct_gttracker2_path,
+            #     'out_sct_vid_1': None,
+            #     'out_sct_vid_2': None,
+            #     'out_sta_vid': None
+            # })
 
             # make pseudotrue mct tracker-tracker
             out_pseudotrue_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pseudotrue' / 'mct_trackertracker' / f'{cam1_id}_{cam2_id}_{video_id}.txt')
-            make_pseudotrue_mct_trackertracker(
-                true_mct_gtgt_path,
-                meta1_path,
-                meta2_path,
-                out_pseudotrue_sct_gttracker1_path,
-                out_pseudotrue_sct_gttracker2_path,
-                out_pseudotrue_mct_trackertracker_path
-            )
+            # make_pseudotrue_mct_trackertracker(
+            #     true_mct_gtgt_path,
+            #     meta1_path,
+            #     meta2_path,
+            #     out_pseudotrue_sct_gttracker1_path,
+            #     out_pseudotrue_sct_gttracker2_path,
+            #     out_pseudotrue_mct_trackertracker_path
+            # )
 
             # predict mct tracker-tracker
             out_pred_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}' / f'{cam1_id}_{cam2_id}_{video_id}.txt')
-            main({
-                'config': config_pred_path,
+            # main({
+            #     'config': config_pred_path,
             
-                'meta_1': meta1_path,
-                'meta_2': meta2_path,
-                'camera_1': vid1_path,
-                'camera_2': vid2_path,
+            #     'meta_1': meta1_path,
+            #     'meta_2': meta2_path,
+            #     'camera_1': vid1_path,
+            #     'camera_2': vid2_path,
                 
-                'sct_1': tracker_txt1_path,
-                'sct_2': tracker_txt2_path,
+            #     'sct_1': tracker_txt1_path,
+            #     'sct_2': tracker_txt2_path,
 
-                'roi': roi_path,
-                'matches': matches_path,
+            #     'roi': roi_path,
+            #     'matches': matches_path,
 
-                'out_sta_txt': out_pred_mct_trackertracker_path,
-                'out_sct_vid_1': None,
-                'out_sct_vid_2': None,
-                'out_sta_vid': None
-            })
+            #     'out_sta_txt': out_pred_mct_trackertracker_path,
+            #     'out_sct_vid_1': None,
+            #     'out_sct_vid_2': None,
+            #     'out_sta_vid': None
+            # })
 
             # find TP, FP, FN
             out_validate_pred_mct_trackertracker_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.txt')
-            validate_pred_mct_trackertracker(
-                out_pseudotrue_mct_trackertracker_path,
-                out_pred_mct_trackertracker_path,
-                out_validate_pred_mct_trackertracker_path
-            )
+            # validate_pred_mct_trackertracker(
+            #     out_pseudotrue_mct_trackertracker_path,
+            #     out_pred_mct_trackertracker_path,
+            #     out_validate_pred_mct_trackertracker_path
+            # )
 
             # export video
             out_video_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.avi')
@@ -525,12 +659,24 @@ if __name__ == '__main__':
             #     out_validate_pred_mct_trackertracker_path,
             #     roi_path,
             #     matches_path,
-            #     out_video_path
+            #     out_video_path,
+            #     mode='box' if 'pose' not in tracker_name else 'pose'
             # )
+
+            # frame2track(
+            #     cam1_id,
+            #     cam2_id,
+            #     video_id,
+            #     out_pred_mct_trackertracker_path, 
+            #     out_validate_pred_mct_trackertracker_path
+            # )
+
+            pred_reid_path = str(Path(video_set_dir) / 'Re-ID' / vid1_name[3:-4] / 'all_cams_reid.txt')
+            eval_reid(cam1_id, cam2_id, video_id, pred_reid_path, out_validate_pred_mct_trackertracker_path)
 
             paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
 
-        prf(paths, out_path=out_eval_path)
+        # prf(paths, out_path=out_eval_path)
 
 
 # cuts:

@@ -5,14 +5,7 @@ import logging
 import sys
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s\t|%(thread)d\t|%(funcName)s\t|%(lineno)d\t|%(levelname)s\t|%(message)s',
-    handlers=[
-        #logging.FileHandler("~/Downloads/log.txt"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+logger = logging.getLogger(__name__)
 
 
 class FilterBase(ABC):
@@ -43,7 +36,7 @@ class IQRFilter(FilterBase):
         self.q1 = q1
         self.q2 = q2
 
-        logging.debug(f'{self.name}: \t initialized')
+        logger.info(f'{self.name}: \t initialized')
 
 
     def __call__(self, x) -> float:
@@ -51,7 +44,7 @@ class IQRFilter(FilterBase):
         p1, p2 = np.percentile(x, [self.q1, self.q2])
         iqr = p2 - p1
         ub = p2 + 1.5 * iqr
-        logging.debug(f'{self.name}:\t upper bound = {ub}')
+        logger.debug(f'{self.name}:\t upper bound = {ub}')
 
         # filter out false matches due to missing detection boxes
         # import matplotlib
@@ -78,7 +71,7 @@ class GMMFilter(FilterBase):
         self.n_components = n_components
         self.std_coef = std_coef
         
-        logging.debug(f'{self.name}: \t initialized')
+        logger.info(f'{self.name}: \t initialized')
     
     
     def __call__(self, x) -> float:
@@ -91,16 +84,16 @@ class GMMFilter(FilterBase):
         reg_covar = 1e-6
         while not gmm_error_handled:
             try:
-                logging.debug(f'{self.name}:\t trying reg_covar = {reg_covar}')
+                logger.debug(f'{self.name}:\t trying reg_covar = {reg_covar}')
                 gm = GaussianMixture(n_components=self.n_components, covariance_type='diag', reg_covar=reg_covar).fit(x)
                 gmm_error_handled = True
             except:
-                logging.warning(f'{self.name}:\t reg_covar failed!')
+                logger.warning(f'{self.name}:\t reg_covar failed!')
                 reg_covar *= 10
         smaller_component = np.argmin(gm.means_)                # type: ignore
         ub = gm.means_[smaller_component] + self.std_coef * np.sqrt(gm.covariances_[smaller_component])     # type: ignore
-        logging.debug(f'{self.name}:\t smaller component has mean = {min(gm.means_)} and std = {np.sqrt(gm.covariances_[smaller_component])}')  # type: ignore
-        logging.debug(f'{self.name}:\t upper bound = {ub}')
+        logger.debug(f'{self.name}:\t smaller component has mean = {min(gm.means_)} and std = {np.sqrt(gm.covariances_[smaller_component])}')  # type: ignore
+        logger.debug(f'{self.name}:\t upper bound = {ub}')
 
         # filter out false matches due to missing detection boxes
         # import matplotlib

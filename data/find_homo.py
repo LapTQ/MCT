@@ -30,7 +30,7 @@ opt = {
         'matches_out_path': None, #str(Path(CAM1).parent.parent / 'matches_42_to_43.txt'), # None
         'roi_out_path': None, #str(Path(CAM2).parent.parent / 'workarea_42.txt'),  # None
         'video': False,
-        'draw_match_line': False
+        'draw_match_line': True
     }
 
 
@@ -123,9 +123,9 @@ def select_matches(src, dst):
     
     while True:
         window_name = 'PREVIEW RESULT OF SELECTING MATCHES: <y> to submit. <ESC> to reset'
-        src_pts, dst_pts = _select_matches(src, dst)
-        # matches = np.loadtxt('recordings/2d_v3/matches_121_to_127.txt').astype('int32')
-        # src_pts, dst_pts = matches[:, :2], matches[:, 2:]
+        #src_pts, dst_pts = _select_matches(src, dst)
+        matches = np.loadtxt('recordings/2d_v4/matches_42_to_43.txt').astype('int32')
+        src_pts, dst_pts = matches[:, :2], matches[:, 2:]
         src_pts = src_pts.astype('float32').reshape(-1, 1, 2)
         dst_pts = dst_pts.astype('float32').reshape(-1, 1, 2)
         print(src_pts)
@@ -211,7 +211,7 @@ def select_ROI(src, dst, homo):
         H, W = added.shape[:2]
         H1, W1 = H // 2, W // 2
         H2, W2 = H1, W - W1
-        src_scaled = cv2.resize(src if src else dst, (W1, H1))
+        src_scaled = cv2.resize(src if src is not None else dst, (W1, H1))
         dst_scaled = cv2.resize(dst, (W2, H2))
 
         show_img = np.concatenate(

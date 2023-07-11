@@ -1,0 +1,11 @@
+cam_name,track_id,person_id
+CAM_43,1,6b76
+CAM_43,2,6b76
+CAM_42,2,6b76
+CAM_42,1,6b76
+CAM_42,3,6b76
+CAM_42,4,6b76
+CAM_41,2,6b76
+CAM_41,1,6b76
+CAM_41,3,6b76
+CAM_41,4,6b76

@@ -11,3 +11,11 @@ login = LoginManager()
 login.login_view = 'auth.login' # type: ignore
 bootstrap = Bootstrap()
 moment = Moment()
+
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent))
+from mct.utils.pipeline import Monitor
+
+monitor = Monitor()    
+
