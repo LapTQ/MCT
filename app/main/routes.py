@@ -236,7 +236,8 @@ def video_feed(cam_id):
             break
         time.sleep(1)
 
-    class FakeCamera:
+
+    class _FakeCamera:
 
         def __init__(self, app, cam_id, key, display_queue):
             self.frame = None
@@ -253,6 +254,7 @@ def video_feed(cam_id):
             Thread(target=self._thread).start()
             while True:
                 self.last_access = time.time()
+                time.sleep(monitor.pl_cameras[self.cam_id].online_put_sleep)
                 if self.frame is None:
                     continue
                 yield self.frame
@@ -261,34 +263,30 @@ def video_feed(cam_id):
         def _thread(self):
             import cv2
 
+            # stream video
             with self.app.app_context():
-                
-                
-
-                # stream video
                 while True:
-
-                    if self.display_queue.empty():
-                        continue
                     
-                    item = self.display_queue.get()
+                    item = self.display_queue.get(block=True)
                     img = item['frame_img']
                     img = cv2.resize(img, (480, 240))
                     
                     imgbyte = cv2.imencode('.jpg', img)[1].tobytes()
 
-                    if time.time() - self.last_access > 3:
+                    if time.time() - self.last_access > 2:
                         monitor.withdraw_display(self.cam_id, self.key)
                         break
 
                     self.frame = (b'--frame\r\n'
-                                  b'Content-Type: image/jpeg\r\n\r\n' + imgbyte + b'\r\n')
-    
-    return Response(FakeCamera(
-        app=current_app._get_current_object(), # type: ignore
-        cam_id=cam_id,
-        key=key,
-        display_queue=display_queue
-    ).start(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+                                    b'Content-Type: image/jpeg\r\n\r\n' + imgbyte + b'\r\n')
+                
+    return Response(
+        _FakeCamera(
+            app=current_app._get_current_object(), # type: ignore
+            cam_id=cam_id,
+            key=key,
+            display_queue=display_queue
+        ).start(),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
 

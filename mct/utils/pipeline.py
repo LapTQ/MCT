@@ -1,5 +1,5 @@
 from typing import Union, List, Dict, Any
-from queue import Queue
+import queue
 from threading import Lock, Thread
 from datetime import datetime
 import os
@@ -11,6 +11,7 @@ import yaml
 from abc import ABC, abstractmethod
 import numpy as np
 from pathlib import Path
+
 sys.path.append(str(Path(__file__).parent))
 
 from general import load_roi, load_homo, calc_loc                   # type: ignore
@@ -171,64 +172,13 @@ class ConfigPipeline:
         assert self.config.get('DISPLAY_MODE') in ['show', 'save']
 
 
-class MyQueue:
+class MyQueue(queue.Queue):
 
-    def __init__(
-            self, 
-            maxsize: int, 
-            name: Any = 'Queue'
-    ) -> None:
+    def __init__(self, maxsize: int = 0, name: Any = 'MyQueue') -> None:
+        super().__init__(maxsize)
         self.name = name
-        self.maxsize = maxsize
-        self.queue = Queue(maxsize)
-
-        self.lock = Lock()
 
         logger.debug(f'{self.name}:\t initilized')
-    
-
-    def get(self, block=True, timeout=None):
-        ret = self.queue.get(block, timeout)
-        logger.debug(f'{self.name}:\t dequeue 1 item, containing {self.queue.qsize()}')
-        return ret
-    
-
-    def put(self, item, block=True, timeout=None) -> None:
-        self.queue.put(item, block, timeout)
-        logger.debug(f'{self.name}:\t enqueue 1 item, containing {self.queue.qsize()}')
-
-
-    def empty(self) -> bool:
-        return self.queue.empty()
-
-
-    def get_many(self, size='all', block=True, timeout=None) -> list:
-        
-        ret = []
-        
-        self.lock.acquire()
-        
-        if size == 'all':
-            old_queue = self.queue
-            self.queue = Queue(self.maxsize)
-            
-            logger.debug(f'{self.name}:\t dequeue {len(ret)} items (/{size} requested).')
-            
-            self.lock.release()
-            
-            while not old_queue.empty():
-                ret.append(old_queue.get(block, timeout))
-        else:
-            assert isinstance(size, int) and size > 0, 'size must be a positive integer'
-            for _ in range(size):
-                if not self.queue.empty():
-                    ret.append(self.queue.get(block, timeout))
-            
-            logger.debug(f'{self.name}:\t dequeue {len(ret)} items (/{size} requested).')
-            
-            self.lock.release()
-
-        return ret
 
 
 class Pipeline(ABC):
@@ -237,7 +187,6 @@ class Pipeline(ABC):
     def __init__(
             self, 
             config: ConfigPipeline,
-            output_queues: Union[List[MyQueue], MyQueue, dict, None] = None,
             online_put_sleep: Union[int, float] = 0, 
             name='Pipeline'
     ) -> None:
@@ -246,8 +195,7 @@ class Pipeline(ABC):
         self.name = name
         self.thread = Thread(target=self._start, args=(), name=self.name)
 
-        self.output_queues = output_queues
-        self._check_output_queues()  
+        self.output_queues = {}  
         self.online_put_sleep = online_put_sleep
 
         self.lock = Lock()
@@ -286,22 +234,11 @@ class Pipeline(ABC):
             pass
 
 
-    def _check_output_queues(self) -> None:
-        if isinstance(self.output_queues, dict):
-            return
-        if self.output_queues is None:
-            self.output_queues = []
-        elif isinstance(self.output_queues, MyQueue):
-            self.output_queues = [self.output_queues]
-        self.output_queues = {i: q for i, q in enumerate(self.output_queues)}
-
-
     def switch_pausing(self):
         self.config.switch_pausing()
 
     
     def _put_to_output_queues(self, item, msg=None):
-        self.lock.acquire()
         for k, oq in self.output_queues.items():                    # type: ignore
             oq.put(
                 item,
@@ -310,24 +247,23 @@ class Pipeline(ABC):
             )
         
             logger.debug(f"{self.name}:\t put to {oq.name} with message: {msg}")
-        self.lock.release()
         
 
     def add_output_queue(self, queue, key):
         self.lock.acquire()
         assert key not in self.output_queues, f'{key} already exists in output_queues'
-        self.output_queues[key] = queue # type: ignore
+        self.output_queues[key] = queue
         self.lock.release()
         
-        logger.info(f'{self.name}:\t added output queue with key {key}. Having {len(self.output_queues)} output queues.')
+        logger.info(f'{self.name}:\t added output queue with key {key}. Having {len(self.output_queues)} output queues.')   # type: ignore
 
     
     def remove_output_queue(self, key):
         self.lock.acquire()
-        del self.output_queues[key] # type: ignore
+        del self.output_queues[key]
         self.lock.release()
 
-        logger.info(f'{self.name}:\t removed output queue with key {key}. Remaining {len(self.output_queues)} output queues.')
+        logger.info(f'{self.name}:\t removed output queue with key {key}. Remaining {len(self.output_queues)} output queues.')  # type: ignore
 
 
 class CameraPipeline(Pipeline):
@@ -337,12 +273,11 @@ class CameraPipeline(Pipeline):
             config: ConfigPipeline, 
             source: Union[int, str],
             meta: Union[dict, None] = None, 
-            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
             ret_img: bool = True,
             name='CameraPipeline'
     ) -> None:
-        super().__init__(config, output_queues, online_put_sleep, name)
+        super().__init__(config, online_put_sleep, name)
         
         self.source = source
         self.cap = cv2.VideoCapture(self.source)
@@ -390,8 +325,9 @@ class CameraPipeline(Pipeline):
             if not ret:
                 logger.info(f'{self.name}:\t disconnected from {self.source}')
                 if self.config.get('RUNNING_MODE') == 'online' or self.ret_img:
-                    logger.info(f'{self.name}:\t sleeping a few second before stop all')
-                    time.sleep(self.config.get('ONLINE_SLEEP_BEFORE_STOP'))
+                    sleep = self.config.get('ONLINE_SLEEP_BEFORE_STOP')
+                    logger.info(f'{self.name}:\t sleeping {sleep} second before stop all')
+                    time.sleep(sleep)
                     self.stop()
                 break
             
@@ -433,7 +369,7 @@ class CameraPipeline(Pipeline):
             self._put_to_output_queues(out_item)
 
             start_time = end_time
-            logger.info(f"{self.name}:\t slept {sleep}")
+            logger.debug(f"{self.name}:\t slept {sleep}")
 
         self.cap.release()
 
@@ -452,7 +388,6 @@ class CameraPipeline(Pipeline):
         self.fps = float(self.cap.get(cv2.CAP_PROP_FPS))
 
     
-    ###### START HERE ######
     def _observe_signin(self):
         signin_user_id, self.signin_user_id = self.signin_user_id, None
         return signin_user_id
@@ -460,7 +395,6 @@ class CameraPipeline(Pipeline):
 
     def signal_signin(self, sid):
         self.signin_user_id = sid
-    ###### END HERE ######
         
 
 class Tracker:
@@ -515,11 +449,10 @@ class SCTPipeline(Pipeline):
             config: ConfigPipeline, 
             tracker: Tracker,
             input_queue: MyQueue,
-            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
             name='SCTPipeline'
     ) -> None:
-        super().__init__(config, output_queues, online_put_sleep, name)
+        super().__init__(config, online_put_sleep, name)
 
         self.tracker = tracker
         
@@ -536,11 +469,12 @@ class SCTPipeline(Pipeline):
 
             self.trigger_pause()
 
-            items = self.input_queue.get_many(
-                size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                block=self.config.get('QUEUE_GET_BLOCK'),
-                timeout=self.config.get('QUEUE_TIMEOUT')
-            )
+            if self.config.get('RUNNING_MODE') == 'online':
+                items = [self.input_queue.get(block=True)]
+            else:
+                items = []
+                while not self.input_queue.empty():
+                    items.append(self.input_queue.get())
 
             T = len(items)
 
@@ -558,9 +492,7 @@ class SCTPipeline(Pipeline):
                     'sct_output': dets,
                     'sct_detection_mode': self.tracker.detection_mode,
                     'sct_tracking_mode': self.tracker.tracking_mode,
-                    ##### START HERE #####
                     'signin_user_id': item['signin_user_id']
-                    ##### END HERE #####
                 }
 
                 end_time = time.time()
@@ -585,11 +517,10 @@ class SyncPipeline(Pipeline):
             self, 
             config: ConfigPipeline, 
             input_queues: List[MyQueue],
-            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
             name='SyncPipeline'
     ) -> None:
-        super().__init__(config, output_queues, online_put_sleep, name)
+        super().__init__(config, online_put_sleep, name)
 
         self.input_queues = input_queues
         self._check_input_queues()
@@ -608,14 +539,16 @@ class SyncPipeline(Pipeline):
             self.trigger_pause()
             
             # load both the coming and waiting list
-            for c in range(len(self.input_queues)):
-                self.wait_list[c].extend(
-                    self.input_queues[c].get_many(
-                        size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                        block=self.config.get('QUEUE_GET_BLOCK'),
-                        timeout=self.config.get('QUEUE_TIMEOUT')
-                    )
-                )
+            for iq, wl in zip(self.input_queues, self.wait_list):
+
+                if self.config.get('RUNNING_MODE') == 'online':
+                    items = [iq.get(block=True)]
+                else:
+                    items = []
+                    while not iq.empty():
+                        items.append(iq.get())
+
+                wl.extend(items)
             
             # do not map if the number of pairs are so small
             if min(len(self.wait_list[0]), len(self.wait_list[1])) < self.config.get('MIN_TIME_CORRESPONDENCES'):
@@ -696,11 +629,10 @@ class STAPipeline(Pipeline):
             homo: Union[np.ndarray, None],
             sct_queues: List[MyQueue],
             sync_queue: MyQueue,
-            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
             name='STAPipeline'
     ) -> None:
-        super().__init__(config, output_queues, online_put_sleep, name)
+        super().__init__(config, online_put_sleep, name)
         """
         homo: tranform the view of scene[0] to scene[1]
         """
@@ -735,13 +667,14 @@ class STAPipeline(Pipeline):
             self.trigger_pause()
             
             for wl, iq in zip(self.wait_list, self.sct_queues + [self.sync_queue]):     # type: ignore
-                wl.extend(
-                    iq.get_many(
-                        size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                        block=self.config.get('QUEUE_GET_BLOCK'),
-                        timeout=self.config.get('QUEUE_TIMEOUT')
-                    )
-                )
+                if self.config.get('RUNNING_MODE') == 'online':
+                    items = [iq.get(block=True)]
+                else:
+                    items = []
+                    while not iq.empty():
+                        items.append(iq.get())
+                
+                wl.extend(items)
 
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
@@ -1014,11 +947,10 @@ class VisualizePipeline(Pipeline):
             annot_queue: MyQueue,
             video_queue: MyQueue,
             scene: Union[Scene, None] = None,
-            output_queues: Union[List[MyQueue], MyQueue, None] = None,
             online_put_sleep: Union[int, float] = 0,
             name='Visualizer'
     ) -> None:
-        super().__init__(config, output_queues, online_put_sleep, name)
+        super().__init__(config, online_put_sleep, name)
         
         self.annot_queue = annot_queue
         
@@ -1035,19 +967,23 @@ class VisualizePipeline(Pipeline):
     def _start(self):
 
         start_time = time.time()
+        pop_signin_count = 0
+        pop_signin_id = None
 
         while not self.is_stopped():
 
             self.trigger_pause()
             
             for wl, iq in zip(self.wait_list, [self.annot_queue, self.video_queue]):    # type: ignore
-                wl.extend(
-                    iq.get_many(                                                # type: ignore
-                        size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                        block=self.config.get('QUEUE_GET_BLOCK'),
-                        timeout=self.config.get('QUEUE_TIMEOUT')
-                    )
-                )
+                
+                if self.config.get('RUNNING_MODE') == 'online':
+                    items = [iq.get(block=True)]
+                else:
+                    items = []
+                    while not iq.empty():
+                        items.append(iq.get())
+                
+                wl.extend(items)
 
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
@@ -1077,7 +1013,7 @@ class VisualizePipeline(Pipeline):
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
-            logger.debug(f'{self.name}:\t processing {T} pairs of frames')
+            logger.debug(f'{self.name}:\t processing {T} frames')
             for k in adict:
                 if len(adict[k][0]) > 0:
                     adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
@@ -1112,15 +1048,20 @@ class VisualizePipeline(Pipeline):
                 else:
                     raise NotImplementedError()
                 
-                if self.scene is not None:
-                    locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
-                    frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
+                locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
+                frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
 
                 ##### START HERE #####
                 if 'signin_user_id' in adict:
                     signin_user_id = adict['signin_user_id'][0][t]
                     if signin_user_id is not None:
-                        cv2.putText(frame_img, f'user<{signin_user_id}> signed in', (300, 100), cv2.FONT_HERSHEY_TRIPLEX, 4.0, (0, 0, 255), thickness=3)
+                        pop_signin_count = 1
+                        pop_signin_id = signin_user_id
+                    if pop_signin_count > 0:
+                        cv2.putText(frame_img, f'user<{pop_signin_id}> signed in', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 4.0, (0, 0, 255), thickness=7)
+                        pop_signin_count += 1
+                    if pop_signin_count >= 60:
+                        pop_signin_count = 0
                 ##### END HERE #####
                 
                 out_item = {
@@ -1181,9 +1122,9 @@ class DisplayPipeline(Pipeline):
             height: Union[int, None] = None,
             fps: Union[int, None] = None,
             path: Union[str, None] = None,
-            name='DisplayPipeline thread'
+            name='DisplayPipeline'
     ) -> None:
-        super().__init__(config, None, 0, name)
+        super().__init__(config, 0, name)
         
         self.input_queue = input_queue
         
@@ -1209,48 +1150,43 @@ class DisplayPipeline(Pipeline):
 
             self.trigger_pause()
 
-            logger.debug(f"{self.name}:\t take {self.config.get('QUEUE_GET_MANY_SIZE')} from {self.input_queue.name}")
-            items = self.input_queue.get_many(
-                size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                block=self.config.get('QUEUE_GET_BLOCK'),
-                timeout=self.config.get('QUEUE_TIMEOUT')
-            )
+            assert self.config.get('RUNNING_MODE') == 'online'
 
-            for item in items:
+            item = self.input_queue.get(block=True)
 
-                frame_img = item['frame_img']
-                frame_id = item['frame_id']
+            frame_img = item['frame_img']
+            frame_id = item['frame_id']
 
-                if self.height is None:
-                    self.height = frame_img.shape[0]
-                if self.width is None:
-                    self.width = frame_img.shape[1]
+            if self.height is None:
+                self.height = frame_img.shape[0]
+            if self.width is None:
+                self.width = frame_img.shape[1]
 
-                if self.mode == 'save' and not writer_created:  # type: ignore
-                    writer = cv2.VideoWriter(
-                        self.path,
-                        cv2.VideoWriter_fourcc(*'XVID'),
-                        self.fps,
-                        (self.width, self.height)
-                    )
-                    writer_created = True
+            if self.mode == 'save' and not writer_created:  # type: ignore
+                writer = cv2.VideoWriter(
+                    self.path,
+                    cv2.VideoWriter_fourcc(*'XVID'),
+                    self.fps,
+                    (self.width, self.height)
+                )
+                writer_created = True
 
-                frame_img = cv2.resize(frame_img, (self.width, self.height))
+            frame_img = cv2.resize(frame_img, (self.width, self.height))
 
-                logger.debug(f'{self.name}:\t {self.mode} from {self.input_queue.name}\t frame_id={frame_id}')
-                
-                if self.mode == 'show':
-                    cv2.imshow(self.name, frame_img)
-                    key = cv2.waitKey(1)
-                    if key == ord('q'):
-                        self.stop()
-                        break
-                    elif key == ord(' '):                    
-                        self.switch_pausing()
-                        cv2.waitKey(0)
-                        self.switch_pausing()
-                elif self.mode == 'save':
-                    writer.write(frame_img)     # type: ignore
+            logger.debug(f'{self.name}:\t {self.mode} from {self.input_queue.name}\t frame_id={frame_id}')
+            
+            if self.mode == 'show':
+                cv2.imshow(self.name, frame_img)
+                key = cv2.waitKey(1)
+                if key == ord('q'):
+                    self.stop()
+                    break
+                elif key == ord(' '):                    
+                    self.switch_pausing()
+                    cv2.waitKey(0)
+                    self.switch_pausing()
+            elif self.mode == 'save':
+                writer.write(frame_img)     # type: ignore
             
         if self.mode == 'show':
             cv2.destroyAllWindows()
@@ -1281,7 +1217,7 @@ class ExportPipeline(Pipeline):
             path: str, 
             name='ExportPipeline'
     ) -> None:
-        super().__init__(config, None, 0, name)  # type: ignore
+        super().__init__(config, 0, name)  # type: ignore
 
         self.input_queue = input_queue
 
@@ -1297,11 +1233,12 @@ class ExportPipeline(Pipeline):
         
         while not self.is_stopped():
 
-            items = self.input_queue.get_many(
-                size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                block=self.config.get('QUEUE_GET_BLOCK'),
-                timeout=self.config.get('QUEUE_TIMEOUT')
-            )
+            if self.config.get('RUNNING_MODE') == 'online':
+                items = [self.input_queue.get(block=True)]
+            else:
+                items = []
+                while not self.input_queue.empty():
+                    items.append(self.input_queue.get())
 
             logger.debug(f'{self.name}:\t processing {len(items)} frames')
 
@@ -1322,8 +1259,43 @@ class ExportPipeline(Pipeline):
 
 
 ##### START HERE #####
-  
+
+class EmptyPipeline(Pipeline):
+
+    def __init__(
+            self, 
+            config: ConfigPipeline,
+            input_queue: MyQueue,
+            online_put_sleep: Union[int, float] = 0, 
+            name='Empty Pipeline'
+    ) -> None:
+        super().__init__(config, online_put_sleep, name)
+        self.input_queue = input_queue
+
+        logger.debug(f'{self.name}:\t initialized')
+
+    def _start(self) -> None:
+         
+        while not self.is_stopped():
+            self.trigger_pause()
             
+            if self.config.get('RUNNING_MODE') == 'online':
+                items = [self.input_queue.get(block=True)]
+            else:
+                items = []
+                while not self.input_queue.empty():
+                    items.append(self.input_queue.get())
+
+            for item in items:
+
+                time.sleep(self.online_put_sleep)
+                self._put_to_output_queues(item)
+
+                logger.debug(f'{self.name}:\t sleep {self.online_put_sleep}')
+            
+            if self.config.get('RUNNING_MODE') == 'offline':
+                break
+
 
 sys.path.append(str(Path(__file__).parent.parent.parent))           
 from app.models import User
@@ -1340,11 +1312,10 @@ class MCMapPipeline(Pipeline):
             sta_queues: dict,
             checkin_scene: Scene,
             checkin_cid: int,
-            output_queues: Union[dict, None] = None,
             online_put_sleep: Union[int, float] = 0,
             name='MCMapPipeline'
     ) -> None:
-        super().__init__(config, output_queues, online_put_sleep, name)
+        super().__init__(config, online_put_sleep, name)
 
         self.app = app
         self.db = db
@@ -1385,11 +1356,15 @@ class MCMapPipeline(Pipeline):
                 for k, v in q.items():
                     if k not in self.wait_list[i]:
                         self.wait_list[i][k] = []
-                    self.wait_list[i][k].extend(v.get_many(
-                        size=self.config.get('QUEUE_GET_MANY_SIZE'),
-                        block=self.config.get('QUEUE_GET_BLOCK'),
-                        timeout=self.config.get('QUEUE_TIMEOUT')
-                    ))
+                    
+                    if self.config.get('RUNNING_MODE') == 'online':
+                        items = [v.get(block=True)]
+                    else:
+                        items = []
+                        while not v.empty():
+                            items.append(v.get())
+
+                    self.wait_list[i][k].extend(items)
 
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
@@ -1402,6 +1377,7 @@ class MCMapPipeline(Pipeline):
                 continue
 
             T = len(list(sta_midxs.values())[0])
+            logger.debug(f'{self.name}:\t processing {T} frames')
 
             for wl, al, idxs in zip(self.wait_list, active_list, [sct_midxs, sta_midxs]):   # type: ignore
                 for k in al:
@@ -1476,8 +1452,6 @@ class MCMapPipeline(Pipeline):
                 sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
                     else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time)) # TODO fix this
                 time.sleep(sleep)
-
-                self.lock.acquire()
                 # expecting key of the output queue is camera ID
                 for cid, oq in self.output_queues.items():  # type: ignore
                     oq.put(                                
@@ -1490,13 +1464,11 @@ class MCMapPipeline(Pipeline):
                         block=self.config.get('QUEUE_PUT_BLOCK'),
                         timeout=self.config.get('QUEUE_TIMEOUT')
                     )
-                self.lock.release()
                     
                 mid_time = end_time
                 logger.debug(f'{self.name}:\t slept {sleep}')
 
             start_time = mid_time
-
 
 
     def _check_checkin_cid(self):
@@ -1553,36 +1525,41 @@ class MCMapPipeline(Pipeline):
 
     
     def _match_sct_index(self, sct_dict, sta_dict, sta_idxs):
-        sct_ks = []
-        sct_idxs = []
-        new_sta_idxs = {}
-        for i, (pk, idxs) in enumerate(sta_idxs.items()):
-            new_sta_idxs[pk] = []
-            for cj, cid in enumerate(pk):
-                if cid in sct_ks:
-                    continue
-                
-                sct_ks.append(cid)
-                sct_idxs.append([])
+        sct_idxs = {k: [] for k in sct_dict.keys()}
+        new_sta_idxs = {k: [] for k in sta_idxs.keys()}
+        prev_j = {k: 0 for k in sct_dict.keys()}
+        
+        for idxs in zip(*sta_idxs.values()):
+            temp_sct_idx = {}
+            temp_sta_idx = {}
+            for i, sta_k in enumerate(sta_idxs.keys()):
+                temp_sta_idx[sta_k] = idxs[i]
+                for k, cid in enumerate(sta_k):
+                    if cid in temp_sct_idx:
+                        continue
+                        
+                    temp_sct_idx[cid] = None
+                    while True:
+                        j = prev_j[cid]
+                        if j >= len(sct_dict[cid]):
+                            break
+                        sta_fid = sta_dict[sta_k][idxs[i]][f'frame_id_{k + 1}']
+                        sct_fid = sct_dict[cid][j]['frame_id']
+                        prev_j[cid] += 1
+                        if sta_fid == sct_fid:
+                            temp_sct_idx[cid] = j
+                            break
+                        
 
-                write_sta = True if len(new_sta_idxs[pk]) == 0 else False
+            if None in temp_sct_idx.values():
+                continue
 
-                j, q = 0, 0
-                while j < len(sct_dict[cid]) and q < len(idxs):
-                    sta_fid = sta_dict[pk][idxs[q]][f'frame_id_{cj + 1}']
-                    sct_fid = sct_dict[cid][j]['frame_id']
-                    if sta_fid == sct_fid:
-                        sct_idxs[-1].append(j)
-                        if write_sta:
-                            new_sta_idxs[pk].append(idxs[q])
-                        j += 1
-                        q += 1
-                    elif sta_fid < sct_fid:
-                        q += 1
-                    else:
-                        j += 1
+            for k, v in temp_sct_idx.items():
+                sct_idxs[k].append(v)
+            for k, v in temp_sta_idx.items():
+                new_sta_idxs[k].append(v)
 
-        return {k: v for k, v in zip(sct_ks, sct_idxs)}, new_sta_idxs       # type: ignore
+        return sct_idxs, new_sta_idxs       # type: ignore
 
     
     def _new_wait_list(self):
@@ -1637,7 +1614,7 @@ class Monitor:
         )
         
         # commit output queue to camera pipeline
-        queue = MyQueue(self.config.get('QUEUE_MAXSIZE'), name=f'IQ-SCT-<cam_id={cam_id}>')
+        queue = MyQueue(name=f'IQ-SCT-<cam_id={cam_id}>')
         pl_camera.add_output_queue(queue, queue.name)
         
         # create sct pipeline
@@ -1645,7 +1622,7 @@ class Monitor:
             config=self.config,
             tracker=tracker,
             input_queue=queue,
-            online_put_sleep=pl_camera.online_put_sleep,
+            online_put_sleep=pl_camera.online_put_sleep * 0.33,
             name=f'PL SCT-<cam_id={cam_id}>',
         )
 
@@ -1671,37 +1648,22 @@ class Monitor:
             self.pl_syncs = {}
         
         # create sync pipeline
-        oq_cam_secondary = MyQueue(
-            self.config.get('QUEUE_MAXSIZE'), 
-            name=f'IQ-Sync-<*sec={cam_id_secondary}, pri={cam_id_primary}>'
-        )
-        oq_cam_primary = MyQueue(
-            self.config.get('QUEUE_MAXSIZE'), 
-            name=f'IQ-Sync-<sec={cam_id_secondary}, *pri={cam_id_primary}>'
-        )
+        oq_cam_secondary = MyQueue(name=f'IQ-Sync-<*sec={cam_id_secondary}, pri={cam_id_primary}>')
+        oq_cam_primary = MyQueue(name=f'IQ-Sync-<sec={cam_id_secondary}, *pri={cam_id_primary}>')
         self.pl_cameras[cam_id_secondary].add_output_queue(oq_cam_secondary, oq_cam_secondary.name)
         self.pl_cameras[cam_id_primary].add_output_queue(oq_cam_primary, oq_cam_primary.name)
 
         pl_sync = SyncPipeline(
             config=self.config,
             input_queues=[oq_cam_secondary, oq_cam_primary],
-            online_put_sleep=min(self.pl_cameras[cam_id_secondary].online_put_sleep, self.pl_cameras[cam_id_primary].online_put_sleep),
+            online_put_sleep=min(self.pl_cameras[cam_id_secondary].online_put_sleep, self.pl_cameras[cam_id_primary].online_put_sleep) * 0.33,
             name=f'PL Sync-<sec={cam_id_secondary}, pri={cam_id_primary}>',
         )
 
         # commit output queues to sct and sync
-        oq_sct_secondary = MyQueue(
-            self.config.get('QUEUE_MAXSIZE'), 
-            name=f'IQ-STA_SCT-<*sec={cam_id_secondary}, pri={cam_id_primary}>'
-        )
-        oq_sct_primary = MyQueue(
-            self.config.get('QUEUE_MAXSIZE'),
-            name=f'IQ-STA_SCT-<sec={cam_id_secondary}, *pri={cam_id_primary}>'
-        )
-        oq_sync = MyQueue(
-            self.config.get('QUEUE_MAXSIZE'),
-            name=f'IQ-STA_SYNC-<sec={cam_id_secondary}, pri={cam_id_primary}>'
-        )
+        oq_sct_secondary = MyQueue(name=f'IQ-STA_SCT-<*sec={cam_id_secondary}, pri={cam_id_primary}>')
+        oq_sct_primary = MyQueue(name=f'IQ-STA_SCT-<sec={cam_id_secondary}, *pri={cam_id_primary}>')
+        oq_sync = MyQueue(name=f'IQ-STA_SYNC-<sec={cam_id_secondary}, pri={cam_id_primary}>')
         self.pl_scts[cam_id_secondary].add_output_queue(oq_sct_secondary, oq_sct_secondary.name)
         self.pl_scts[cam_id_primary].add_output_queue(oq_sct_primary, oq_sct_primary.name)
         pl_sync.add_output_queue(oq_sync, oq_sync.name)
@@ -1735,19 +1697,13 @@ class Monitor:
         # commit output queues to sct and sta
         oq_scts = {}
         for cid, pl in self.pl_scts.items():
-            queue = MyQueue(
-                self.config.get('QUEUE_MAXSIZE'), 
-                name=f'IQ-MCMap_SCT-<cam_id={cid}>'
-            )
+            queue = MyQueue(name=f'IQ-MCMap_SCT-<cam_id={cid}>')
             pl.add_output_queue(queue, queue.name)
             oq_scts[cid] = queue
         
         oq_stas = {}
         for (cid_sec, cid_pri), pl in self.pl_stas.items():
-            queue = MyQueue(
-                self.config.get('QUEUE_MAXSIZE'), 
-                name=f'IQ-MCMap_STA-<sec={cid_sec}, pri={cid_pri}>'
-            )
+            queue = MyQueue(name=f'IQ-MCMap_STA-<sec={cid_sec}, pri={cid_pri}>')
             pl.add_output_queue(queue, queue.name)
             oq_stas[(cid_sec, cid_pri)] = queue
         
@@ -1760,7 +1716,7 @@ class Monitor:
             sta_queues=oq_stas,
             checkin_scene=scene,
             checkin_cid=cam_id,
-            online_put_sleep=min([pl.online_put_sleep for pl in self.pl_cameras.values()]),
+            online_put_sleep=min([pl.online_put_sleep for pl in self.pl_cameras.values()]) * 0.33,
         )
     
 
@@ -1778,27 +1734,27 @@ class Monitor:
         for pl in self.pl_scts.values():
             pl.start()            
 
-        # # start Sync pipelines
-        # for pl in self.pl_syncs.values():
-        #     pl.start()
+        # start Sync pipelines
+        for pl in self.pl_syncs.values():
+            pl.start()
         
-        # if self.config.get('RUNNING_MODE') == 'offline':
-        #     for pl in self.pl_scts.values():
-        #         pl.join()
+        if self.config.get('RUNNING_MODE') == 'offline':
+            for pl in self.pl_scts.values():
+                pl.join()
 
-        #     for pl in self.pl_syncs.values():
-        #         pl.join()
+            for pl in self.pl_syncs.values():
+                pl.join()
 
-        # # start STA pipelines
-        # for pl in self.pl_stas.values():
-        #     pl.start()
+        # start STA pipelines
+        for pl in self.pl_stas.values():
+            pl.start()
 
-        # if self.config.get('RUNNING_MODE') == 'offline':
-        #     for pl in self.pl_stas.values():
-        #         pl.join()
+        if self.config.get('RUNNING_MODE') == 'offline':
+            for pl in self.pl_stas.values():
+                pl.join()
 
-        # # start MCMap pipeline
-        # self.pl_mcmap.start()
+        # start MCMap pipeline
+        self.pl_mcmap.start()
 
 
     def register_display(self, cam_id: int, key: str):
@@ -1835,10 +1791,7 @@ class Monitor:
             self.display_queues[cam_id] = {}
 
         if key not in self.display_queues[cam_id]:
-            oq_visualize = MyQueue(
-                self.config.get('QUEUE_MAXSIZE'),
-                name=key
-            )
+            oq_visualize = MyQueue(name=key)
             pl_visualize.add_output_queue(oq_visualize, oq_visualize.name)
             self.display_queues[cam_id][key] = oq_visualize
         lock.release()
@@ -1847,14 +1800,8 @@ class Monitor:
     def _create_visualize(self, cam_id: int) -> VisualizePipeline:
         
         assert cam_id in self.pl_cameras
-        oq_video = MyQueue(
-            self.config.get('QUEUE_MAXSIZE'),
-            name=f'IQ-Visualize_Video-<cam_id={cam_id}>'
-        )
-        oq_annot = MyQueue(
-            self.config.get('QUEUE_MAXSIZE'),
-            name=cam_id     # must be exactly cam_id
-        )
+        oq_video = MyQueue(name=f'IQ-Visualize_Video-<cam_id={cam_id}>')
+        oq_annot = MyQueue(name=cam_id)     # must be exactly cam_id
         self.pl_cameras[cam_id].add_output_queue(oq_video, oq_video.name)
         self.pl_mcmap.add_output_queue(oq_annot, oq_annot.name)
 
@@ -1862,6 +1809,7 @@ class Monitor:
             config=self.config,
             annot_queue=oq_annot,
             video_queue=oq_video,
+            online_put_sleep=self.pl_cameras[cam_id].online_put_sleep,
             name=f'PL Visualize-<cam_id={cam_id}>'
         )
         self.pl_visualizes[cam_id] = pl_visualize
@@ -1949,30 +1897,37 @@ def main(kwargs):
     config = ConfigPipeline(kwargs['config'])
 
     # input queues
-    iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-1-Input-Queue')
-    iq_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-2-Input-Queue')
+    iq_sct_1 = MyQueue(name='SCTPipeline-1-Input-Queue')
+    iq_sct_2 = MyQueue(name='SCTPipeline-2-Input-Queue')
     
-    iq_sync_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-1-Input-Queue')
-    iq_sync_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-2-Input-Queue')
+    iq_sync_1 = MyQueue(name='Sync-1-Input-Queue')
+    iq_sync_2 = MyQueue(name='Sync-2-Input-Queue')
     
-    iq_sta_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-1-InputSCT-Queue')
-    iq_sta_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-2-InputSCT-Queue')
-    iq_sta_sync = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-InputSync-Queue')
+    iq_sta_sct_1 = MyQueue(name='STAPipeline-1-InputSCT-Queue')
+    iq_sta_sct_2 = MyQueue(name='STAPipeline-2-InputSCT-Queue')
+    iq_sta_sync = MyQueue(name='STAPipeline-InputSync-Queue')
 
-    iq_exp_sta = MyQueue(config.get('QUEUE_MAXSIZE'), name='ExportSTA-Input-Queue')
+    iq_exp_sta = MyQueue(name='ExportSTA-Input-Queue')
 
     # ONLY USE META IF CAPTURING VIDEOS
     meta_1 = yaml.safe_load(open(kwargs['meta_1'], 'r'))
     meta_2 = yaml.safe_load(open(kwargs['meta_2'], 'r'))
-    pl_camera_1_noretimg = CameraPipeline(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_sct_1, iq_sync_1], ret_img=False, name='CameraPipeline-1-NoRetImg')
-    pl_camera_2_noretimg = CameraPipeline(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_sct_2, iq_sync_2], ret_img=False, name='CameraPipeline-2-NoRetImg')
+    pl_camera_1_noretimg = CameraPipeline(config, kwargs['camera_1'], meta=meta_1, ret_img=False, name='CameraPipeline-1-NoRetImg')
+    pl_camera_1_noretimg.add_output_queue(iq_sct_1, iq_sct_1.name)
+    pl_camera_1_noretimg.add_output_queue(iq_sync_1, iq_sync_1.name)
+    pl_camera_2_noretimg = CameraPipeline(config, kwargs['camera_2'], meta=meta_2, ret_img=False, name='CameraPipeline-2-NoRetImg')
+    pl_camera_2_noretimg.add_output_queue(iq_sct_2, iq_sct_2.name)
+    pl_camera_2_noretimg.add_output_queue(iq_sync_2, iq_sync_2.name)
     
     tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_1'], name='Tracker-1')
     tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_2'], name='Tracker-2')
-    pl_sct_1 = SCTPipeline(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_1], name='SCTPipeline-1')
-    pl_sct_2 = SCTPipeline(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_2], name='SCTPipeline-2')
+    pl_sct_1 = SCTPipeline(config, tracker=tracker1, input_queue=iq_sct_1, name='SCTPipeline-1')
+    pl_sct_1.add_output_queue(iq_sta_sct_1, iq_sta_sct_1.name)
+    pl_sct_2 = SCTPipeline(config, tracker=tracker2, input_queue=iq_sct_2, name='SCTPipeline-2')
+    pl_sct_2.add_output_queue(iq_sta_sct_2, iq_sta_sct_2.name)
     
-    pl_sync = SyncPipeline(config, [iq_sync_1, iq_sync_2], iq_sta_sync)
+    pl_sync = SyncPipeline(config, [iq_sync_1, iq_sync_2])
+    pl_sync.add_output_queue(iq_sta_sync, iq_sta_sync.name)
     
     roi_2 = load_roi(kwargs['roi'], pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
     if kwargs['camera_1'] == kwargs['camera_2']:
@@ -1988,7 +1943,8 @@ def main(kwargs):
         roi_1 = cv2.perspectiveTransform(roi_2, np.linalg.inv(homo)) # type: ignore
     scene_1 = Scene(pl_camera_1_noretimg.width, pl_camera_1_noretimg.height, roi_1, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-1')
     scene_2 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_2, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-2')
-    pl_sta = STAPipeline(config, [scene_1, scene_2], homo, [iq_sta_sct_1, iq_sta_sct_2], iq_sta_sync, [iq_exp_sta], name='STAPipeline')
+    pl_sta = STAPipeline(config, [scene_1, scene_2], homo, [iq_sta_sct_1, iq_sta_sct_2], iq_sta_sync, name='STAPipeline')
+    pl_sta.add_output_queue(iq_exp_sta, iq_exp_sta.name)
 
     pl_exp = ExportPipeline(config, iq_exp_sta, kwargs['out_sta_txt'])
 
@@ -2026,103 +1982,6 @@ def main(kwargs):
         pl_exp.join()
 
 
-def main2(kwargs):
-
-    config = ConfigPipeline(kwargs['config'])
-
-    # input queues
-    iq_sct_1 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-<1>-Input-Queue')
-    iq_sct_2 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-<2>-Input-Queue')
-    iq_sct_3 = MyQueue(config.get('QUEUE_MAXSIZE'), name='SCTPipeline-<3>-Input-Queue')
-    
-    iq_sync_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<*1, 2>-Input-Queue')
-    iq_sync_21 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<1, *2>-Input-Queue')
-    iq_sync_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<*2, 3>-Input-Queue')
-    iq_sync_32 = MyQueue(config.get('QUEUE_MAXSIZE'), name='Sync-<2, *3>-Input-Queue')
-    
-    
-    iq_sta_sct_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<*1, 2>-InputSCT-Queue')
-    iq_sta_sct_21 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<1, *2>-InputSCT-Queue')
-    iq_sta_sync_12 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<1, 2>-InputSync-Queue')
-    iq_sta_sct_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<*2, 3>-InputSCT-Queue')
-    iq_sta_sct_32 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<2, *3>-InputSCT-Queue')
-    iq_sta_sync_23 = MyQueue(config.get('QUEUE_MAXSIZE'), name='STAPipeline-<2, 3>-InputSync-Queue')
-
-    # ONLY USE META IF CAPTURING VIDEOS
-    meta_1 = yaml.safe_load(open(kwargs['meta_1'], 'r'))
-    meta_2 = yaml.safe_load(open(kwargs['meta_2'], 'r'))
-    meta_3 = yaml.safe_load(open(kwargs['meta_3'], 'r'))
-
-    pl_camera_1_noretimg = CameraPipeline(config, kwargs['camera_1'], meta=meta_1, output_queues=[iq_sct_1, iq_sync_12], ret_img=False, name='CameraPipeline-<1>-NoRetImg')
-    pl_camera_2_noretimg = CameraPipeline(config, kwargs['camera_2'], meta=meta_2, output_queues=[iq_sct_2, iq_sync_21, iq_sync_23], ret_img=False, name='CameraPipeline-<2>-NoRetImg')
-    pl_camera_3_noretimg = CameraPipeline(config, kwargs['camera_3'], meta=meta_3, output_queues=[iq_sct_3, iq_sync_32], ret_img=False, name='CameraPipeline-<3>-NoRetImg')
-    
-    tracker1 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_1'], name='Tracker-<1>')
-    tracker2 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_2'], name='Tracker-<2>')
-    tracker3 = Tracker(detection_mode=config.get('DETECTION_MODE'), tracking_mode=config.get('TRACKING_MODE'), txt_path=kwargs['sct_3'], name='Tracker-<3>')
-    pl_sct_1 = SCTPipeline(config, tracker=tracker1, input_queue=iq_sct_1, output_queues=[iq_sta_sct_12], name='SCTPipeline-<1>')
-    pl_sct_2 = SCTPipeline(config, tracker=tracker2, input_queue=iq_sct_2, output_queues=[iq_sta_sct_21, iq_sta_sct_23], name='SCTPipeline-<2>')
-    pl_sct_3 = SCTPipeline(config, tracker=tracker3, input_queue=iq_sct_3, output_queues=[iq_sta_sct_32], name='SCTPipeline-<3>')
-    
-    pl_sync_12 = SyncPipeline(config, [iq_sync_12, iq_sync_21], iq_sta_sync_12)
-    pl_sync_23 = SyncPipeline(config, [iq_sync_23, iq_sync_32], iq_sta_sync_23)
-    
-    roi_21 = load_roi(kwargs['roi_21'], pl_camera_2_noretimg.width, pl_camera_2_noretimg.height)
-    homo_12 = load_homo(kwargs['matches_12'])
-    roi_12 = cv2.perspectiveTransform(roi_21, np.linalg.inv(homo_12)) # type: ignore
-    roi_32 = load_roi(kwargs['roi_32'], pl_camera_3_noretimg.width, pl_camera_3_noretimg.height)
-    homo_23 = load_homo(kwargs['matches_23'])
-    roi_23 = cv2.perspectiveTransform(roi_32, np.linalg.inv(homo_23)) # type: ignore
-    scene_12 = Scene(pl_camera_1_noretimg.width, pl_camera_1_noretimg.height, roi_12, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<*1, 2>')
-    scene_21 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_21, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<1, *2>')
-    scene_23 = Scene(pl_camera_2_noretimg.width, pl_camera_2_noretimg.height, roi_23, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<*2, 3>')
-    scene_32 = Scene(pl_camera_3_noretimg.width, pl_camera_3_noretimg.height, roi_32, config.get('ROI_TEST_OFFSET'), name='Scene-Cam-<2, *3>')
-    pl_sta_12 = STAPipeline(config, [scene_12, scene_21], homo_12, [iq_sta_sct_12, iq_sta_sct_21], iq_sta_sync_12, name='STAPipeline-<1, 2>')
-    pl_sta_23 = STAPipeline(config, [scene_23, scene_32], homo_23, [iq_sta_sct_23, iq_sta_sct_32], iq_sta_sync_23, name='STAPipeline-<2, 3>')
-
-    # start
-    pl_camera_1_noretimg.start()
-    pl_camera_2_noretimg.start()
-    pl_camera_3_noretimg.start()
-    if config.get('RUNNING_MODE') == 'offline':
-        pl_camera_1_noretimg.join()     # offline
-        pl_camera_2_noretimg.join()     # offline
-        pl_camera_3_noretimg.join()     # offline
-    
-    pl_sct_1.start()
-    pl_sct_2.start()
-    pl_sct_3.start()
-    pl_sync_12.start()
-    pl_sync_23.start()
-    if config.get('RUNNING_MODE') == 'offline':
-        pl_sct_1.join()                 # offline
-        pl_sct_2.join()                 # offline
-        pl_sct_3.join()                 # offline
-        pl_sync_12.join()                  # offline
-        pl_sync_23.join()                  # offline
-
-    pl_sta_12.start()
-    pl_sta_23.start()
-    if config.get('RUNNING_MODE') == 'offline':
-        pl_sta_12.join()                   # offline
-        pl_sta_23.join()                   # offline
-
-
-    if config.get('RUNNING_MODE') == 'online':
-        pl_camera_1_noretimg.join()
-        pl_camera_2_noretimg.join()
-        pl_camera_3_noretimg.join()
-        pl_sct_1.join()
-        pl_sct_2.join()
-        pl_sct_3.join()
-        pl_sync_12.join()
-        pl_sync_23.join()
-        pl_sta_12.join()
-        pl_sta_23.join()
-        
-
-
-
 if __name__ == '__main__':
 
     kwargs = {
@@ -2148,29 +2007,3 @@ if __name__ == '__main__':
     
     main(kwargs)
 
-    kwargs2 = {
-        'config': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/config_pred_mct_trackertracker_18.yaml',
-        
-        'meta_1': 'data/recordings/2d_v4/meta/41_00011_2023-04-15_08-30-00-000000.yaml',
-        'meta_2': 'data/recordings/2d_v4/meta/42_00011_2023-04-15_08-30-00-000000.yaml',
-        'meta_3': 'data/recordings/2d_v4/meta/43_00011_2023-04-15_08-30-00-000000.yaml',
-        'camera_1': 'data/recordings/2d_v4/videos/41_00011_2023-04-15_08-30-00-000000.avi',
-        'camera_2': 'data/recordings/2d_v4/videos/42_00011_2023-04-15_08-30-00-000000.avi',
-        'camera_3': 'data/recordings/2d_v4/videos/43_00011_2023-04-15_08-30-00-000000.avi',
-        
-        'sct_1': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/41_00011_2023-04-15_08-30-00-000000.txt',
-        'sct_2': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/42_00011_2023-04-15_08-30-00-000000.txt',
-        'sct_3': 'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/43_00011_2023-04-15_08-30-00-000000.txt',
-
-        'roi_21': 'data/recordings/2d_v4/roi_42.txt',
-        'roi_32': 'data/recordings/2d_v4/roi_43.txt',
-        'matches_12': 'data/recordings/2d_v4/matches_41_to_42.txt',
-        'matches_23': 'data/recordings/2d_v4/matches_42_to_43.txt',
-
-    }
-
-    # main2(kwargs2)
-
-
-
-    
