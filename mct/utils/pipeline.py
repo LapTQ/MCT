@@ -11,11 +11,8 @@ import yaml
 from abc import ABC, abstractmethod
 import numpy as np
 from pathlib import Path
-import shutil
-from copy import deepcopy
 
 HERE = Path(__file__).parent
-ROOT = HERE.parent.parent
 
 sys.path.append(str(HERE))
 
@@ -237,12 +234,7 @@ class Pipeline(ABC):
     
     def _put_to_output_queues(self, item, msg=None):
         for k, oq in self.output_queues.items():
-            oq.put(
-                item,
-                block=self.config.get('QUEUE_PUT_BLOCK'),
-                timeout=self.config.get('QUEUE_TIMEOUT')
-            )
-        
+            oq.put(item)
             logger.debug(f"{self.name}:\t put to {oq.name} with message: {msg}")
         
 
@@ -284,9 +276,7 @@ class CameraPipeline(Pipeline):
 
         self.ret_img = ret_img
 
-        ##### START HERE #####
         self.signin_user_id = None
-        ##### END HERE #####
         
         logger.info(f'{self.name}:\t initilized')
 
@@ -319,24 +309,19 @@ class CameraPipeline(Pipeline):
                 if frame_id == self.cap.get(cv2.CAP_PROP_FRAME_COUNT):
                     ret = False
 
-            if not ret:
-                logger.info(f'{self.name}:\t disconnected from {self.source}')
-                if self.config.get('RUNNING_MODE') == 'online' or self.ret_img:
-                    sleep = self.config.get('ONLINE_SLEEP_BEFORE_STOP')
-                    logger.info(f'{self.name}:\t sleeping {sleep} second before stop all')
-                    time.sleep(sleep)
-                    self.stop()
-                break
+            ########## START FIXING ##########
             
             frame_id += 1
 
             if self.meta is None:
                 frame_time = datetime.now().timestamp()
             else:   # if reading from video on disk
-                frame_time = datetime.strptime(self.meta['start_time'], '%Y-%m-%d_%H-%M-%S-%f').timestamp() + (frame_id - self.meta['start_frame_id']) / self.fps
+                frame_time = datetime.strptime(
+                    self.meta['start_time'], 
+                    '%Y-%m-%d_%H-%M-%S-%f'
+                ).timestamp() + (frame_id - self.meta['start_frame_id']) / self.fps
 
-            ##### START HERE #####
-            # mock check-in
+            ######### mock check-in #########
             if '<cam_id=1>' in self.name:
                 if frame_id == 184:
                     self.signal_signin(4)
@@ -344,18 +329,19 @@ class CameraPipeline(Pipeline):
                     self.signal_signin(3)
                 elif frame_id == 878:
                     self.signal_signin(5)
+            #################################
 
             signin_user_id = self._observe_signin()
             if signin_user_id is not None:
                 logger.info(f'{self.name}: get sign-in signal')
-            ##### END HERE #####
-            
-            out_item = {
-                'frame_img': frame,
-                'frame_id': frame_id,
-                'frame_time': frame_time,
-                'signin_user_id': signin_user_id
-            }
+
+            # send None as the end-of-stream signal
+            out_item = '<EOS>' if not ret else {
+                    'frame_img': frame,
+                    'frame_id': frame_id,
+                    'frame_time': frame_time,
+                    'signin_user_id': signin_user_id
+                }
             
             end_time = time.time()
             # if reading from video on disk, then sleep according to fps to sync time.
@@ -367,6 +353,14 @@ class CameraPipeline(Pipeline):
 
             start_time = end_time
             logger.debug(f"{self.name}:\t slept {sleep}")
+
+            if out_item == '<EOS>':
+                logger.info(f'{self.name}:\t disconnected from {self.source}')
+                if self.config.get('RUNNING_MODE') == 'online' or self.ret_img:
+                    sleep = self.config.get('ONLINE_SLEEP_BEFORE_STOP')
+                    logger.info(f'{self.name}:\t sleeping {sleep} second before stop all')
+                    time.sleep(sleep)
+                break
 
         self.cap.release()
 
@@ -461,36 +455,54 @@ class SCTPipeline(Pipeline):
     def _start(self) -> None:
 
         start_time = time.time()
+        still_wait = True
         
         while not self.is_stopped():
 
             self.trigger_pause()
 
+            items = []
             if self.config.get('RUNNING_MODE') == 'online':
-                items = [self.input_queue.get(block=True)]
+                if still_wait:
+                    item = self.input_queue.get(block=True)
+                    if item == '<EOS>':
+                        still_wait = False
+                    else:
+                        items = [item]
             else:
-                items = []
-                while not self.input_queue.empty():
-                    items.append(self.input_queue.get())
+                while still_wait:
+                    item = self.input_queue.get()
+                    if item == '<EOS>':
+                        still_wait = False
+                    else:
+                        items.append(item)
+
+            if not still_wait:
+                self._put_to_output_queues('<EOS>')
+                logger.info(f'{self.name}:\t reached <EOS> token')
+                break
 
             T = len(items)
-
             logger.debug(f'{self.name}:\t processing {T} frames')
 
             mid_time = time.time()
             pre_time = mid_time - start_time
             
             for item in items:
-                dets = self.tracker.infer(item['frame_img'], item['frame_id'])
-                
-                out_item = {
-                    'frame_id': item['frame_id'],
-                    'frame_time': item['frame_time'],
-                    'sct_output': dets,
-                    'sct_detection_mode': self.tracker.detection_mode,
-                    'sct_tracking_mode': self.tracker.tracking_mode,
-                    'signin_user_id': item['signin_user_id']
-                }
+
+                if item is None:
+                    out_item = None
+                else:
+                    dets = self.tracker.infer(item['frame_img'], item['frame_id'])
+                    
+                    out_item = {
+                        'frame_id': item['frame_id'],
+                        'frame_time': item['frame_time'],
+                        'sct_output': dets,
+                        'sct_detection_mode': self.tracker.detection_mode,
+                        'sct_tracking_mode': self.tracker.tracking_mode,
+                        'signin_user_id': item['signin_user_id']
+                    }
 
                 end_time = time.time()
                 sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
@@ -504,8 +516,8 @@ class SCTPipeline(Pipeline):
 
             start_time = mid_time
 
-            if self.config.get('RUNNING_MODE') == 'offline':
-                break
+            # if self.config.get('RUNNING_MODE') == 'offline':
+            #     break
 
 
 class SyncPipeline(Pipeline):
@@ -530,22 +542,37 @@ class SyncPipeline(Pipeline):
     def _start(self) -> None:
 
         start_time = time.time()
+        still_wait = [True] * len(self.input_queues)
 
         while not self.is_stopped():
 
             self.trigger_pause()
             
             # load both the coming and waiting list
-            for iq, wl in zip(self.input_queues, self.wait_list):
+            for i, (iq, wl) in enumerate(zip(self.input_queues, self.wait_list)):
 
+                items = []
                 if self.config.get('RUNNING_MODE') == 'online':
-                    items = [iq.get(block=True)]
+                    if still_wait[i]:
+                        item = iq.get(block=True)
+                        if item == '<EOS>':
+                            still_wait[i] = False
+                        else:
+                            items = [item]
                 else:
-                    items = []
-                    while not iq.empty():
-                        items.append(iq.get())
+                    while still_wait[i]:
+                        item = iq.get()
+                        if item == '<EOS>':
+                            still_wait[i] = False
+                        else:
+                            items.append(item)
 
                 wl.extend(items)
+            
+            if True not in still_wait:
+                self._put_to_output_queues('<EOS>')
+                logger.info(f'{self.name}:\t reached <EOS> token')
+                break
             
             # do not map if the number of pairs are so small
             if min(len(self.wait_list[0]), len(self.wait_list[1])) < self.config.get('MIN_TIME_CORRESPONDENCES'):
@@ -603,9 +630,9 @@ class SyncPipeline(Pipeline):
                 logger.debug(f'{self.name}:\t slept {sleep}')
             
             start_time = mid_time
-            
-            if self.config.get('RUNNING_MODE') == 'offline':
-                break
+
+            # if self.config.get('RUNNING_MODE') == 'offline':
+            #     break
     
 
     def _check_input_queues(self):
@@ -657,21 +684,37 @@ class STAPipeline(Pipeline):
     def _start(self) -> None:
 
         start_time = time.time()
+        still_wait = [True, True, True]
         
         while not self.is_stopped():
 
             self.trigger_pause()
             
-            for wl, iq in zip(self.wait_list, self.sct_queues + [self.sync_queue]):     # type: ignore
+            for i, (wl, iq) in enumerate(zip(self.wait_list, self.sct_queues + [self.sync_queue])):
+                
+                items = []
                 if self.config.get('RUNNING_MODE') == 'online':
-                    items = [iq.get(block=True)]
+                    if still_wait[i]:
+                        item = iq.get(block=True)
+                        if item == '<EOS>':
+                            still_wait[i] = False
+                        else:
+                            items = [item]
                 else:
-                    items = []
-                    while not iq.empty():
-                        items.append(iq.get())
+                    while still_wait[i]:
+                        item = iq.get()
+                        if item == '<EOS>':
+                            still_wait[i] = False
+                        else:
+                            items.append(item)
                 
                 wl.extend(items)
 
+            if True not in still_wait:
+                self._put_to_output_queues('<EOS>')
+                logger.info(f'{self.name}:\t reached <EOS> token')
+                break
+            
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
 
@@ -841,8 +884,8 @@ class STAPipeline(Pipeline):
             
             start_time = mid_time
             
-            if self.config.get('RUNNING_MODE') == 'offline':
-                break
+            # if self.config.get('RUNNING_MODE') == 'offline':
+            #     break
 
 
     def _match_index(self, a, b, c):
@@ -956,7 +999,6 @@ class VisualizePipeline(Pipeline):
         self.scene = scene
 
         self.wait_list = self._new_wait_list()
-        self._create_cache_dir()
 
         logger.info(f'{self.name}:\t initialized')
 
@@ -969,13 +1011,28 @@ class VisualizePipeline(Pipeline):
         pop_signin_count = 0
         pop_signin_id = None
 
+        still_wait = [True, True]
+
         while not self.is_stopped():
 
             self.trigger_pause()
             
-            for i, (wl, iq) in enumerate(zip(self.wait_list, [self.annot_queue, self.video_queue])):    # type: ignore
-                wl.append(iq.get(block=True))
+            for i, (wl, iq) in enumerate(
+                zip(self.wait_list, [self.annot_queue, 
+                                     self.video_queue])
+            ):
+                if still_wait[i]:
+                    item = iq.get(block=True)
+                    if item == '<EOS>':
+                        still_wait[i] = False
+                    else:
+                        wl.append(item)
 
+            if True not in still_wait:
+                # self._put_to_output_queues('<EOS>')
+                logger.info(f'{self.name}:\t reached <EOS> token')
+                break
+            
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
 
@@ -1016,8 +1073,6 @@ class VisualizePipeline(Pipeline):
 
                 # handle out-of-memory for exclusively offline
                 self.trigger_pause()
-                if self.is_stopped():
-                    break
 
                 frame_img = adict['frame_img'][1][t]
                 dets = adict['sct_output'][0][t]
@@ -1040,7 +1095,6 @@ class VisualizePipeline(Pipeline):
                 locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
                 frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
 
-                ##### START HERE #####
                 if 'signin_user_id' in adict:
                     signin_user_id = adict['signin_user_id'][0][t]
                     if signin_user_id is not None:
@@ -1051,7 +1105,6 @@ class VisualizePipeline(Pipeline):
                         pop_signin_count += 1
                     if pop_signin_count >= 60:
                         pop_signin_count = 0
-                ##### END HERE #####
                 
                 out_item = {
                     'frame_img': frame_img,                   # type: ignore
@@ -1069,9 +1122,6 @@ class VisualizePipeline(Pipeline):
                 logger.debug(f'{self.name}:\t slept {sleep}')
             
             start_time = mid_time
-            
-            if self.config.get('RUNNING_MODE') == 'offline':
-                break
 
     
     def _match_index(self, a, b):
@@ -1136,14 +1186,14 @@ class DisplayPipeline(Pipeline):
             self._setup_window()
         elif self.mode == 'save':
             writer_created = False
-
+        
         while not self.is_stopped():
 
             self.trigger_pause()
 
-            assert self.config.get('RUNNING_MODE') == 'online'
-
             item = self.input_queue.get(block=True)
+            if item == '<EOS>':
+                break
 
             frame_img = item['frame_img']
             frame_id = item['frame_id']
@@ -1221,23 +1271,36 @@ class ExportPipeline(Pipeline):
     def _start(self) -> None:
 
         f = open(self.path, 'w')
+        still_wait = True
         
         while not self.is_stopped():
 
+            items = []
             if self.config.get('RUNNING_MODE') == 'online':
-                items = [self.input_queue.get(block=True)]
+                if still_wait:
+                    item = self.input_queue.get(block=True)
+                    if item == '<EOS>':
+                        still_wait = False
+                    else:
+                        items = [item]
             else:
-                items = []
-                while not self.input_queue.empty():
-                    items.append(self.input_queue.get())
+                while still_wait:
+                    item = self.input_queue.get()
+                    if item == '<EOS>':
+                        still_wait = False
+                    else:
+                        items.append(item)
+            
+            if not still_wait:
+                break
 
             logger.debug(f'{self.name}:\t processing {len(items)} frames')
 
             for item in items:
                 print(str(item), file=f)
             
-            if self.config.get('RUNNING_MODE') == 'offline':
-                break
+            # if self.config.get('RUNNING_MODE') == 'offline':
+            #     break
         
         f.close()
 
@@ -1300,6 +1363,7 @@ class MCMapPipeline(Pipeline):
     def _start(self) -> None:
 
         start_time = time.time()
+        still_wait = [{k: True for k in q} for q in [self.sct_queues, self.sta_queues]]
         
         while not self.is_stopped():
 
@@ -1310,14 +1374,29 @@ class MCMapPipeline(Pipeline):
                     if k not in self.wait_list[i]:
                         self.wait_list[i][k] = []
                     
+                    items = []
                     if self.config.get('RUNNING_MODE') == 'online':
-                        items = [v.get(block=True)]
+                        if still_wait[i][k]:
+                            item = v.get(block=True)
+                            if item == '<EOS>':
+                                still_wait[i][k] = False
+                            else:
+                                items = [item]
                     else:
-                        items = []
-                        while not v.empty():
-                            items.append(v.get())
+                        while still_wait[i][k]:
+                            item = v.get()
+                            if item == '<EOS>':
+                                still_wait[i][k] = False
+                            else:
+                                items.append(item)
 
                     self.wait_list[i][k].extend(items)
+
+            if True not in [q for w in still_wait for q in w.values()]:
+                for cid, oq in self.output_queues.items():
+                    oq.put('<EOS>')
+                logger.info(f'{self.name}:\t reached <EOS> token')
+                break
             
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
@@ -1404,17 +1483,16 @@ class MCMapPipeline(Pipeline):
                 sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
                     else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time)) # TODO fix this
                 time.sleep(sleep)
+
                 # expecting key of the output queue is camera ID
-                for cid, oq in self.output_queues.items():  # type: ignore
+                for cid, oq in self.output_queues.items():
                     oq.put(                                
                         {
                             'frame_id': active_list[0][cid][t]['frame_id'],
                             'sct_output': out_visualize[cid],
                             'sct_detection_mode': active_list[0][cid][t]['sct_detection_mode'],
                             'signin_user_id': signin_user_id if cid == self.checkin_cid else None
-                        },
-                        block=self.config.get('QUEUE_PUT_BLOCK'),
-                        timeout=self.config.get('QUEUE_TIMEOUT')
+                        }
                     )
                     
                 mid_time = end_time
