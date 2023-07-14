@@ -6,6 +6,7 @@ import os
 import time
 import cv2
 import logging
+import json
 import sys
 import yaml
 from abc import ABC, abstractmethod
@@ -978,179 +979,6 @@ class STAPipeline(Pipeline):
         return [[], [], []]     # the last list is for matches
 
 
-class VisualizePipeline(Pipeline):
-
-    def __init__(
-            self, 
-            config: ConfigPipeline, 
-            annot_queue: MyQueue,
-            video_queue: MyQueue,
-            scene: Union[Scene, None] = None,
-            online_put_sleep: Union[int, float] = 0,
-            name='Visualizer'
-    ) -> None:
-        super().__init__(config, online_put_sleep, name)
-        
-        self.annot_queue = annot_queue
-        
-        self.video_queue = video_queue
-        self._check_video_queue()
-
-        self.scene = scene
-
-        self.wait_list = self._new_wait_list()
-
-        logger.info(f'{self.name}:\t initialized')
-
-    
-    def _start(self):
-
-        assert self.config.get('RUNNING_MODE') == 'online'
-
-        start_time = time.time()
-        pop_signin_count = 0
-        pop_signin_id = None
-
-        still_wait = [True, True]
-
-        while not self.is_stopped():
-
-            self.trigger_pause()
-            
-            for i, (wl, iq) in enumerate(
-                zip(self.wait_list, [self.annot_queue, 
-                                     self.video_queue])
-            ):
-                if still_wait[i]:
-                    item = iq.get(block=True)
-                    if item == '<EOS>':
-                        still_wait[i] = False
-                    else:
-                        wl.append(item)
-
-            if True not in still_wait:
-                # self._put_to_output_queues('<EOS>')
-                logger.info(f'{self.name}:\t reached <EOS> token')
-                break
-            
-            active_list = self.wait_list
-            self.wait_list = self._new_wait_list()
-
-            adict = {}
-            for i, al in enumerate(active_list):
-                for item in al:
-                    for k, v in item.items():
-                        if k not in adict:
-                            adict[k] = [[], []]
-                        adict[k][i].append(v)
-            
-            if len(adict) == 0:
-                continue
-                        
-            c1_adict_matched, c2_adict_matched = self._match_index(*adict['frame_id'])
-
-            if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g SCT result comes slower), wo we need to wait more
-                self.wait_list = active_list
-                continue
-
-            # add un-processed items to wait list
-            self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
-            self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
-
-            # using continuous indexes from 0 -> T-1 rather than discrete indexes
-            T = len(c1_adict_matched)
-            logger.debug(f'{self.name}:\t processing {T} frames')
-            for k in adict:
-                if len(adict[k][0]) > 0:
-                    adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
-                if len(adict[k][1]) > 0:
-                    adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
-            
-            mid_time = time.time()                
-            pre_time = mid_time - start_time
-            
-            for t in range(T):
-
-                # handle out-of-memory for exclusively offline
-                self.trigger_pause()
-
-                frame_img = adict['frame_img'][1][t]
-                dets = adict['sct_output'][0][t]
-                detection_mode = adict['sct_detection_mode'][0][t]
-
-                # if scene is provided then plot roi and location point
-                if self.scene is not None and self.scene.has_roi():
-                    frame_img = plot_roi(frame_img, self.scene.roi, self.config.get('VIS_ROI_THICKNESS'))
-
-                # expecting dets to be in the format of [uid, tid, x1, y1, x2, y2, score, ...]
-                if detection_mode == 'box':
-                    frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=np.int32(dets[:, 0]), text_prefix='user_id=')
-                elif detection_mode == 'pose':
-                    frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=np.int32(dets[:, 0]), text_prefix='user_id=')
-                    # for kpt in dets[:, 10:]:
-                    #     frame_img = plot_skeleton_kpts(frame_img, kpt.T, 3)
-                else:
-                    raise NotImplementedError()
-                
-                locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
-                frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
-
-                if 'signin_user_id' in adict:
-                    signin_user_id = adict['signin_user_id'][0][t]
-                    if signin_user_id is not None:
-                        pop_signin_count = 1
-                        pop_signin_id = signin_user_id
-                    if pop_signin_count > 0:
-                        cv2.putText(frame_img, f'user<{pop_signin_id}> signed in', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 4.0, (0, 0, 255), thickness=7)
-                        pop_signin_count += 1
-                    if pop_signin_count >= 60:
-                        pop_signin_count = 0
-                
-                out_item = {
-                    'frame_img': frame_img,                   # type: ignore
-                    'frame_id': adict['frame_id'][1][t]
-                }
-
-                end_time = time.time()
-                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                    else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
-                time.sleep(sleep)
-
-                self._put_to_output_queues(out_item, f"frame_id={adict['frame_id'][1][t]}")
-
-                mid_time = end_time
-                logger.debug(f'{self.name}:\t slept {sleep}')
-            
-            start_time = mid_time
-
-    
-    def _match_index(self, a, b):
-        i, j = 0, 0
-        li, lj = [], []
-
-        while i < len(a) and j < len(b):
-            
-            if a[i] == b[j]:
-                li.append(i)
-                lj.append(j)
-                i += 1
-                j += 1
-            elif a[i] < b[j]:
-                i += 1
-            else:
-                j += 1
-                
-        return li, lj
-
-
-    def _new_wait_list(self):
-        return [[], []]
-    
-
-    def _check_video_queue(self):
-        assert isinstance(self.video_queue, MyQueue), f'visualizing SCT requires video input queue, got {type(self.video_queue)}'
-        
-
 class DisplayPipeline(Pipeline):
 
     def __init__(
@@ -1314,8 +1142,225 @@ class ExportPipeline(Pipeline):
 
 
 sys.path.append(str(Path(__file__).parent.parent.parent))           
-from app.models import User
+from app.models import User, Region, CameraMatchingPoint
 
+
+class VisualizePipeline(Pipeline):
+
+    def __init__(
+            self,
+            app,
+            db,
+            config: ConfigPipeline,
+            cam_id: int,
+            annot_queue: MyQueue,
+            video_queue: MyQueue,
+            online_put_sleep: Union[int, float] = 0,
+            name='Visualizer'
+    ) -> None:
+        super().__init__(config, online_put_sleep, name)
+        
+        self.app = app
+        self.db = db
+        
+        self.cam_id = cam_id
+        self.annot_queue = annot_queue
+        self.video_queue = video_queue
+        self._check_video_queue()
+
+        self._load_scenes()
+
+        self.wait_list = self._new_wait_list()
+
+        logger.info(f'{self.name}:\t initialized')
+    
+
+    def _load_scenes(self):
+
+        self.SCENE_COLORS = {
+            'overlap': (0, 255, 0),
+            'checkin': (255, 0, 0),
+            'workarea': (0, 0, 255),
+        }
+
+        self.scenes = {k: [] for k in self.SCENE_COLORS}
+        W = self.config.get('CAMERA_FRAME_WIDTH')
+        H = self.config.get('CAMERA_FRAME_HEIGHT')
+        assert W is not None
+        assert H is not None
+        with self.app.app_context():
+            for r in Region.query.filter_by(primary_cam_id=self.cam_id).all():
+                roi = np.array(json.loads(r.points)) # type: ignore
+                roi[:, 0] *= W
+                roi[:, 1] *= H
+                roi = roi.reshape(-1, 1, 2)
+                scene = Scene(W, H, roi, self.config.get('ROI_TEST_OFFSET'))
+                self.scenes[r.type].append(scene)
+
+            for r in Region.query.filter_by(secondary_cam_id=self.cam_id, type='overlap').all():
+                roi = np.array(json.loads(r.points))
+                roi[:, 0] *= W
+                roi[:, 1] *= H
+                roi = roi.reshape(-1, 1, 2)
+                matches = np.array(json.loads(
+                    CameraMatchingPoint.query.filter_by(
+                        primary_cam_id=r.secondary_cam_id, 
+                        secondary_cam_id=r.primary_cam_id,
+                    ).first().points
+                )).astype('int32')
+                homo, _ = cv2.findHomography(matches[:, :2], matches[:, 2:])
+                roi = cv2.perspectiveTransform(roi, np.linalg.inv(homo))
+                scene = Scene(W, H, roi, self.config.get('ROI_TEST_OFFSET'))         
+                self.scenes[r.type].append(scene)
+
+    
+    def _start(self):
+
+        assert self.config.get('RUNNING_MODE') == 'online'
+
+        start_time = time.time()
+        pop_signin_count = 0
+        pop_signin_id = None
+
+        still_wait = [True, True]
+
+        while not self.is_stopped():
+
+            self.trigger_pause()
+            
+            for i, (wl, iq) in enumerate(
+                zip(self.wait_list, [self.annot_queue, 
+                                     self.video_queue])
+            ):
+                if still_wait[i]:
+                    item = iq.get(block=True)
+                    if item == '<EOS>':
+                        still_wait[i] = False
+                    else:
+                        wl.append(item)
+
+            if True not in still_wait:
+                # self._put_to_output_queues('<EOS>')
+                logger.info(f'{self.name}:\t reached <EOS> token')
+                break
+            
+            active_list = self.wait_list
+            self.wait_list = self._new_wait_list()
+
+            adict = {}
+            for i, al in enumerate(active_list):
+                for item in al:
+                    for k, v in item.items():
+                        if k not in adict:
+                            adict[k] = [[], []]
+                        adict[k][i].append(v)
+            
+            if len(adict) == 0:
+                continue
+                        
+            c1_adict_matched, c2_adict_matched = self._match_index(*adict['frame_id'])
+
+            if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g SCT result comes slower), wo we need to wait more
+                self.wait_list = active_list
+                continue
+
+            # add un-processed items to wait list
+            self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
+            self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
+
+            # using continuous indexes from 0 -> T-1 rather than discrete indexes
+            T = len(c1_adict_matched)
+            logger.debug(f'{self.name}:\t processing {T} frames')
+            for k in adict:
+                if len(adict[k][0]) > 0:
+                    adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
+                if len(adict[k][1]) > 0:
+                    adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
+            
+            mid_time = time.time()                
+            pre_time = mid_time - start_time
+            
+            for t in range(T):
+
+                # handle out-of-memory for exclusively offline
+                self.trigger_pause()
+
+                frame_img = adict['frame_img'][1][t]
+                dets = adict['sct_output'][0][t]
+
+                for scene_type, scenes in self.scenes.items():
+                    for s in scenes:
+                        frame_img = plot_roi(
+                            frame_img, 
+                            s.roi, 
+                            self.config.get('VIS_ROI_THICKNESS'),
+                            color=self.SCENE_COLORS[scene_type],
+                        )
+
+                # expecting dets to be in the format of [uid, tid, x1, y1, x2, y2, score, ...]
+                frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=np.int32(dets[:, 0]), text_prefix='user_id=')
+                # if detection_mode == 'pose':
+                    # for kpt in dets[:, 10:]:
+                    #     frame_img = plot_skeleton_kpts(frame_img, kpt.T, 3)
+                
+                locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
+                frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
+
+                if 'signin_user_id' in adict:
+                    signin_user_id = adict['signin_user_id'][0][t]
+                    if signin_user_id is not None:
+                        pop_signin_count = 1
+                        pop_signin_id = signin_user_id
+                    if pop_signin_count > 0:
+                        cv2.putText(frame_img, f'user<{pop_signin_id}> signed in', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 4.0, (0, 0, 255), thickness=7)
+                        pop_signin_count += 1
+                    if pop_signin_count >= 60:
+                        pop_signin_count = 0
+                
+                out_item = {
+                    'frame_img': frame_img,                   # type: ignore
+                    'frame_id': adict['frame_id'][1][t]
+                }
+
+                end_time = time.time()
+                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                    else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
+                time.sleep(sleep)
+
+                self._put_to_output_queues(out_item, f"frame_id={adict['frame_id'][1][t]}")
+
+                mid_time = end_time
+                logger.debug(f'{self.name}:\t slept {sleep}')
+            
+            start_time = mid_time
+
+    
+    def _match_index(self, a, b):
+        i, j = 0, 0
+        li, lj = [], []
+
+        while i < len(a) and j < len(b):
+            
+            if a[i] == b[j]:
+                li.append(i)
+                lj.append(j)
+                i += 1
+                j += 1
+            elif a[i] < b[j]:
+                i += 1
+            else:
+                j += 1
+                
+        return li, lj
+
+
+    def _new_wait_list(self):
+        return [[], []]
+    
+
+    def _check_video_queue(self):
+        assert isinstance(self.video_queue, MyQueue), f'visualizing SCT requires video input queue, got {type(self.video_queue)}'
+        
 
 class MCMapPipeline(Pipeline):
 
@@ -1481,7 +1526,7 @@ class MCMapPipeline(Pipeline):
      
                 end_time = time.time()
                 sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                    else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time)) # TODO fix this
+                    else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
                 time.sleep(sleep)
 
                 # expecting key of the output queue is camera ID
@@ -1836,7 +1881,10 @@ class Monitor:
         self.pl_mcmap.add_output_queue(oq_annot, oq_annot.name)
 
         pl_visualize = VisualizePipeline(
+            app=self.app,
+            db=self.db,
             config=self.config,
+            cam_id=cam_id,
             annot_queue=oq_annot,
             video_queue=oq_video,
             online_put_sleep=self.pl_cameras[cam_id].online_put_sleep,

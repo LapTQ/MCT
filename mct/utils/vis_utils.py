@@ -88,10 +88,10 @@ def plot_loc(img, locs, radius=8, texts=None, text_thickness=2):
     return img
 
 
-def plot_roi(img, roi, thickness=2):
+def plot_roi(img, roi, thickness=2, color=(255, 255, 255)):
     img = img.copy()
     roi = np.int32(roi)
-    cv2.drawContours(img, [roi], -1, (255, 255, 255), thickness=thickness)
+    cv2.drawContours(img, [roi], -1, color, thickness=thickness)
     return img
 
 
