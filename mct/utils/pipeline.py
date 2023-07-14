@@ -11,14 +11,18 @@ import yaml
 from abc import ABC, abstractmethod
 import numpy as np
 from pathlib import Path
+import shutil
+from copy import deepcopy
 
-sys.path.append(str(Path(__file__).parent))
+HERE = Path(__file__).parent
+ROOT = HERE.parent.parent
+
+sys.path.append(str(HERE))
 
 from general import load_roi, load_homo, calc_loc                   # type: ignore
 from map_utils import hungarian, map_mono
 from vis_utils import plot_box, plot_skeleton_kpts, plot_loc, plot_roi
 from filter import FilterBase, IQRFilter, GMMFilter
-
 
 logger = logging.getLogger(__name__)
 
@@ -144,13 +148,6 @@ class ConfigPipeline:
     
     def _check_config(self):
         assert self.config.get('RUNNING_MODE') in ['online', 'offline']
-        
-        # queue
-        assert self.config.get('QUEUE_MAXSIZE') >= 0
-        assert isinstance(self.config.get('QUEUE_GET_BLOCK'), bool)
-        assert isinstance(self.config.get('QUEUE_PUT_BLOCK'), bool)
-        assert isinstance(self.config.get('QUEUE_TIMEOUT'), (float, int)) or self.config.get('QUEUE_TIMEOUT') is None
-        assert isinstance(self.config.get('QUEUE_GET_MANY_SIZE'), int) or self.config.get('QUEUE_GET_MANY_SIZE') == 'all'
 
         # camera
         
@@ -239,7 +236,7 @@ class Pipeline(ABC):
 
     
     def _put_to_output_queues(self, item, msg=None):
-        for k, oq in self.output_queues.items():                    # type: ignore
+        for k, oq in self.output_queues.items():
             oq.put(
                 item,
                 block=self.config.get('QUEUE_PUT_BLOCK'),
@@ -296,6 +293,8 @@ class CameraPipeline(Pipeline):
     
     def _start(self) -> None:
 
+        assert not (self.config.get('RUNNING_MODE') == 'offline' and self.ret_img)
+
         if self.meta is None:
             frame_id = 0
         else:   # if reading from video on disk
@@ -313,12 +312,10 @@ class CameraPipeline(Pipeline):
                 break
 
             if self.ret_img:
-                # handle out-of-memory exclusively for offline
-                if self.config.get('RUNNING_MODE') == 'offline':
-                    time.sleep(self.config.get('VIS_OFFLINE_PUT_SLEEP'))
                 ret, frame = self.cap.read()
             else:
-                ret, frame = True, None     # for running offline without visualizing
+                # running offline without visualizing
+                ret, frame = True, None
                 if frame_id == self.cap.get(cv2.CAP_PROP_FRAME_COUNT):
                     ret = False
 
@@ -552,7 +549,7 @@ class SyncPipeline(Pipeline):
             
             # do not map if the number of pairs are so small
             if min(len(self.wait_list[0]), len(self.wait_list[1])) < self.config.get('MIN_TIME_CORRESPONDENCES'):
-                logger.debug(f'{self.name}:\t wait list not enough for mapping time, waiting...')
+                logger.debug(f'{self.name}:\t wait list not enough, waiting...')
                 continue
             
             active_list = self.wait_list
@@ -576,12 +573,11 @@ class SyncPipeline(Pipeline):
             T = len(c1_adict_matched)
 
             # add un-processed items to wait list
-            if T > 0:
-                logger.debug(f'{self.name}:\t processing {T} pairs of frames')
-                self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
-                self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
-            logger.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.input_queues[0].name} to wait list')
-            logger.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.input_queues[1].name} to wait list')
+            if T == 0:
+                continue
+                
+            self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
+            self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
             
             logger.debug(f'{self.name}:\t processing {T} frames')
 
@@ -960,11 +956,14 @@ class VisualizePipeline(Pipeline):
         self.scene = scene
 
         self.wait_list = self._new_wait_list()
+        self._create_cache_dir()
 
         logger.info(f'{self.name}:\t initialized')
 
     
     def _start(self):
+
+        assert self.config.get('RUNNING_MODE') == 'online'
 
         start_time = time.time()
         pop_signin_count = 0
@@ -974,16 +973,8 @@ class VisualizePipeline(Pipeline):
 
             self.trigger_pause()
             
-            for wl, iq in zip(self.wait_list, [self.annot_queue, self.video_queue]):    # type: ignore
-                
-                if self.config.get('RUNNING_MODE') == 'online':
-                    items = [iq.get(block=True)]
-                else:
-                    items = []
-                    while not iq.empty():
-                        items.append(iq.get())
-                
-                wl.extend(items)
+            for i, (wl, iq) in enumerate(zip(self.wait_list, [self.annot_queue, self.video_queue])):    # type: ignore
+                wl.append(iq.get(block=True))
 
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
@@ -1008,8 +999,6 @@ class VisualizePipeline(Pipeline):
             # add un-processed items to wait list
             self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
             self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
-            logger.debug(f'{self.name}:\t putting {len(self.wait_list[0])} of {self.annot_queue.name} to wait list')
-            logger.debug(f'{self.name}:\t putting {len(self.wait_list[1])} of {self.video_queue.name} to wait list')   # type: ignore
 
             # using continuous indexes from 0 -> T-1 rather than discrete indexes
             T = len(c1_adict_matched)
@@ -1019,7 +1008,7 @@ class VisualizePipeline(Pipeline):
                     adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
                 if len(adict[k][1]) > 0:
                     adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
-
+            
             mid_time = time.time()                
             pre_time = mid_time - start_time
             
@@ -1100,7 +1089,7 @@ class VisualizePipeline(Pipeline):
                 i += 1
             else:
                 j += 1
-        
+                
         return li, lj
 
 
@@ -1140,6 +1129,8 @@ class DisplayPipeline(Pipeline):
         logger.info(f'{self.name}:\t initilized')
     
     def _start(self) -> None:
+
+        assert self.config.get('RUNNING_MODE') == 'online'
 
         if self.mode == 'show':
             self._setup_window()
@@ -1258,44 +1249,6 @@ class ExportPipeline(Pipeline):
             os.makedirs(parent)
 
 
-##### START HERE #####
-
-class EmptyPipeline(Pipeline):
-
-    def __init__(
-            self, 
-            config: ConfigPipeline,
-            input_queue: MyQueue,
-            online_put_sleep: Union[int, float] = 0, 
-            name='Empty Pipeline'
-    ) -> None:
-        super().__init__(config, online_put_sleep, name)
-        self.input_queue = input_queue
-
-        logger.debug(f'{self.name}:\t initialized')
-
-    def _start(self) -> None:
-         
-        while not self.is_stopped():
-            self.trigger_pause()
-            
-            if self.config.get('RUNNING_MODE') == 'online':
-                items = [self.input_queue.get(block=True)]
-            else:
-                items = []
-                while not self.input_queue.empty():
-                    items.append(self.input_queue.get())
-
-            for item in items:
-
-                time.sleep(self.online_put_sleep)
-                self._put_to_output_queues(item)
-
-                logger.debug(f'{self.name}:\t sleep {self.online_put_sleep}')
-            
-            if self.config.get('RUNNING_MODE') == 'offline':
-                break
-
 
 sys.path.append(str(Path(__file__).parent.parent.parent))           
 from app.models import User
@@ -1365,7 +1318,7 @@ class MCMapPipeline(Pipeline):
                             items.append(v.get())
 
                     self.wait_list[i][k].extend(items)
-
+            
             active_list = self.wait_list
             self.wait_list = self._new_wait_list()
 
@@ -1446,8 +1399,7 @@ class MCMapPipeline(Pipeline):
                     if len(out_visualize[cid]) == 0:    
                         out_visualize[cid] =  np.empty((0, 10))          # type: ignore , whatever, as long as dim2 >= 2
 
-                
-                
+     
                 end_time = time.time()
                 sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
                     else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time)) # TODO fix this
@@ -1622,7 +1574,7 @@ class Monitor:
             config=self.config,
             tracker=tracker,
             input_queue=queue,
-            online_put_sleep=pl_camera.online_put_sleep * 0.33,
+            # online_put_sleep=pl_camera.online_put_sleep * 0.1,
             name=f'PL SCT-<cam_id={cam_id}>',
         )
 
@@ -1656,7 +1608,7 @@ class Monitor:
         pl_sync = SyncPipeline(
             config=self.config,
             input_queues=[oq_cam_secondary, oq_cam_primary],
-            online_put_sleep=min(self.pl_cameras[cam_id_secondary].online_put_sleep, self.pl_cameras[cam_id_primary].online_put_sleep) * 0.33,
+            # online_put_sleep=min(self.pl_cameras[cam_id_secondary].online_put_sleep, self.pl_cameras[cam_id_primary].online_put_sleep) * 0.1,
             name=f'PL Sync-<sec={cam_id_secondary}, pri={cam_id_primary}>',
         )
 
@@ -1675,7 +1627,7 @@ class Monitor:
             homo=homo,
             sct_queues=[oq_sct_secondary, oq_sct_primary],
             sync_queue=oq_sync,
-            online_put_sleep=pl_sync.online_put_sleep,
+            # online_put_sleep=pl_sync.online_put_sleep,
             name=f'PL STA-<sec={cam_id_secondary}, pri={cam_id_primary}>'
         )
 
@@ -1716,7 +1668,7 @@ class Monitor:
             sta_queues=oq_stas,
             checkin_scene=scene,
             checkin_cid=cam_id,
-            online_put_sleep=min([pl.online_put_sleep for pl in self.pl_cameras.values()]) * 0.33,
+            # online_put_sleep=min([pl.online_put_sleep for pl in self.pl_cameras.values()]) * 0.1,
         )
     
 
@@ -1877,19 +1829,6 @@ class Monitor:
         self.pl_cameras[self.checkin_cid].signal_signin(user_id)
 
         
-
-
-
-
-
-
-
-
-
-
-##### END HERE #####
-
-
 
 
 def main(kwargs):

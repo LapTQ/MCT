@@ -254,7 +254,7 @@ def video_feed(cam_id):
             Thread(target=self._thread).start()
             while True:
                 self.last_access = time.time()
-                time.sleep(monitor.pl_cameras[self.cam_id].online_put_sleep)
+                time.sleep(0.01)
                 if self.frame is None:
                     continue
                 yield self.frame
@@ -265,6 +265,7 @@ def video_feed(cam_id):
 
             # stream video
             with self.app.app_context():
+
                 while True:
                     
                     item = self.display_queue.get(block=True)
