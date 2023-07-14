@@ -265,9 +265,8 @@ def video_feed(cam_id):
 
             # stream video
             with self.app.app_context():
-
                 while True:
-                    
+                    # deligate the FPS responsibility to the Visualizer
                     item = self.display_queue.get(block=True)
                     img = item['frame_img']
                     img = cv2.resize(img, (480, 240))
