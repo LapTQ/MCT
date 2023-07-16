@@ -357,10 +357,6 @@ class CameraPipeline(Pipeline):
 
             if out_item == '<EOS>':
                 logger.info(f'{self.name}:\t disconnected from {self.source}')
-                if self.config.get('RUNNING_MODE') == 'online' or self.ret_img:
-                    sleep = self.config.get('ONLINE_SLEEP_BEFORE_STOP')
-                    logger.info(f'{self.name}:\t sleeping {sleep} second before stop all')
-                    time.sleep(sleep)
                 break
 
         self.cap.release()
@@ -1677,7 +1673,7 @@ class Monitor:
             config=self.config,
             source=address,
             meta=meta,
-            online_put_sleep=self.config.get('CAMERA_SLEEP_MUL_FACTOR') / meta['fps'],
+            online_put_sleep=1.0 / meta['fps'],
             name=f'PL Camera-<cam_id={cam_id}>',
         )
 
