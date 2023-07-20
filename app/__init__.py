@@ -1,5 +1,5 @@
 from flask import Flask
-from app.extensions import db, migrate, login, bootstrap, moment, monitor
+from app.extensions import db, migrate, login, bootstrap, moment, fake_clock, monitor
 from config import Config
 
 
@@ -13,7 +13,7 @@ def create_app(config_class=Config):
     login.init_app(app)
     bootstrap.init_app(app)
     moment.init_app(app)
-    monitor.init_app(app, db)
+    monitor.init_app(app, db, fake_clock)
 
 
     from app.main.tasks import startup as main_startup

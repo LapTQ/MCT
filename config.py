@@ -13,9 +13,9 @@ class Config:
 
     PIPELINE = ConfigPipeline('data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/config_pred_mct_trackertracker_18.yaml')
     
-    MAX_LATENCY = 100                   # seconds
-    MAX_ABSENCE = 100                   # seconds
+    MAX_LATENCY = 5                   # seconds
+    MAX_ABSENCE = 5                   # seconds
     GAP_SAVE_DB_TRACKING = 10           # seconds
-    DETECTION_EXPIRE_TIME = 0.2         # seconds
+    DETECTION_EXPIRE_TIME = 0.5         # seconds
     MAX_ABSENCE_FRAMES = 10             # frames
     SWITCH_CAM_MAX_AGE = 30             # frames

@@ -1,12 +1,11 @@
 from flask_login import UserMixin
 from flask import current_app
 from werkzeug.security import generate_password_hash, check_password_hash
-from app.extensions import db, login
+from app.extensions import db, login, fake_clock
 import datetime
 import json
 import time
 import numpy as np
-from typing import Union, List, Dict
 import logging
 import sys
 from pathlib import Path
@@ -38,11 +37,11 @@ class User(UserMixin, db.Model):
 
 
     def __repr__(self) -> str:
-        return f'User(username={self.username}, role={self.role})'
+        return str(self)
     
 
     def __str__(self) -> str:
-        return f'User(username={self.username}, role={self.role})'    
+        return f'User(id={self.id}, username={self.username}, role={self.role})'    
 
 
     def set_password(self, password):
@@ -137,7 +136,7 @@ class User(UserMixin, db.Model):
             5: 'Saturday',
             6: 'Sunday'
         }
-        now = datetime.datetime.now()
+        now = fake_clock.now()
         today = now.date()
         upcomings = [(today + datetime.timedelta(days=i), DayShift.query.filter_by(name=dayshift_name).first()) 
                      for i in range(7) 
@@ -152,7 +151,7 @@ class User(UserMixin, db.Model):
             ).first()
             if workshift is not None:
                 if now < datetime.datetime.combine(date, dayshift.start_time):
-                    self.next_workshift = workshift
+                    self.next_workshift = date, workshift
                     break
         
         logger.info('Loaded next workshift %s', self.next_workshift)
@@ -163,9 +162,13 @@ class User(UserMixin, db.Model):
         self.n_misses = 0
         self.absence_alert_sent = False
         self.absence = datetime.timedelta(0)
-        self.staying = datetime.datetime.combine(today, self.next_workshift.dayshift.start_time) - \
-             datetime.datetime.combine(today, self.next_workshift.dayshift.end_time)
-        self.last_in_roi = self.next_workshift.dayshift.start_time
+        self.staying = datetime.datetime.combine(today, self.next_workshift[1].dayshift.end_time) - \
+             datetime.datetime.combine(today, self.next_workshift[1].dayshift.start_time)
+        self.last_in_roi = datetime.datetime.combine(today, self.next_workshift[1].dayshift.start_time)
+
+        self.ws_start_time = datetime.datetime.combine(self.next_workshift[0], self.next_workshift[1].dayshift.start_time)
+        self.ws_end_time = datetime.datetime.combine(self.next_workshift[0], self.next_workshift[1].dayshift.end_time)
+        self.ws_dayshift_id = self.next_workshift[1].dayshift_id
 
 
     def send_alert(self, message):
@@ -174,9 +177,9 @@ class User(UserMixin, db.Model):
             msg = Message(recipient=manager, body=message)
             db.session.add(msg)
             manager.add_notification('unread_message_count', manager.new_messages())
-        db.session.commit()  
+        # db.session.commit()
 
-        logger.info('Sent alert from %s to managers: %s', self.username, message)      
+        logger.warning('Message managers: %s', message)      
     
 
     def update_detection(self, cid, dtime, loc):
@@ -192,43 +195,48 @@ class User(UserMixin, db.Model):
             loc (None, array): the location of the user in the camera frame, in the format of (x, y)
         """
 
-        assert hasattr(self, 'scene_workareas')
+        if dtime == '<EOS>':
+            if self.productivity_created:
+                self.current_productivity.staying = self.staying
+                # db.session.commit()
+                print('>>>>>>>>>>>>>>>>> Productivity =', self.current_productivity)
+            return
+                
         assert dtime is not None
         dtime = datetime.datetime.fromtimestamp(dtime)
-        assert datetime.datetime.now() - dtime < datetime.timedelta(seconds=current_app.config['DETECTION_EXPIRE_TIME'])
-        assert hasattr(self, 'next_workshift')
+        # assert fake_clock.now() - dtime < datetime.timedelta(seconds=current_app.config['DETECTION_EXPIRE_TIME']), 'The annotation comes slower than frame, please optimize the pipeline'
+        assert hasattr(self, 'scene_workareas')
         
         if isinstance(loc, np.ndarray):
             assert loc.shape == (2,)
             loc = tuple(loc)
         
-        start_time = self.next_workshift.dayshift.start_time
-        end_time = self.next_workshift.dayshift.end_time
         date = dtime.date()
-        dayshift_id = self.next_workshift.dayshift_id
-
+        
         condition_1 = not self.productivity_created
-        condition_2 = dtime.time() + datetime.timedelta(minutes=30) > start_time
-        condition_3 = dtime.time() <= start_time
-        condition_4 = start_time < dtime < end_time
+        condition_2 = dtime + datetime.timedelta(minutes=30) > self.ws_start_time
+        condition_3 = dtime <= self.ws_start_time
+        condition_4 = self.ws_start_time < dtime < self.ws_end_time
 
         # create productivity record 30 minutes before the workshift starts
         if condition_1 and condition_2: 
             self.current_productivity = Productivity(
                 user_id=self.id, 
                 date=date, 
-                dayshift_id=dayshift_id
+                dayshift_id=self.ws_dayshift_id
             )
             db.session.add(self.current_productivity)
-            db.session.commit()
+            # db.session.commit()
             self.productivity_created = True
+            logger.info('Created productivity record for %s', self)
 
         # during 30 minutes before the workshift starts
         if condition_2 and condition_3:
             if loc and not self.arrived:
                 self.current_productivity.arrival = dtime.time()
-                db.session.commit()
+                # db.session.commit()
                 self.arrived = True
+                logger.debug('%s arrived in time at %s', self, dtime)
         
         # during the workshift
         elif condition_4:   
@@ -240,12 +248,12 @@ class User(UserMixin, db.Model):
 
                     # then save the arrival time
                     self.current_productivity.arrival = dtime.time()
-                    db.session.commit()
+                    # db.session.commit()
                     self.arrived = True
                     
                     # and announce that the user has arrived
                     if self.lateness_alert_sent:
-                        self.send_alert(f'User {self.username} arrived at {dtime}')
+                        self.send_alert(f'{self} arrived late at {dtime}')
                         self.lateness_alert_sent = False
                 
                 # check if the user is in the workarea
@@ -260,22 +268,24 @@ class User(UserMixin, db.Model):
                     self.last_in_roi = dtime
                     self.staying -= self.absence
                     self.absence = datetime.timedelta(0)
+                    print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> IN: ', dtime.time())
 
                     if self.absence_alert_sent:
-                        self.send_alert(f'User {self.username} is back at {dtime}')
+                        self.send_alert(f'{self} is back to work area at {dtime}')
                         self.absence_alert_sent = False
                 else:
                     self.n_misses += 1
+                    print('>>>>>>>>>>>> OUT: ', dtime.time())
                     
             # if the user is not detected
             else:
                 # if the user has not arrived
                 if not self.arrived:
                     # then accumulate the latency and send alert if necessary
-                    latency = dtime.time() - start_time
+                    latency = dtime - self.ws_start_time
                     
                     if not self.lateness_alert_sent and latency > self.max_latency:
-                        self.send_alert(f'User {self.username} was late for {latency}')
+                        self.send_alert(f'{self} was late for {latency}')
                         self.lateness_alert_sent = True
                 
                 # if the user has arrived previously
@@ -283,17 +293,20 @@ class User(UserMixin, db.Model):
                     # then accumulate the absence time
                     self.n_misses += 1
             
-            if self.arrived and self.n_misses > current_app.config['PIPELINE'].get('MAX_ABSENCE_FRAMES'):
-                self.absence = dtime.time() - self.last_in_roi.time()
+            if self.arrived and self.n_misses > current_app.config['MAX_ABSENCE_FRAMES']:
+                print('>>>>>>>>>>>> OUT: ', dtime.time())
+                self.absence = dtime - self.last_in_roi
                 if not self.absence_alert_sent and self.absence > self.max_absence:
-                    self.send_alert(f'User {self.username} was absent for {self.absence}')
+                    self.send_alert(f'{self} was absent from work area since {self.last_in_roi}')
                     self.absence_alert_sent = True
 
         # after the workshift
-        elif end_time < dtime:
-            self.current_productivity.staying = self.staying
-            db.session.commit()
-            self.load_next_workshift()
+        elif self.ws_end_time < dtime:
+            if self.productivity_created:
+                self.current_productivity.staying = self.staying
+                # db.session.commit()
+                print('>>>>>>>>>>>>>>>>> Productivity =', self.current_productivity)
+                self.load_next_workshift()
     
 
     def update_hint(self, cam_id, track_id):

@@ -11,7 +11,7 @@ COLORS = [
 ]
 
 
-def plot_box(img, boxes, thickness=2, texts=None, text_prefix=None):
+def plot_box(img, boxes, thickness=4, texts=None, text_prefix=None):
     """
     boxes: [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
     """

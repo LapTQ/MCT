@@ -7,6 +7,7 @@ from app.models import Camera, Region, CameraMatchingPoint
 import json
 
 import numpy as np
+import os
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -26,8 +27,9 @@ def async_startup(app):
         # register cameras
         for camera in Camera.query.all():
             
-            meta_path = f'data/recordings/2d_v4/meta/{camera.num}_00011_2023-04-15_08-30-00-000000.yaml'
-            txt_path=f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{camera.num}_00011_2023-04-15_08-30-00-000000.txt'
+            video_name = os.path.split(camera.address)[1][:-4]
+            meta_path = f'data/recordings/2d_v4/meta/{video_name}.yaml'
+            txt_path=f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{video_name}.txt'
 
             monitor.register_camera(
                 cam_id=camera.id,
