@@ -3,13 +3,14 @@
 {% block app_content %}
     <h1>Camera view</h1>
 
-    <table>
-        <tr valign="top">
+    <div class="container">
+        <div class="row mb-3">
             {% for cam in cameras %}
-            <td><img src="{{ url_for('main.video_feed', cam_id=cam.id) }}"></td>
+            <div class="col-md-6 col-lg-6">
+                <img src="{{ url_for('main.video_feed', cam_id=cam.id) }}" class="img-fluid mb-6">
+            </div>
             {% endfor %}
-        </tr>
-    </table>
+        </div>
+      </div>
     
-
 {% endblock %}

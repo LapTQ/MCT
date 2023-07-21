@@ -20,21 +20,21 @@
     <table class="table table-hover">
         <tr>
             <td style="vertical-align: middle; border-top: none;"><h3>Registered workshifts</h3></td>
-            {% if current_user.role in ['intern', 'engineer'] %}
-                <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('main.register_workshift') }} "> Register new workshift </a></td>
+            {% if current_user.role == 'manager' %}
+                <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('main.register_workshift', username=user.username) }} "> Register new workshift </a></td>
             {% endif %}
         </tr>
 
         {% for workshift in workshifts %}
             <tr>
                 <td>{{ workshift }}</td>
-                {% if current_user.username == user.username %}
+                {% if current_user.role == 'manager' %}
                 <td>
-                    <form action=" {{ url_for('main.unregister_workshift', day=workshift.day, dayshift_id=workshift.dayshift_id) }} " method="post" novalidate>
+                    <form action=" {{ url_for('main.unregister_workshift', username=user.username, day=workshift.day, dayshift_id=workshift.dayshift_id) }} " method="post" novalidate>
                         {% with unregister_form = unregister_form_class() %}
                         
                         {{ unregister_form.hidden_tag() }}
-                        <p>{{ unregister_form.submit(value='Unregister', class_='btn btn-default') }}</p>
+                        <p>{{ unregister_form.submit(value='Delete', class_='btn btn-default') }}</p>
                         {% endwith %}
                     </form>
                 </td>
