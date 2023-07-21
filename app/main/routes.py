@@ -131,7 +131,7 @@ def messages():
 
     messages = current_user.messages_received.order_by(Message.timestamp.desc()).all()  # type: ignore
 
-    return render_template('messages.html', messages=messages, now=fake_clock.now())
+    return render_template('messages.html', messages=messages, fake_now=fake_clock.now())
 
 
 @bp.route('/notifications')
