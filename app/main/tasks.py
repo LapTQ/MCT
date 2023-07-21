@@ -2,8 +2,8 @@ from threading import Thread
 from flask import current_app
 import cv2
 
-from app.extensions import monitor
-from app.models import Camera, Region, CameraMatchingPoint
+from app.extensions import monitor, db
+from app.models import Camera, Region, CameraMatchingPoint, Message, Notification, Productivity, Detection, STA
 import json
 
 import numpy as np
@@ -16,6 +16,13 @@ from mct.utils.pipeline import Scene
 
 def async_startup(app):
     with app.app_context():
+
+        ########### mock test ###########
+        for entity in [Message, Notification, Productivity, Detection, STA]:
+            for record in entity.query.all():
+                db.session.delete(record)
+        db.session.commit()
+        #################################
 
         config = app.config['PIPELINE']
         W = config.get('CAMERA_FRAME_WIDTH')

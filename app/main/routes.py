@@ -9,7 +9,7 @@ from app.main.forms import EmptyForm, RegisterWorkshiftForm
 from datetime import datetime, timedelta, date
 
 ##### START HERE #####
-from app.extensions import monitor
+from app.extensions import monitor, fake_clock
 import time
 from threading import Thread
 ##### END HERE #####
@@ -125,13 +125,13 @@ def messages():
     if current_user.role != 'manager':  # type: ignore
         return redirect(url_for('main.index'))
     
-    current_user.last_message_read_time = datetime.utcnow()
+    current_user.last_message_read_time = fake_clock.now()
     current_user.add_notification('unread_message_count', 0)    # type: ignore
     db.session.commit()
 
     messages = current_user.messages_received.order_by(Message.timestamp.desc()).all()  # type: ignore
 
-    return render_template('messages.html', messages=messages)
+    return render_template('messages.html', messages=messages, now=fake_clock.now())
 
 
 @bp.route('/notifications')
@@ -155,46 +155,8 @@ def productivity(username):
     if (user.username != current_user.username and current_user.role != 'manager') or user.role == 'admin':    # type: ignore
         return redirect(url_for('main.index'))
     
-    weekday_id_to_name = {
-        0: 'Monday',
-        1: 'Tuesday',
-        2: 'Wednesday',
-        3: 'Thursday',
-        4: 'Friday'
-    }
-    
     records = Productivity.query.filter_by(user_id=user.id).order_by(Productivity.date.desc(), Productivity.dayshift_id.asc())
-    productivity_report = []
-    now = datetime.now()
-    for record in records:
-        if record.arrival:
-            latency = datetime.combine(date.today(), record.arrival) - datetime.combine(date.today(), record.dayshift.start_time)
-            if latency <= timedelta(0):
-                latency = None
-        elif now.time() < record.dayshift.start_time:
-            latency = None
-        else:
-            latency = min(now, datetime.combine(date.today(), record.dayshift.end_time)) - datetime.combine(date.today(), record.dayshift.start_time)
-
-        if now < datetime.combine(record.date, record.dayshift.end_time) or record.staying is None:
-            staying = None
-            staying_percent = None
-        else:
-            staying = record.staying
-            staying_percent = record.staying / (datetime.combine(date.today(), record.dayshift.end_time) - datetime.combine(date.today(), record.dayshift.start_time))
-
-            
-        productivity_report.append(
-            {
-                'day': weekday_id_to_name[record.date.weekday()],
-                'date': record.date,
-                'dayshift': record.dayshift.name,
-                'arrival': record.arrival,
-                'latency': latency,
-                'staying': staying,
-                'staying_percent': staying_percent
-            }
-        )
+    productivity_report = [user.extract_productivity(r) for r in records]
 
     return render_template('productivity.html', user=user, productivity_report=productivity_report)
     

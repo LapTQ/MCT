@@ -15,6 +15,16 @@ from mct.utils.pipeline import Scene
 
 logger = logging.getLogger(__name__)
 
+WEEKDAY_ID_TO_NAME = {
+    0: 'Monday',
+    1: 'Tuesday',
+    2: 'Wednesday',
+    3: 'Thursday',
+    4: 'Friday',
+    5: 'Saturday',
+    6: 'Sunday'
+}
+
 
 class User(UserMixin, db.Model):
     
@@ -60,26 +70,21 @@ class User(UserMixin, db.Model):
 
     def add_notification(self, name, data):
         self.notifications.filter_by(name=name).delete()
-        n = Notification(name=name, payload_json=json.dumps(data), user=self)
+        n = Notification(
+            name=name, 
+            payload_json=json.dumps(data), 
+            user=self,
+            timestamp=fake_clock.now().timestamp()
+        )
         db.session.add(n)
         return n
 
 
     def overall_latency(self):     # TODO return queries
         c = 0
-        now = datetime.datetime.now()
-        for record in self.productivities.all():
-            if record.arrival:
-                latency = datetime.datetime.combine(datetime.date.today(), record.arrival) - \
-                    datetime.datetime.combine(datetime.date.today(), record.dayshift.start_time)
-                if latency <= datetime.timedelta(0):
-                    latency = None
-            elif now.time() < record.dayshift.start_time:
-                latency = None
-            else:
-                latency = min(now, datetime.datetime.combine(datetime.date.today(), record.dayshift.end_time)) - \
-                    datetime.datetime.combine(datetime.date.today(), record.dayshift.start_time)
-            if latency:
+        for r in self.productivities.all():
+            prod_info = self.extract_productivity(r)
+            if prod_info['latency']:
                 c += 1
         return c
 
@@ -87,16 +92,50 @@ class User(UserMixin, db.Model):
     def overall_staying(self):
         num = datetime.timedelta(0)
         den = datetime.timedelta(0)
-        now = datetime.datetime.now()
-        for record in self.productivities.all():
-            if now > datetime.datetime.combine(record.date, record.dayshift.end_time) and record.staying is not None:
-                num += record.staying
-                den += datetime.datetime.combine(datetime.date.today(), record.dayshift.end_time) - datetime.datetime.combine(datetime.date.today(), record.dayshift.start_time)
+
+        for r in self.productivities.all():
+            prod_info = self.extract_productivity(r)
+            if prod_info['staying']:
+                num += prod_info['staying']
+                den += prod_info['shift_duration']
         
-        if den == 0:
+        if den == datetime.timedelta(0):
             return None
         
         return num/den
+    
+
+    def extract_productivity(self, record):
+        now = fake_clock.now()
+        start_time = datetime.datetime.combine(record.date, record.dayshift.start_time)
+        end_time = datetime.datetime.combine(record.date, record.dayshift.end_time)
+
+        if now < start_time:
+            latency = None
+        else:
+            if record.arrival is not None:
+                arrival = datetime.datetime.combine(record.date, record.arrival)
+                latency = arrival - start_time
+                if latency <= datetime.timedelta(0):
+                    latency = None
+            else:
+                latency = now - start_time
+
+        if now > start_time and record.staying is not None:
+            staying_percent = record.staying / (end_time - start_time)
+        else:
+            staying_percent = None
+
+        return {
+            'day': WEEKDAY_ID_TO_NAME[record.date.weekday()],
+            'date': record.date,
+            'dayshift': record.dayshift.name,
+            'arrival': record.arrival,
+            'latency': latency,
+            'staying': record.staying,
+            'shift_duration': end_time - start_time,
+            'staying_percent': staying_percent
+        }
 
 
     def load_workareas(self):
@@ -127,15 +166,6 @@ class User(UserMixin, db.Model):
         if not hasattr(self, 'max_absence'):
             self.max_absence = datetime.timedelta(seconds=current_app.config['MAX_ABSENCE'])
 
-        weekday_id_to_name = {
-            0: 'Monday',
-            1: 'Tuesday',
-            2: 'Wednesday',
-            3: 'Thursday',
-            4: 'Friday',
-            5: 'Saturday',
-            6: 'Sunday'
-        }
         now = fake_clock.now()
         today = now.date()
         upcomings = [(today + datetime.timedelta(days=i), DayShift.query.filter_by(name=dayshift_name).first()) 
@@ -146,7 +176,7 @@ class User(UserMixin, db.Model):
             date, dayshift = ws
             weekday = date.weekday()
             workshift = self.workshifts.filter_by(
-                day=weekday_id_to_name[weekday], 
+                day=WEEKDAY_ID_TO_NAME[weekday], 
                 dayshift_id=dayshift.id
             ).first()
             if workshift is not None:
@@ -177,9 +207,18 @@ class User(UserMixin, db.Model):
             msg = Message(recipient=manager, body=message)
             db.session.add(msg)
             manager.add_notification('unread_message_count', manager.new_messages())
-        # db.session.commit()
+        db.session.commit()
 
-        logger.warning('Message managers: %s', message)      
+        logger.warning('Message managers: %s', message)   
+
+
+    def _check_in_workarea(self, cid, loc):
+        is_in_workarea = False
+        for scene in self.scene_workareas.get(cid, []):
+            if scene.is_in_roi(loc):
+                is_in_workarea = True
+                break
+        return is_in_workarea
     
 
     def update_detection(self, cid, dtime, loc):
@@ -198,8 +237,8 @@ class User(UserMixin, db.Model):
         if dtime == '<EOS>':
             if self.productivity_created:
                 self.current_productivity.staying = self.staying
-                # db.session.commit()
-                print('>>>>>>>>>>>>>>>>> Productivity =', self.current_productivity)
+                db.session.commit()
+                logger.info('Updated staying in %s', self.current_productivity)
             return
                 
         assert dtime is not None
@@ -226,17 +265,17 @@ class User(UserMixin, db.Model):
                 dayshift_id=self.ws_dayshift_id
             )
             db.session.add(self.current_productivity)
-            # db.session.commit()
+            db.session.commit()
             self.productivity_created = True
-            logger.info('Created productivity record for %s', self)
+            logger.info('Create %s', self.current_productivity)
 
         # during 30 minutes before the workshift starts
         if condition_2 and condition_3:
             if loc and not self.arrived:
                 self.current_productivity.arrival = dtime.time()
-                # db.session.commit()
+                db.session.commit()
                 self.arrived = True
-                logger.debug('%s arrived in time at %s', self, dtime)
+                logger.info('%s arrived in time at %s', self, dtime.time())
         
         # during the workshift
         elif condition_4:   
@@ -248,34 +287,25 @@ class User(UserMixin, db.Model):
 
                     # then save the arrival time
                     self.current_productivity.arrival = dtime.time()
-                    # db.session.commit()
+                    db.session.commit()
                     self.arrived = True
                     
                     # and announce that the user has arrived
                     if self.lateness_alert_sent:
-                        self.send_alert(f'{self} arrived late at {dtime}')
+                        self.send_alert(f'{self} arrived late at {dtime.time()}')
                         self.lateness_alert_sent = False
-                
-                # check if the user is in the workarea
-                is_in_workarea = False
-                for scene in self.scene_workareas.get(cid, []):
-                    if scene.is_in_roi(loc):
-                        is_in_workarea = True
-                        break
 
-                if is_in_workarea:
+                if self._check_in_workarea(cid, loc):
                     self.n_misses = 0
                     self.last_in_roi = dtime
                     self.staying -= self.absence
                     self.absence = datetime.timedelta(0)
-                    print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> IN: ', dtime.time())
 
                     if self.absence_alert_sent:
-                        self.send_alert(f'{self} is back to work area at {dtime}')
+                        self.send_alert(f'{self} is back to work area at {dtime.time()}')
                         self.absence_alert_sent = False
                 else:
                     self.n_misses += 1
-                    print('>>>>>>>>>>>> OUT: ', dtime.time())
                     
             # if the user is not detected
             else:
@@ -290,22 +320,21 @@ class User(UserMixin, db.Model):
                 
                 # if the user has arrived previously
                 else:
-                    # then accumulate the absence time
-                    self.n_misses += 1
+                    self.n_misses += 1      # accumulate the absence time
             
+            # if the user does not stay in work area for a certain period
             if self.arrived and self.n_misses > current_app.config['MAX_ABSENCE_FRAMES']:
-                print('>>>>>>>>>>>> OUT: ', dtime.time())
                 self.absence = dtime - self.last_in_roi
                 if not self.absence_alert_sent and self.absence > self.max_absence:
-                    self.send_alert(f'{self} was absent from work area since {self.last_in_roi}')
+                    self.send_alert(f'{self} was absent from work area since {self.last_in_roi.time()}')
                     self.absence_alert_sent = True
 
         # after the workshift
         elif self.ws_end_time < dtime:
             if self.productivity_created:
                 self.current_productivity.staying = self.staying
-                # db.session.commit()
-                print('>>>>>>>>>>>>>>>>> Productivity =', self.current_productivity)
+                db.session.commit()
+                logger.info('Updated staying in %s', self.current_productivity)
                 self.load_next_workshift()
     
 
@@ -435,14 +464,14 @@ class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     body = db.Column(db.String(140))
-    timestamp = db.Column(db.DateTime, index=True, default=datetime.datetime.now)
+    timestamp = db.Column(db.DateTime, index=True, default=fake_clock.now)
 
 
 class Notification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(128), index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    timestamp = db.Column(db.Float, index=True, default=time.time())
+    timestamp = db.Column(db.Float, index=True)
     payload_json = db.Column(db.Text)
 
     def get_data(self):
@@ -458,7 +487,11 @@ class Productivity(db.Model):
     staying = db.Column(db.Interval)
 
     def __repr__(self):
-        return f'Productivity(user_id={self.user_id} \tdate={self.date} \tdayshift_id={self.dayshift_id} \tarrival={self.arrival} \tstaying={self.staying}'
+        user = db.session.get(User, self.user_id)
+        return f'Productivity(username={user.username}, date={self.date}, dayshift_id={self.dayshift_id}, arrival={self.arrival}, staying={self.staying})'
+    
+    def __str__(self):
+        return self.__repr__()
 
     # >>> from datetime import timedelta, time, datetime
     # >>> p = Productivity(user_id=3, date=datetime(day=5, month=6, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=29, second=10), staying=timedelta(hours=2, minutes=10))

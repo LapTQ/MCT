@@ -1398,109 +1398,106 @@ class MCMapPipeline(Pipeline):
     
     def _load_users(self):
         self.users = {}
-        with self.app.app_context():
-            users = User.query.filter(User.role.in_(['intern', 'engineer'])).all()
-            for user in users:
-                self.users[user.id] = user
-                user.load_workareas()
-                user.load_next_workshift()
+        users = User.query.filter(User.role.in_(['intern', 'engineer'])).all()
+        for user in users:
+            self.users[user.id] = user
+            user.load_workareas()
+            user.load_next_workshift()
         
     
     def _start(self) -> None:
 
-        self._load_users()
+        with self.app.app_context():
+            self._load_users()
 
-        start_time = time.time()
-        still_wait = [{k: True for k in q} for q in [self.sct_queues, self.sta_queues]]
-        
-        while not self.is_stopped():
+            start_time = time.time()
+            still_wait = [{k: True for k in q} for q in [self.sct_queues, self.sta_queues]]
+            
+            while not self.is_stopped():
 
-            self.trigger_pause()
+                self.trigger_pause()
 
-            for i, q in enumerate([self.sct_queues, self.sta_queues]):
-                for k, v in q.items():
-                    if k not in self.wait_list[i]:
-                        self.wait_list[i][k] = []
-                    
-                    items = []
-                    if self.config.get('RUNNING_MODE') == 'online':
-                        if still_wait[i][k]:
-                            item = v.get(block=True)
-                            if item == '<EOS>':
-                                still_wait[i][k] = False
-                            else:
-                                items = [item]
-                    else:
-                        while still_wait[i][k]:
-                            item = v.get()
-                            if item == '<EOS>':
-                                still_wait[i][k] = False
-                            else:
-                                items.append(item)
+                for i, q in enumerate([self.sct_queues, self.sta_queues]):
+                    for k, v in q.items():
+                        if k not in self.wait_list[i]:
+                            self.wait_list[i][k] = []
+                        
+                        items = []
+                        if self.config.get('RUNNING_MODE') == 'online':
+                            if still_wait[i][k]:
+                                item = v.get(block=True)
+                                if item == '<EOS>':
+                                    still_wait[i][k] = False
+                                else:
+                                    items = [item]
+                        else:
+                            while still_wait[i][k]:
+                                item = v.get()
+                                if item == '<EOS>':
+                                    still_wait[i][k] = False
+                                else:
+                                    items.append(item)
 
-                    self.wait_list[i][k].extend(items)
+                        self.wait_list[i][k].extend(items)
 
-            if True not in [q for w in still_wait for q in w.values()] and self.config.get('RUNNING_MODE') == 'online':
-                for cid, oq in self.output_queues.items():
-                    oq.put('<EOS>')
-                logger.info(f'{self.name}:\t reached <EOS> token')
-                with self.app.app_context():
+                if True not in [q for w in still_wait for q in w.values()] and self.config.get('RUNNING_MODE') == 'online':
+                    for cid, oq in self.output_queues.items():
+                        oq.put('<EOS>')
+                    logger.info(f'{self.name}:\t reached <EOS> token')
                     for user in self.users.values():
                         user.update_detection('<EOS>', '<EOS>', '<EOS>')
-                self.wait_list = self._new_wait_list()  # release memory TODO very naive
-                break
-            
-            active_list = self.wait_list
-            self.wait_list = self._new_wait_list()
+                    self.wait_list = self._new_wait_list()  # release memory TODO very naive
+                    break
+                
+                active_list = self.wait_list
+                self.wait_list = self._new_wait_list()
 
-            sta_midxs = self._match_sta_index(active_list[1])
-            sct_midxs, sta_midxs = self._match_sct_index(active_list[0], active_list[1], sta_midxs)
+                sta_midxs = self._match_sta_index(active_list[1])
+                sct_midxs, sta_midxs = self._match_sct_index(active_list[0], active_list[1], sta_midxs)
 
-            if len(list(sta_midxs.values())[0]) == 0:
-                self.wait_list = active_list
-                continue
+                if len(list(sta_midxs.values())[0]) == 0:
+                    self.wait_list = active_list
+                    continue
 
-            T = len(list(sta_midxs.values())[0])
-            logger.debug(f'{self.name}:\t processing {T} frames')
+                T = len(list(sta_midxs.values())[0])
+                logger.debug(f'{self.name}:\t processing {T} frames')
 
-            for wl, al, idxs in zip(self.wait_list, active_list, [sct_midxs, sta_midxs]):   # type: ignore
-                for k in al:
-                    if k not in wl:
-                        wl[k] = []
-                    wl[k].extend(al[k][idxs[k][-1] + 1:])
-                    al[k] = [al[k][idx] for idx in idxs[k]]
-            
-            mid_time = time.time()
-            pre_time = mid_time - start_time
+                for wl, al, idxs in zip(self.wait_list, active_list, [sct_midxs, sta_midxs]):   # type: ignore
+                    for k in al:
+                        if k not in wl:
+                            wl[k] = []
+                        wl[k].extend(al[k][idxs[k][-1] + 1:])
+                        al[k] = [al[k][idx] for idx in idxs[k]]
+                
+                mid_time = time.time()
+                pre_time = mid_time - start_time
 
-            for t in range(T):
+                for t in range(T):
 
-                # process sign in
-                signin_user_id = active_list[0][self.checkin_cid][t]['signin_user_id']
-                if signin_user_id is not None:
-                    dets = active_list[0][self.checkin_cid][t]['sct_output']
-                    locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'), (self.checkin_scene.width / 2, self.checkin_scene.height)) # type: ignore
-                    in_roi_idxs = self.checkin_scene.is_in_roi(locs)
-                    dets_in_roi = dets[in_roi_idxs]
-                    if len(dets_in_roi) > 1:
-                        raise ValueError(f'Found {len(dets_in_roi)} detections in checkin area')
-                    elif len(dets_in_roi) == 1:
-                        tid = int(dets_in_roi[0][1])
-                        with self.app.app_context():
+                    # process sign in
+                    signin_user_id = active_list[0][self.checkin_cid][t]['signin_user_id']
+                    if signin_user_id is not None:
+                        dets = active_list[0][self.checkin_cid][t]['sct_output']
+                        locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'), (self.checkin_scene.width / 2, self.checkin_scene.height)) # type: ignore
+                        in_roi_idxs = self.checkin_scene.is_in_roi(locs)
+                        dets_in_roi = dets[in_roi_idxs]
+                        if len(dets_in_roi) > 1:
+                            raise ValueError(f'Found {len(dets_in_roi)} detections in checkin area')
+                        elif len(dets_in_roi) == 1:
+                            tid = int(dets_in_roi[0][1])
                             self.users[signin_user_id].update_hint(self.checkin_cid, tid)
-                
-                sct_outputs = {(cid, int(d[1])): d
-                            for cid, cv in active_list[0].items() 
-                            for d in cv[t]['sct_output']}
-                matches = {}
-                for (cid1, cid2), cv in active_list[1].items():
-                    for tid1, tid2 in cv[t]['matches']:
-                        matches[(cid1, tid1)] = (cid2, tid2)
-                        matches[(cid2, tid2)] = (cid1, tid1)
+                    
+                    sct_outputs = {(cid, int(d[1])): d
+                                for cid, cv in active_list[0].items() 
+                                for d in cv[t]['sct_output']}
+                    matches = {}
+                    for (cid1, cid2), cv in active_list[1].items():
+                        for tid1, tid2 in cv[t]['matches']:
+                            matches[(cid1, tid1)] = (cid2, tid2)
+                            matches[(cid2, tid2)] = (cid1, tid1)
 
-                out_visualize = {cam_id: [] for cam_id in active_list[0]}
-                
-                with self.app.app_context():
+                    out_visualize = {cam_id: [] for cam_id in active_list[0]}
+                    
                     for user in self.users.values():
                         hint_cid, hint_tid = user.get_hint()
                         match = matches.get((hint_cid, hint_tid), (None, None))
@@ -1520,42 +1517,42 @@ class MCMapPipeline(Pipeline):
                             det[0] = user.id    # replace trivial frame_id in sct_output with user id
                             out_visualize[cid].append(det)
                         user.update_detection(cid, dtime, loc)
-                
-                for (cid, tid), d in sct_outputs.items():
-                    d[0] = -1
-                    out_visualize[cid].append(d)
-                
-                for cid in out_visualize:
-                    out_visualize[cid] = np.array(out_visualize[cid])   # type: ignore
-                    if len(out_visualize[cid]) == 0:    
-                        out_visualize[cid] =  np.empty((0, 10))          # type: ignore , whatever, as long as dim2 >= 2
-
-     
-                end_time = time.time()
-                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                    else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
-                time.sleep(sleep)
-
-                # expecting key of the output queue is camera ID
-                for cid, oq in self.output_queues.items():
-                    oq.put(                                
-                        {
-                            'frame_id': active_list[0][cid][t]['frame_id'],
-                            'sct_output': out_visualize[cid],
-                            'sct_detection_mode': active_list[0][cid][t]['sct_detection_mode'],
-                            'signin_user_id': signin_user_id if cid == self.checkin_cid else None
-                        }
-                    )
                     
-                mid_time = end_time
-                logger.debug(f'{self.name}:\t slept {sleep}')
+                    for (cid, tid), d in sct_outputs.items():
+                        d[0] = -1
+                        out_visualize[cid].append(d)
+                    
+                    for cid in out_visualize:
+                        out_visualize[cid] = np.array(out_visualize[cid])   # type: ignore
+                        if len(out_visualize[cid]) == 0:    
+                            out_visualize[cid] =  np.empty((0, 10))          # type: ignore , whatever, as long as dim2 >= 2
 
-            start_time = mid_time
-            
-            if self.config.get('RUNNING_MODE') == 'offline':
-                for cid, oq in self.output_queues.items():
-                    oq.put('<EOS>')
-                break
+        
+                    end_time = time.time()
+                    sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                        else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
+                    time.sleep(sleep)
+
+                    # expecting key of the output queue is camera ID
+                    for cid, oq in self.output_queues.items():
+                        oq.put(                                
+                            {
+                                'frame_id': active_list[0][cid][t]['frame_id'],
+                                'sct_output': out_visualize[cid],
+                                'sct_detection_mode': active_list[0][cid][t]['sct_detection_mode'],
+                                'signin_user_id': signin_user_id if cid == self.checkin_cid else None
+                            }
+                        )
+                        
+                    mid_time = end_time
+                    logger.debug(f'{self.name}:\t slept {sleep}')
+
+                start_time = mid_time
+                
+                if self.config.get('RUNNING_MODE') == 'offline':
+                    for cid, oq in self.output_queues.items():
+                        oq.put('<EOS>')
+                    break
 
 
     def _check_checkin_cid(self):

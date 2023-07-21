@@ -7,7 +7,7 @@
         {% for post in messages %}
             <tr>
                 <td>
-                    <i>{{ moment(post.timestamp).fromNow() }}</i>
+                    <i>{{ moment(post.timestamp).fromTime(now) }}</i>
                     <br>
                     <span id="post{{ post.id }}">{{ post.body }}</span>
                     <br><br>
