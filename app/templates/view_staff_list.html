@@ -2,30 +2,59 @@
 
 {% block app_content %}
 
-    <table class="table table-hover">
-        <tr>
-            <td style="vertical-align: middle; border-top: none;"><h1>Staff list</h1></td>
-            <td style="vertical-align: middle; border-top: none;"></td>
-            <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('auth.create_account') }}">New staff</a></td>
-        </tr>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <td style="vertical-align: middle; border-top: none;"><h1>Staff list</h1></td>
+                <td style="vertical-align: middle; border-top: none;"></td>
+                <td style="vertical-align: middle; border-top: none;"></td>
+                <td style="vertical-align: middle; border-top: none;"></td>
+                <td style="vertical-align: middle; border-top: none;"></td>
+                <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('auth.create_account') }}">New staff</a></td>
+            </tr>
 
-        <tr>
-            <td style="vertical-align: middle; border-top: none;">Username</td>
-            <td style="vertical-align: middle; border-top: none;">Role</td>
-            <td style="vertical-align: middle; border-top: none;">Productivity</td>
-        </tr>
+            <tr>
+                <td style="vertical-align: middle; border-top: none;">Name</td>
+                <td style="vertical-align: middle; border-top: none;">Role</td>
+                <td style="vertical-align: middle; border-top: none;">Worked days</td>
+                <td style="vertical-align: middle; border-top: none;">Late days</td>
+                <td style="vertical-align: middle; border-top: none;">Productivity</td>
+                <td style="vertical-align: middle; border-top: none;"></td>
+            </tr>
+        </thead>
 
         <tbody>
             {% for user in users%}
                 <tr>
-                    <td><a href="{{ url_for('main.user', username=user.username) }}">{{ user.username }}</a></td>
+                    <td><a href="{{ url_for('main.user', username=user.username) }}">{{ user.name }}</a></td>
                     <td>{{ user.role }}</td>
-                    <td>{{ user.overall_latency() }}/{{ user.productivities.count() }} late 
+                    {% set late_days = user.overall_latency() %}
+                    {% set worked_days = user.productivities.count() %}
+                    {% if worked_days == 0 %}
+                        {% set late_percent = 0 %}
+                    {% else %}
+                        {% set late_percent = (late_days / worked_days * 100)|round(2) %}
+                    {%% endif %}
+                    
+                    <td>{{ worked_days }}</td>
+                    <td>
+                        
+
+                        <div class="progress">
+                            <div class="progress-bar bg-danger" role="progressbar" style="width: {{ late_percent }}%;" aria-valuenow="{{ late_percent }}" aria-valuemin="0" aria-valuemax="100">{{ late_days }}({{  late_percent }}%)</div>
+                        </div>                
+                    </td>
+                    <td>
                         {% set staying = user.overall_staying() %}
                         {% if staying is not none %}
-                            ({{ '%.0f'|format(staying * 100|float) }}% staying) 
+                            <!-- {{ '%.0f'|format(staying * 100|float) }}% -->
+                            <div class="progress">
+                                <div class="progress-bar" role="progressbar" style="width: {{ staying * 100 }}%;" aria-valuenow="{{ staying * 100 }}" aria-valuemin="0" aria-valuemax="100">{{ staying * 100 }}%</div>
+                            </div>                        
                         {% endif %}
-                        <a href="{{ url_for('main.productivity', username=user.username) }}"> &#x2192 Details</a>
+                    </td>
+                    <td>
+                        <a href="{{ url_for('main.productivity', username=user.username) }}"> &#x2192 Productivity details</a>
                     </td>
                 </tr>
             {% endfor %}

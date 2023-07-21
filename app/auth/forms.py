@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField, BooleanField, SelectField
-from wtforms.validators import ValidationError, DataRequired, EqualTo
+from wtforms.validators import ValidationError, DataRequired, EqualTo, Email
 
 from app.models import User
 
@@ -22,6 +22,10 @@ class CreateAccountForm(FlaskForm):
         'Role',
         choices=[('manager', 'Manager'), ('intern', 'Intern'), ('engineer', 'Engineer')],
     )
+    name = StringField('Name', validators=[DataRequired()])
+    phone = StringField('Phone', validators=[DataRequired()])
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    address = StringField('Address', validators=[DataRequired()])
     submit = SubmitField('Register')
 
 
@@ -29,3 +33,8 @@ class CreateAccountForm(FlaskForm):
         user = User.query.filter_by(username=username.data).first()
         if user is not None:
             raise ValidationError('Username already exists.')
+        
+    def validate_email(self, email):
+        user = User.query.filter_by(email=email.data).first()
+        if user is not None:
+            raise ValidationError('Email already exists.')

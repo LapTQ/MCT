@@ -6,8 +6,6 @@ from app.main import bp
 from app.models import User, RegisteredWorkshift, DayShift, Camera, Message, Notification, Productivity
 from app.main.forms import EmptyForm, RegisterWorkshiftForm
 
-from datetime import datetime, timedelta, date
-
 ##### START HERE #####
 from app.extensions import monitor, fake_clock
 import time

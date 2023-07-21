@@ -30,6 +30,10 @@ class User(UserMixin, db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), index=True, unique=True)
+    name = db.Column(db.String(64))
+    phone = db.Column(db.String(64))
+    email = db.Column(db.String(64))
+    address = db.Column(db.String(64))
     password_hash = db.Column(db.String(128))
     role = db.Column(db.String(128), nullable=False)
     last_message_read_time = db.Column(db.DateTime)
@@ -129,7 +133,7 @@ class User(UserMixin, db.Model):
         return {
             'day': WEEKDAY_ID_TO_NAME[record.date.weekday()],
             'date': record.date,
-            'dayshift': record.dayshift.name,
+            'dayshift': record.dayshift,
             'arrival': record.arrival,
             'latency': latency,
             'staying': record.staying,
@@ -292,7 +296,7 @@ class User(UserMixin, db.Model):
                     
                     # and announce that the user has arrived
                     if self.lateness_alert_sent:
-                        self.send_alert(f'{self} arrived late at {dtime.time()}')
+                        self.send_alert(f'{self.name} arrived late at {dtime.time()}')
                         self.lateness_alert_sent = False
 
                 if self._check_in_workarea(cid, loc):
@@ -302,7 +306,7 @@ class User(UserMixin, db.Model):
                     self.absence = datetime.timedelta(0)
 
                     if self.absence_alert_sent:
-                        self.send_alert(f'{self} is back to work area at {dtime.time()}')
+                        self.send_alert(f'{self.name} is back to work area at {dtime.time()}')
                         self.absence_alert_sent = False
                 else:
                     self.n_misses += 1
@@ -315,7 +319,7 @@ class User(UserMixin, db.Model):
                     latency = dtime - self.ws_start_time
                     
                     if not self.lateness_alert_sent and latency > self.max_latency:
-                        self.send_alert(f'{self} was late for {latency}')
+                        self.send_alert(f'{self.name} was late for {latency}')
                         self.lateness_alert_sent = True
                 
                 # if the user has arrived previously
@@ -326,7 +330,7 @@ class User(UserMixin, db.Model):
             if self.arrived and self.n_misses > current_app.config['MAX_ABSENCE_FRAMES']:
                 self.absence = dtime - self.last_in_roi
                 if not self.absence_alert_sent and self.absence > self.max_absence:
-                    self.send_alert(f'{self} was absent from work area since {self.last_in_roi.time()}')
+                    self.send_alert(f'{self.name} was absent from work area since {self.last_in_roi.time()}')
                     self.absence_alert_sent = True
 
         # after the workshift

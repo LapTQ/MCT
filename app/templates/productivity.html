@@ -2,7 +2,7 @@
 
 {% block app_content %}
 
-    <h1>Productivity report: {{ user.username }}</h1>
+    <h1>Productivity report: {{ user.name }}</h1>
 
     <table class="table table-hover">
         <thead>
@@ -10,6 +10,8 @@
                 <td>Day</td>
                 <td>Date</td>
                 <td>Day shift</td>
+                <td>Start time</td>
+                <td>End time</td>
                 <td>Arrival</td>
                 <td>Staying time</td>
             </tr>
@@ -20,7 +22,9 @@
                 <tr>
                     <td>{{ r['day'] }}</td>
                     <td>{{ r['date'].strftime('%d/%m/%Y') }}</td>
-                    <td>{{ r['dayshift'] }}</td>
+                    <td>{{ r['dayshift'].name }}</td>
+                    <td>{{ r['dayshift'].start_time }}</td>
+                    <td>{{ r['dayshift'].end_time }}</td>
                     <td>
                         {% if r['arrival'] %}
                             {{ r["arrival"] }} 
