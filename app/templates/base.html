@@ -12,7 +12,7 @@
 
 {% block navbar %}
 
-    <nav class="navbar navbar-default">
+    <nav class="navbar navbar-default" style="background-color: #106e73;">
         <div class="container">
         
             <div class="navbar-header">
@@ -23,38 +23,36 @@
                     <span class="icon-bar"></span>
                 </button>
 
-                <a class="navbar-brand" href="{{ url_for('main.index') }}"> Employee Management </a>
+                <a class="navbar-brand" href="{{ url_for('main.index') }}" style="color: white;"> Employee Management </a>
             </div>
 
             <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
                 <ul class="nav navbar-nav">
-                    <li><a href="{{ url_for('main.index') }}"> Home </a></li>
+                    <li><a href="{{ url_for('main.index') }}" style="color: white;"> Home </a></li>
                 </ul>
 
                 <ul class="nav navbar-nav navbar-right">
                     {% if not current_user.is_anonymous %}
 
                         {% if current_user.role =='admin' %}
-                            <li><a href="{{ url_for('auth.create_account') }}"> Create account </a></li>
+                            <li><a href="{{ url_for('auth.create_account') }}" style="color: white;"> Create account </a></li>
                         {% elif current_user.role == 'manager' %}
-                            <li><a href="{{ url_for('main.view_staff_list') }}"> Manage staff </a></li>
-                            <li><a href="{{ url_for('main.view_cameras') }}"> View cameras </a></li>
-                            <li><a href="{{ url_for('main.view_weekly_schedule') }}"> View weekly schedule </a></li>
+                            <li><a href="{{ url_for('main.view_staff_list') }}" style="color: white;"> Manage staff </a></li>
+                            <li><a href="{{ url_for('main.view_cameras') }}" style="color: white;"> View cameras </a></li>
+                            <li><a href="{{ url_for('main.view_weekly_schedule') }}" style="color: white;"> View weekly schedule </a></li>
                             <li>
-                                <a href="{{ url_for('main.messages') }}"> Messages
+                                <a href="{{ url_for('main.messages') }}" style="color: white;"> Messages
                                     {% set new_messages = current_user.new_messages() %}
-                                    <span id="message_count" class="badge"
-                                        style="visibility: {% if new_messages %}visible
-                                                            {% else %}hidden{% endif %};">
+                                    <span id="message_count" class="badge" style="background-color: #CC533D; visibility: {% if new_messages %}visible {% else %}hidden{% endif %};">
                                         {{ new_messages }}
                                     </span>
                                 </a>
                             </li>
                         {% else %}
-                            <li><a href="{{ url_for('main.user', username=current_user.username) }}"> Personal info </a></li>
+                            <li><a href="{{ url_for('main.user', username=current_user.username) }}" style="color: white;"> Personal info </a></li>
                         {% endif %}
 
-                        <li><a href="{{ url_for('auth.logout') }}">Logout</a></li>
+                        <li><a href="{{ url_for('auth.logout') }}" style="color: white;">Logout</a></li>
                     {% endif %}
                 </ul>
             </div>
@@ -100,7 +98,7 @@
                         }
                     }
                 );
-            }, 10000);
+            }, 1000);
         });
         {% endif %}
     </script>

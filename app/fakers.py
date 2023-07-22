@@ -10,9 +10,6 @@ class FakeClock:
         self._true_start_time = datetime.now()
 
     def now(self):
-        try:    # TODO remove this except
             return self._fake_start_time + (datetime.now() - self._true_start_time)
-        except:
-            return datetime.now()   
 
 

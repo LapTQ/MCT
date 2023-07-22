@@ -4,7 +4,7 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from app.main import bp
 from app.models import User, RegisteredWorkshift, DayShift, Camera, Message, Notification, Productivity
-from app.main.forms import EmptyForm, RegisterWorkshiftForm
+from app.main.forms import EmptyForm
 
 ##### START HERE #####
 from app.extensions import monitor, fake_clock
@@ -29,8 +29,17 @@ def user(username):
     
     workshifts = RegisteredWorkshift.query.filter_by(user_id=user.id).all()
     unregister_form_class = EmptyForm
-
-    return render_template('user.html', user=user, workshifts=workshifts, unregister_form_class=unregister_form_class)
+    register_form_class = EmptyForm
+    week = {ds: {
+                'start_time': DayShift.query.filter_by(name=ds).first().start_time,
+                'end_time': DayShift.query.filter_by(name=ds).first().end_time,
+                'info':{d: False for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}
+            }  
+            for ds in ['morning', 'afternoon']}
+    for ws in workshifts:
+        week[ws.dayshift.name]['info'][ws.day] = True
+        
+    return render_template('user.html', user=user, unregister_form_class=unregister_form_class, register_form_class=register_form_class, week=week)
 
 
 @bp.route('/view_staff_list')
@@ -44,40 +53,39 @@ def view_staff_list():
     return render_template('view_staff_list.html', users=users)
 
 
-@bp.route('/register_workshift/<username>', methods=['GET', 'POST'])
+@bp.route('/_register_workshift/<username>/<day>/<dayshift_id>', methods=['POST'])
 @login_required
-def register_workshift(username):
+def register_workshift(username, day, dayshift_id):
 
     if current_user.role != 'manager': # type: ignore
         return redirect(url_for('main.index'))
     
-    form = RegisterWorkshiftForm()
+    form = EmptyForm()
     if form.validate_on_submit():
 
         user = User.query.filter_by(username=username).first_or_404()
 
         workshift = RegisteredWorkshift.query.filter_by(
             user_id=user.id, # type: ignore
-            day=form.day.data,
-            dayshift_id=DayShift.query.filter_by(name=form.shift.data).first().id
+            day=day,
+            dayshift_id=dayshift_id
         ).first()
         
         if workshift is not None:
-            flash('Workshift already exists.')
-            return redirect(url_for('main.register_workshift', username=username))
+            flash(f'Registered unsuccessfully, {workshift} already exists.')
+            return redirect(url_for('main.user', username=username))
         
         workshift = RegisteredWorkshift(
             user_id=user.id, # type: ignore
-            day=form.day.data,
-            dayshift_id=DayShift.query.filter_by(name=form.shift.data).first().id
+            day=day,
+            dayshift_id=dayshift_id
         )
         db.session.add(workshift)
         db.session.commit()
-        flash(f'Registered {workshift} for {user}')
-        return redirect(url_for('main.user', username=user.username))   # type:ignore
+        flash(f'Registered {workshift} successfully.')
     
-    return render_template('register_workshift.html', form=form)
-
+    return redirect(url_for('main.user', username=user.username))   # type:ignore
+    
 
 @bp.route('/_unregister_workshift/<username>/<day>/<dayshift_id>', methods=['POST'])
 @login_required
@@ -100,7 +108,7 @@ def unregister_workshift(username, day, dayshift_id):
         if workshift:
             db.session.delete(workshift)
             db.session.commit()
-            flash(f'Unregisterd workshift of {user} day={day}, dayshift_id={dayshift_id}')
+            flash(f'Unregistered successfully.')
         
     return redirect(url_for('main.user', username=user.username)) # type: ignore
     
@@ -113,9 +121,14 @@ def view_weekly_schedule():
         return redirect(url_for('main.index'))
     
     workshifts = RegisteredWorkshift.query.all()
-    week = {ds: {d: [] for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}  for ds in ['morning', 'afternoon']}
+    week = {ds: {
+                'start_time': DayShift.query.filter_by(name=ds).first().start_time,
+                'end_time': DayShift.query.filter_by(name=ds).first().end_time,
+                'info': {d: [] for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}
+            }  
+            for ds in ['morning', 'afternoon']}
     for ws in workshifts:
-        week[ws.dayshift.name][ws.day].append(ws.user.username)
+        week[ws.dayshift.name]['info'][ws.day].append(ws.user)
         
     return render_template('view_weekly_schedule.html', week=week)
 
@@ -160,7 +173,7 @@ def productivity(username):
     records = Productivity.query.filter_by(user_id=user.id).order_by(Productivity.date.desc(), Productivity.dayshift_id.asc())
     productivity_report = [user.extract_productivity(r) for r in records]
 
-    return render_template('productivity.html', user=user, productivity_report=productivity_report)
+    return render_template('productivity.html', user=user, productivity_report=productivity_report, fake_now=fake_clock.now())
     
 
 def get_display_key(cam_id, user_id, csrf_token):

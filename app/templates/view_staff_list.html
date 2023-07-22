@@ -10,16 +10,16 @@
                 <td style="vertical-align: middle; border-top: none;"></td>
                 <td style="vertical-align: middle; border-top: none;"></td>
                 <td style="vertical-align: middle; border-top: none;"></td>
-                <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('auth.create_account') }}">New staff</a></td>
+                <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('auth.create_account') }}" style="background-color: #5f0f40; border-color: #5f0f40;">New staff</a></td>
             </tr>
 
             <tr>
-                <td style="vertical-align: middle; border-top: none;">Name</td>
-                <td style="vertical-align: middle; border-top: none;">Role</td>
-                <td style="vertical-align: middle; border-top: none;">Worked days</td>
-                <td style="vertical-align: middle; border-top: none;">Late days</td>
-                <td style="vertical-align: middle; border-top: none;">Productivity</td>
-                <td style="vertical-align: middle; border-top: none;"></td>
+                <th style="vertical-align: middle; border-top: none;">Name</th>
+                <th style="vertical-align: middle; border-top: none;">Role</th>
+                <th style="vertical-align: middle; border-top: none;">Worked days</t>
+                <th style="vertical-align: middle; border-top: none;">Late days</th>
+                <th style="vertical-align: middle; border-top: none;">Productivity</th>
+                <th style="vertical-align: middle; border-top: none;"></th>
             </tr>
         </thead>
 
@@ -33,15 +33,13 @@
                     {% if worked_days == 0 %}
                         {% set late_percent = 0 %}
                     {% else %}
-                        {% set late_percent = (late_days / worked_days * 100)|round(2) %}
-                    {%% endif %}
+                        {% set late_percent = (late_days / worked_days * 100) %}
+                    {% endif %}
                     
                     <td>{{ worked_days }}</td>
                     <td>
-                        
-
                         <div class="progress">
-                            <div class="progress-bar bg-danger" role="progressbar" style="width: {{ late_percent }}%;" aria-valuenow="{{ late_percent }}" aria-valuemin="0" aria-valuemax="100">{{ late_days }}({{  late_percent }}%)</div>
+                            <div class="progress-bar" role="progressbar" style="width: {{ late_percent }}%; background-color: #9a031e;" aria-valuenow="{{ late_percent }}" aria-valuemin="0" aria-valuemax="100">{{ late_days }} ({{  late_percent }}%)</div>
                         </div>                
                     </td>
                     <td>
@@ -49,7 +47,7 @@
                         {% if staying is not none %}
                             <!-- {{ '%.0f'|format(staying * 100|float) }}% -->
                             <div class="progress">
-                                <div class="progress-bar" role="progressbar" style="width: {{ staying * 100 }}%;" aria-valuenow="{{ staying * 100 }}" aria-valuemin="0" aria-valuemax="100">{{ staying * 100 }}%</div>
+                                <div class="progress-bar" role="progressbar" style="width: {{ staying * 100 }}%; background-color: #fb8b24;" aria-valuenow="{{ staying * 100 }}" aria-valuemin="0" aria-valuemax="100">{{ (staying * 100)|round(1) }}%</div>
                             </div>                        
                         {% endif %}
                     </td>

@@ -1,10 +1,9 @@
 from flask_login import UserMixin
 from flask import current_app
 from werkzeug.security import generate_password_hash, check_password_hash
-from app.extensions import db, login, fake_clock
+from app.extensions import db, login, fake_clock, moment
 import datetime
 import json
-import time
 import numpy as np
 import logging
 import sys
@@ -51,11 +50,11 @@ class User(UserMixin, db.Model):
 
 
     def __repr__(self) -> str:
-        return str(self)
+        return  f'User(username={self.username}, role={self.role})'    
     
 
     def __str__(self) -> str:
-        return f'User(id={self.id}, username={self.username}, role={self.role})'    
+        return f'{self.role} {self.name}'
 
 
     def set_password(self, password):
@@ -114,29 +113,34 @@ class User(UserMixin, db.Model):
         start_time = datetime.datetime.combine(record.date, record.dayshift.start_time)
         end_time = datetime.datetime.combine(record.date, record.dayshift.end_time)
 
+        arrival = record.arrival
         if now < start_time:
             latency = None
         else:
             if record.arrival is not None:
-                arrival = datetime.datetime.combine(record.date, record.arrival)
-                latency = arrival - start_time
+                arrival = record.arrival.replace(microsecond=0)
+
+                latency = datetime.datetime.combine(record.date, arrival) - start_time
                 if latency <= datetime.timedelta(0):
                     latency = None
             else:
                 latency = now - start_time
 
         if now > start_time and record.staying is not None:
+            staying = datetime.timedelta(seconds=round(record.staying.total_seconds()))
             staying_percent = record.staying / (end_time - start_time)
+            
         else:
+            staying = None
             staying_percent = None
 
         return {
             'day': WEEKDAY_ID_TO_NAME[record.date.weekday()],
             'date': record.date,
             'dayshift': record.dayshift,
-            'arrival': record.arrival,
+            'arrival': arrival,
             'latency': latency,
-            'staying': record.staying,
+            'staying': staying,
             'shift_duration': end_time - start_time,
             'staying_percent': staying_percent
         }
@@ -279,7 +283,7 @@ class User(UserMixin, db.Model):
                 self.current_productivity.arrival = dtime.time()
                 db.session.commit()
                 self.arrived = True
-                logger.info('%s arrived in time at %s', self, dtime.time())
+                logger.info('%s arrived in time at %s', self, dtime.replace(microsecond=0).time())
         
         # during the workshift
         elif condition_4:   
@@ -296,7 +300,7 @@ class User(UserMixin, db.Model):
                     
                     # and announce that the user has arrived
                     if self.lateness_alert_sent:
-                        self.send_alert(f'{self.name} arrived late at {dtime.time()}')
+                        self.send_alert(f'{self.name} arrived late at {dtime.replace(microsecond=0).time()}')
                         self.lateness_alert_sent = False
 
                 if self._check_in_workarea(cid, loc):
@@ -306,7 +310,7 @@ class User(UserMixin, db.Model):
                     self.absence = datetime.timedelta(0)
 
                     if self.absence_alert_sent:
-                        self.send_alert(f'{self.name} is back to work area at {dtime.time()}')
+                        self.send_alert(f'{self.name} is back to work area at {dtime.replace(microsecond=0).time()}')
                         self.absence_alert_sent = False
                 else:
                     self.n_misses += 1
@@ -315,11 +319,10 @@ class User(UserMixin, db.Model):
             else:
                 # if the user has not arrived
                 if not self.arrived:
-                    # then accumulate the latency and send alert if necessary
+                    # then send alert if necessary
                     latency = dtime - self.ws_start_time
-                    
                     if not self.lateness_alert_sent and latency > self.max_latency:
-                        self.send_alert(f'{self.name} was late for {latency}')
+                        self.send_alert(f'{self.name} was late for {datetime.timedelta(seconds=round(latency.total_seconds()))}')
                         self.lateness_alert_sent = True
                 
                 # if the user has arrived previously
@@ -330,7 +333,7 @@ class User(UserMixin, db.Model):
             if self.arrived and self.n_misses > current_app.config['MAX_ABSENCE_FRAMES']:
                 self.absence = dtime - self.last_in_roi
                 if not self.absence_alert_sent and self.absence > self.max_absence:
-                    self.send_alert(f'{self.name} was absent from work area since {self.last_in_roi.time()}')
+                    self.send_alert(f'{self.name} was absent from work area since {self.last_in_roi.replace(microsecond=0).time()}')
                     self.absence_alert_sent = True
 
         # after the workshift
@@ -403,6 +406,9 @@ class DayShift(db.Model):
 
     def __repr__(self):
         return f"DayShift(name={self.name}, start_time={self.start_time}, end_time={self.end_time})"
+    
+    def __str__(self):
+        return f"{self.name} (from {self.start_time} to {self.end_time})"
 
 
 class RegisteredWorkshift(db.Model):
@@ -416,10 +422,10 @@ class RegisteredWorkshift(db.Model):
     )
 
     def __repr__(self):
-        return f"RegisteredWorkshift(username={self.user.username}, day={self.day}, workshift_name={self.dayshift.name})"
+        return f"RegisteredWorkshift(user_id={self.user_id}, day={self.day}, dayshift_id={self.dayshift_id})"
     
     def __str__(self):
-        return self.__repr__()
+        return f"workshift on {self.day} {self.dayshift.name} for user {self.user.name}"
     
 
 class Camera(db.Model):
@@ -498,7 +504,10 @@ class Productivity(db.Model):
         return self.__repr__()
 
     # >>> from datetime import timedelta, time, datetime
-    # >>> p = Productivity(user_id=3, date=datetime(day=5, month=6, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=29, second=10), staying=timedelta(hours=2, minutes=10))
+    # >>> p = Productivity(user_id=3, date=datetime(day=13, month=4, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=30, second=11), staying=timedelta(seconds=55))
+    # >>> p = Productivity(user_id=4, date=datetime(day=13, month=4, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=30, second=9), staying=timedelta(seconds=60))
+    # >>> p = Productivity(user_id=5, date=datetime(day=13, month=4, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=30, second=6), staying=timedelta(seconds=57))
+    # [Productivity(username=intern, date=2023-04-12, dayshift_id=1, arrival=08:30:19.900000, staying=0:01:02.200000), Productivity(username=engineer1, date=2023-04-12, dayshift_id=1, arrival=08:30:07.533333, staying=0:00:29.932326), Productivity(username=engineer2, date=2023-04-12, dayshift_id=1, arrival=08:30:30.366667, staying=0:00:48.067581)]
 
 
 class Detection(db.Model):

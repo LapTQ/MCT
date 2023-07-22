@@ -5,7 +5,7 @@ from datetime import datetime
 
 from app.extensions import db, monitor
 from app.auth import bp
-from app.models import User, Region
+from app.models import User
 from app.auth.forms import LoginForm, CreateAccountForm
 
 
@@ -27,11 +27,10 @@ def login():
         login_user(user, remember=form.remember_me.data)
         flash(f'Hello {user}!')
 
-        ##### START HERE #####
-        # TODO xu ly sign-in vs check-in
-        if user.role in ['intern', 'engineeer']:
-            monitor.signal_signin(user.id)
-        ##### END HERE #####
+        # ##### START HERE #####
+        # if user.role in ['intern', 'engineeer']:
+        #     monitor.signal_signin(user.id)
+        # ##### END HERE #####
     
         next_page = request.args.get('next')
         if not next_page or url_parse(next_page).netloc != '':

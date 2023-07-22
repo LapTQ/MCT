@@ -4,12 +4,12 @@
 
     <h1>Weekly schedule</h1>
 
-    <table class="table table-hover">
+    <table class="table table-striped">
         <thead>
             <tr>
                 <td></td>
-                {% for d in week['morning'] %}
-                <td>{{ d }}</td>
+                {% for d in week['morning']['info'] %}
+                <th>{{ d }}</th>
                 {% endfor %}
             </tr>
         </thead>
@@ -17,11 +17,11 @@
         <tbody>
             {% for ds in week %}
                 <tr>
-                    <td>{{ ds }}</td>
-                    {% for d in week[ds] %}
+                    <td style="text-align: center;"><p style="font-weight: bold;">{{ ds }}</p><p>{{ week[ds]['start_time'] }} - {{ week[ds]['end_time'] }}</p></td>
+                    {% for d in week[ds]['info'] %}
                     <td>
-                        {% for username in week[ds][d] %}
-                            <p>{{ username }}</p>
+                        {% for user in week[ds]['info'][d] %}
+                            <p>{{ user.name }}</p>
                         {% endfor %}
                     </td>
                     {% endfor %}

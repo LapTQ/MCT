@@ -319,11 +319,11 @@ class CameraPipeline(Pipeline):
 
             ######### mock check-in #########
             if '<cam_id=1>' in self.name:
-                if frame_id == 217:
+                if frame_id == 227:
                     self.signal_signin(4)
-                elif frame_id == 614:
+                elif frame_id == 598:
                     self.signal_signin(3)
-                elif frame_id == 889:
+                elif frame_id == 912:
                     self.signal_signin(5)
             #################################
 
