@@ -2,6 +2,10 @@
 
 {% block app_content %}
 
-    <h1>Hello {{current_user.name}}!</h1>
+    <div class="row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+        <div class="col-md-5" style="display: flex; justify-content: start; width: 100%;">
+            <h1>Hello {{current_user.name}}!</h1>
+        </div>
+    </div>
 
 {% endblock %}

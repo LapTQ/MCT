@@ -34,10 +34,8 @@
                 <ul class="nav navbar-nav navbar-right">
                     {% if not current_user.is_anonymous %}
 
-                        {% if current_user.role =='admin' %}
-                            <li><a href="{{ url_for('auth.create_account') }}" style="color: white;"> Create account </a></li>
-                        {% elif current_user.role == 'manager' %}
-                            <li><a href="{{ url_for('main.view_staff_list') }}" style="color: white;"> Manage staff </a></li>
+                        {% if current_user.role == 'manager' %}
+                            <li><a href="{{ url_for('main.view_account_list') }}" style="color: white;"> Manage staff </a></li>
                             <li><a href="{{ url_for('main.view_cameras') }}" style="color: white;"> View cameras </a></li>
                             <li><a href="{{ url_for('main.view_weekly_schedule') }}" style="color: white;"> View weekly schedule </a></li>
                             <li>
@@ -48,8 +46,9 @@
                                     </span>
                                 </a>
                             </li>
-                        {% else %}
+                        {% elif current_user.role != 'admin' %}
                             <li><a href="{{ url_for('main.user', username=current_user.username) }}" style="color: white;"> Personal info </a></li>
+                            <li><a href="{{ url_for('main.view_workshifts', username=current_user.username) }}" style="color: white;"> Workshifts </a></li>
                         {% endif %}
 
                         <li><a href="{{ url_for('auth.logout') }}" style="color: white;">Logout</a></li>
@@ -87,14 +86,13 @@
         }
         {% if current_user.is_authenticated %}
         $(function() {
-            var since = 0;
+            var since = {{ current_user.last_message_read_time.timestamp() }};
             setInterval(function() {
                 $.ajax("{{ url_for('main.notifications') }}?since=" + since).done(
                     function(notifications) {
                         for (var i = 0; i < notifications.length; i++) {
                             if (notifications[i].name == 'unread_message_count')
                                 set_message_count(notifications[i].data);
-                            since = notifications[i].timestamp;
                         }
                     }
                 );

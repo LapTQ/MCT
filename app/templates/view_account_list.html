@@ -1,17 +1,24 @@
 {% extends "base.html" %}
 
 {% block app_content %}
+<div class="row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+    <div class="col-md-5" style="display: flex; justify-content: start; width: 100%;">
+        <h1>
+            {% if current_user.role == 'manager' %}
+            Staff list
+            {% elif current_user.role == 'admin' %}
+            Account list
+            {% endif %}
+        </h1>
+    </div>
+    <div class="col-md-5" style="display: flex; justify-content: end; width: 100%;">
+        <a class="btn btn-primary" href="{{ url_for('auth.create_account') }}" style="background-color: #5f0f40; border-color: #5f0f40;">Create new account</a>
+    </div>
+</div>
 
+    {% if current_user.role == 'manager' %}
     <table class="table table-striped">
         <thead>
-            <tr>
-                <td style="vertical-align: middle; border-top: none;"><h1>Staff list</h1></td>
-                <td style="vertical-align: middle; border-top: none;"></td>
-                <td style="vertical-align: middle; border-top: none;"></td>
-                <td style="vertical-align: middle; border-top: none;"></td>
-                <td style="vertical-align: middle; border-top: none;"></td>
-                <td style="vertical-align: middle; border-top: none;"><a class="btn btn-primary" href="{{ url_for('auth.create_account') }}" style="background-color: #5f0f40; border-color: #5f0f40;">New staff</a></td>
-            </tr>
 
             <tr>
                 <th style="vertical-align: middle; border-top: none;">Name</th>
@@ -59,5 +66,43 @@
         </tbody>
 
     </table>
+
+    {% elif current_user.role == 'admin' %}
+
+    <table class="table table-striped">
+        <thead>
+
+            <tr>
+                <th style="vertical-align: middle; border-top: none;">ID</th>
+                <th style="vertical-align: middle; border-top: none;">Name</th>
+                <th style="vertical-align: middle; border-top: none;">Username</th>
+                <th style="vertical-align: middle; border-top: none;">Role</th>
+                <th style="vertical-align: middle; border-top: none;"></th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for user in users%}
+                <tr>
+                    <td>{{ user.id }}</td>
+                    <td>{{ user.name }}</td>
+                    <td>{{ user.username }}</td>
+                    <td>{{ user.role }}</td>
+                    <td>
+                        <form action=" {{ url_for('auth.delete_account', username=user.username) }} " method="post" novalidate>
+                            {% with del_acc_form = del_acc_form_class() %}
+                            
+                            {{ del_acc_form.hidden_tag() }}
+                            <p>{{ del_acc_form.submit(value='Delete', class_='btn btn-default',  style="background-color: #9a031e; border-color: #9a031e;  color: white") }}</p>
+                            {% endwith %}
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+
+    </table>
+
+    {% endif %}
 
 {% endblock %}

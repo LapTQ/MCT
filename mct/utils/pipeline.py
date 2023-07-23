@@ -234,9 +234,11 @@ class Pipeline(ABC):
 
     
     def _put_to_output_queues(self, item, msg=None):
+        self.lock.acquire()
         for k, oq in self.output_queues.items():
-            oq.put(item)
             logger.debug(f"{self.name}:\t put to {oq.name} with message: {msg}")
+            oq.put(item)
+        self.lock.release()
         
 
     def add_output_queue(self, queue, key):
@@ -1242,7 +1244,7 @@ class VisualizePipeline(Pipeline):
                         wl.append(item)                        
 
             if True not in still_wait:
-                # self._put_to_output_queues('<EOS>')
+                self._put_to_output_queues('<EOS>')
                 logger.info(f'{self.name}:\t reached <EOS> token')
                 self.wait_list = self._new_wait_list()  # release memory TODO very naive
                 break
@@ -1301,7 +1303,9 @@ class VisualizePipeline(Pipeline):
                         )
 
                 # expecting dets to be in the format of [uid, tid, x1, y1, x2, y2, score, ...]
-                frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=np.int32(dets[:, 0]), text_prefix='user_id=')
+                with self.app.app_context():
+                    texts = [User.query.filter_by(id=user_id).first().name if user_id != -1 else '' for user_id in np.int32(dets[:, 0]).tolist()]
+                frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=texts)
                 # if detection_mode == 'pose':
                     # for kpt in dets[:, 10:]:
                     #     frame_img = plot_skeleton_kpts(frame_img, kpt.T, 3)
@@ -1854,9 +1858,6 @@ class Monitor:
             key (str): Key for the display. The client can access to the display queue with this key.
         """
 
-        assert hasattr(self, 'pl_cameras')
-        assert cam_id in self.pl_cameras
-
         lock = Lock()
 
         # create visualize pipeline if not exists
@@ -1887,8 +1888,11 @@ class Monitor:
     
     
     def _create_visualize(self, cam_id: int) -> VisualizePipeline:
+
+        while not hasattr(self, 'pl_cameras') or cam_id not in self.pl_cameras or not hasattr(self, 'pl_mcmap'):
+            logger.info(f'{self.name}:\t waiting for camera {cam_id} to be registered...')
+            time.sleep(1)
         
-        assert cam_id in self.pl_cameras
         oq_video = MyQueue(name=f'IQ-Visualize_Video-<cam_id={cam_id}>')
         oq_annot = MyQueue(name=cam_id)     # must be exactly cam_id
         self.pl_cameras[cam_id].add_output_queue(oq_video, oq_video.name)

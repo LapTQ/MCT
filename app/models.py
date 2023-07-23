@@ -35,7 +35,7 @@ class User(UserMixin, db.Model):
     address = db.Column(db.String(64))
     password_hash = db.Column(db.String(128))
     role = db.Column(db.String(128), nullable=False)
-    last_message_read_time = db.Column(db.DateTime)
+    last_message_read_time = db.Column(db.DateTime, default=datetime.datetime(2001, 5, 24))
 
     workshifts = db.relationship('RegisteredWorkshift', backref='user', lazy='dynamic')
     messages_received = db.relationship('Message', foreign_keys='Message.recipient_id', backref='recipient', lazy='dynamic')
@@ -50,7 +50,7 @@ class User(UserMixin, db.Model):
 
 
     def __repr__(self) -> str:
-        return  f'User(username={self.username}, role={self.role})'    
+        return  f'User(username={self.username}, role={self.role}, last_message_read_time={self.last_message_read_time})'    
     
 
     def __str__(self) -> str:
@@ -66,9 +66,8 @@ class User(UserMixin, db.Model):
 
 
     def new_messages(self):
-        last_read_time = self.last_message_read_time or datetime.datetime(1900, 1, 1)
         return Message.query.filter_by(recipient=self).filter(
-            Message.timestamp > last_read_time).count()
+            Message.timestamp > self.last_message_read_time).count()
 
 
     def add_notification(self, name, data):
@@ -180,6 +179,7 @@ class User(UserMixin, db.Model):
                      for i in range(7) 
                      for dayshift_name in ['morning', 'afternoon']
         ]
+        self.has_workshifts = False
         for i, ws in enumerate(upcomings):
             date, dayshift = ws
             weekday = date.weekday()
@@ -189,10 +189,11 @@ class User(UserMixin, db.Model):
             ).first()
             if workshift is not None:
                 if now < datetime.datetime.combine(date, dayshift.start_time):
-                    self.next_workshift = date, workshift
+                    self.has_workshifts = True
                     break
         
-        logger.info('Loaded next workshift %s', self.next_workshift)
+        if not self.has_workshifts:
+            return
         
         self.productivity_created = False
         self.arrived = False
@@ -200,13 +201,15 @@ class User(UserMixin, db.Model):
         self.n_misses = 0
         self.absence_alert_sent = False
         self.absence = datetime.timedelta(0)
-        self.staying = datetime.datetime.combine(today, self.next_workshift[1].dayshift.end_time) - \
-             datetime.datetime.combine(today, self.next_workshift[1].dayshift.start_time)
-        self.last_in_roi = datetime.datetime.combine(today, self.next_workshift[1].dayshift.start_time)
+        self.staying = datetime.datetime.combine(today, workshift.dayshift.end_time) - \
+             datetime.datetime.combine(today, workshift.dayshift.start_time)
+        self.last_in_roi = datetime.datetime.combine(today, workshift.dayshift.start_time)
 
-        self.ws_start_time = datetime.datetime.combine(self.next_workshift[0], self.next_workshift[1].dayshift.start_time)
-        self.ws_end_time = datetime.datetime.combine(self.next_workshift[0], self.next_workshift[1].dayshift.end_time)
-        self.ws_dayshift_id = self.next_workshift[1].dayshift_id
+        self.ws_start_time = datetime.datetime.combine(date, workshift.dayshift.start_time)
+        self.ws_end_time = datetime.datetime.combine(date, workshift.dayshift.end_time)
+        self.ws_dayshift_id = workshift.dayshift_id
+
+        logger.info('Loaded next workshift for %s: %s %s %s', self.name, workshift.day, date, workshift.dayshift.name)
 
 
     def send_alert(self, message):
@@ -242,6 +245,9 @@ class User(UserMixin, db.Model):
             loc (None, array): the location of the user in the camera frame, in the format of (x, y)
         """
 
+        if not self.has_workshifts:
+            return
+        
         if dtime == '<EOS>':
             if self.productivity_created:
                 self.current_productivity.staying = self.staying

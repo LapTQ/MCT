@@ -2,7 +2,11 @@
 
 {% block app_content %}
 
-    <h1>Staff information</h1>
+    <div class="row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+        <div class="col-md-5" style="display: flex; justify-content: start; width: 100%;">
+            <h1>Staff info: {{ user.name }}</h1>
+        </div>
+    </div>
 
     <table class="table table-striped">
         <tbody>
@@ -26,60 +30,12 @@
                 <th scope="row">Role</th>
                 <td>{{ user.role }}</td>
             </tr>
+            <tr>
+                <th scope="row">Workshifts</th>
+                <td><a href="{{ url_for('main.view_workshifts', username=user.username) }}"> &#x2192 Click to see details</a></td>
+            </tr>
         </tbody>
       </table>
-
-
-    <table class="table table-striped">
-
-        <thead>
-            <tr>
-                <th></th>
-                {% for d in week['morning']['info'] %}
-                <th>{{ d }}</th>
-                {% endfor %}
-            </tr>
-        </thead>
-        <tbody>
-            {% for ds in week %}
-            {% if ds == 'morning' %}
-                {% set ds_id = 1 %}
-            {% elif ds == 'afternoon' %}
-                {% set ds_id = 2 %}
-            {% endif %}
-                <tr>
-                    <td style="text-align: center;"><p style="font-weight: bold;">{{ ds }}</p><p>{{ week[ds]['start_time'] }} - {{ week[ds]['end_time'] }}</p></td>
-                    {% for d in week[ds]['info'] %}
-                    <td>
-                            {% if week[ds]['info'][d] %}
-                                {% if current_user.role == 'manager' %}
-                                <form action=" {{ url_for('main.unregister_workshift', username=user.username, day=d, dayshift_id=ds_id) }} " method="post" novalidate>
-                                    {% with unregister_form = unregister_form_class() %}
-                                    
-                                    {{ unregister_form.hidden_tag() }}
-                                    <p>{{ unregister_form.submit(value='Delete', class_='btn btn-default',  style="background-color: #9a031e; border-color: #9a031e;  color: white") }}</p>
-                                    {% endwith %}
-                                </form>
-                                {% else %}
-                                <span style="font-size: 24px; color: green; font-weight: bold;">&#10003;</span>
-                                {% endif %}
-                            {% else %}
-                                {% if current_user.role == 'manager' %}
-                                <form action=" {{ url_for('main.register_workshift', username=user.username, day=d, dayshift_id=ds_id) }} " method="post" novalidate>
-                                    {% with register_form = register_form_class() %}
-                                    
-                                    {{ register_form.hidden_tag() }}
-                                    <p>{{ register_form.submit(value='Register', class_='btn btn-default') }}</p>
-                                    {% endwith %}
-                                </form>
-                                {% endif %}
-                            {% endif %}
-                    </td>
-                    {% endfor %}
-                </tr>
-            {% endfor %}
-        </tbody>
-    </table>
 
 
 {% endblock %}

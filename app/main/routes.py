@@ -5,52 +5,54 @@ from app.extensions import db
 from app.main import bp
 from app.models import User, RegisteredWorkshift, DayShift, Camera, Message, Notification, Productivity
 from app.main.forms import EmptyForm
+from app.auth.forms import EmptyForm as AuthEmptyForm
 
-##### START HERE #####
 from app.extensions import monitor, fake_clock
 import time
 from threading import Thread
-##### END HERE #####
+import numpy as np
+import cv2
 
 
 @bp.route('/', methods=['GET', 'POST'])
 @bp.route('/index', methods=['GET', 'POST'])
 @login_required
 def index():
+
+    if current_user.role == 'manager':                      # type: ignore
+        return redirect(url_for('main.view_account_list')) 
+    elif current_user.role == 'admin':                      # type: ignore
+        return redirect(url_for('main.view_account_list'))
+    else:
+        return redirect(url_for('main.user', username=current_user.username))   # type: ignore
+
     return render_template('index.html', title='Home')
 
 
 @bp.route('/user/<username>')
 @login_required
 def user(username):
+
     user = User.query.filter_by(username=username).first_or_404() # type: ignore
+
     if (user.username != current_user.username and current_user.role != 'manager') or user.role == 'admin':    # type: ignore
         return redirect(url_for('main.index'))
-    
-    workshifts = RegisteredWorkshift.query.filter_by(user_id=user.id).all()
-    unregister_form_class = EmptyForm
-    register_form_class = EmptyForm
-    week = {ds: {
-                'start_time': DayShift.query.filter_by(name=ds).first().start_time,
-                'end_time': DayShift.query.filter_by(name=ds).first().end_time,
-                'info':{d: False for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}
-            }  
-            for ds in ['morning', 'afternoon']}
-    for ws in workshifts:
-        week[ws.dayshift.name]['info'][ws.day] = True
         
-    return render_template('user.html', user=user, unregister_form_class=unregister_form_class, register_form_class=register_form_class, week=week)
+    return render_template('user.html', user=user)
 
 
-@bp.route('/view_staff_list')
+@bp.route('/view_account_list')
 @login_required
-def view_staff_list():
-    
-    if current_user.role != 'manager': # type: ignore
+def view_account_list():
+       
+    if current_user.role == 'manager': # type: ignore
+        users = User.query.filter(User.role.in_(['intern', 'engineer'])).all()
+    elif current_user.role == 'admin': # type: ignore
+        users = User.query.all()
+    else:
         return redirect(url_for('main.index'))
     
-    users = User.query.filter(User.role.in_(['intern', 'engineer'])).all()
-    return render_template('view_staff_list.html', users=users)
+    return render_template('view_account_list.html', users=users, del_acc_form_class=AuthEmptyForm)
 
 
 @bp.route('/_register_workshift/<username>/<day>/<dayshift_id>', methods=['POST'])
@@ -84,7 +86,7 @@ def register_workshift(username, day, dayshift_id):
         db.session.commit()
         flash(f'Registered {workshift} successfully.')
     
-    return redirect(url_for('main.user', username=user.username))   # type:ignore
+    return redirect(url_for('main.view_workshifts', username=user.username))   # type:ignore
     
 
 @bp.route('/_unregister_workshift/<username>/<day>/<dayshift_id>', methods=['POST'])
@@ -110,8 +112,31 @@ def unregister_workshift(username, day, dayshift_id):
             db.session.commit()
             flash(f'Unregistered successfully.')
         
-    return redirect(url_for('main.user', username=user.username)) # type: ignore
+    return redirect(url_for('main.view_workshifts', username=user.username)) # type: ignore
     
+
+@bp.route('/view_workshifts/<username>')
+@login_required
+def view_workshifts(username):
+
+    user = User.query.filter_by(username=username).first_or_404() # type: ignore
+    if (user.username != current_user.username and current_user.role != 'manager') or user.role == 'admin':    # type: ignore
+        return redirect(url_for('main.index'))
+    
+    workshifts = RegisteredWorkshift.query.filter_by(user_id=user.id).all()
+    unregister_form_class = EmptyForm
+    register_form_class = EmptyForm
+    week = {ds: {
+                'start_time': DayShift.query.filter_by(name=ds).first().start_time,
+                'end_time': DayShift.query.filter_by(name=ds).first().end_time,
+                'info':{d: False for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}
+            }  
+            for ds in ['morning', 'afternoon']}
+    for ws in workshifts:
+        week[ws.dayshift.name]['info'][ws.day] = True
+        
+    return render_template('view_workshifts.html', user=user, unregister_form_class=unregister_form_class, register_form_class=register_form_class, week=week)
+
 
 @bp.route('/view_weekly_schedule')
 @login_required
@@ -226,36 +251,47 @@ def video_feed(cam_id):
             self.key = key
             self.display_queue = display_queue
 
+            self.blank_img = self._encode_img(np.zeros((240, 480, 3), dtype=np.uint8))
+
 
         def start(self):
             Thread(target=self._thread).start()
+            
+            # self.frame = self.blank_img
+            
             while True:
                 self.last_access = time.time()
                 time.sleep(0.01)
                 if self.frame is None:
                     continue
+                
                 yield self.frame
 
         
         def _thread(self):
-            import cv2
 
             # stream video
             with self.app.app_context():
                 while True:
                     # deligate the FPS responsibility to the Visualizer
                     item = self.display_queue.get(block=True)
-                    img = item['frame_img']
-                    img = cv2.resize(img, (480, 240))
-                    
-                    imgbyte = cv2.imencode('.jpg', img)[1].tobytes()
 
-                    if time.time() - self.last_access > 2:
+                    if item == '<EOS>' or time.time() - self.last_access > 2:
                         monitor.withdraw_display(self.cam_id, self.key)
                         break
 
-                    self.frame = (b'--frame\r\n'
-                                    b'Content-Type: image/jpeg\r\n\r\n' + imgbyte + b'\r\n')
+                    img = item['frame_img']
+                    img = cv2.resize(img, (480, 240))
+
+                    self.frame = self._encode_img(img)
+
+
+        def _encode_img(self, img):
+            imgbyte = cv2.imencode('.jpg', img)[1].tobytes()
+
+            return (b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + imgbyte + b'\r\n')
+        
                 
     return Response(
         _FakeCamera(

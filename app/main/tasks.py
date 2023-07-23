@@ -3,8 +3,9 @@ from flask import current_app
 import cv2
 
 from app.extensions import monitor, db
-from app.models import Camera, Region, CameraMatchingPoint, Message, Notification, Productivity, Detection, STA
+from app.models import User, Camera, Region, CameraMatchingPoint, Message, Notification, Productivity, Detection, STA
 import json
+import datetime
 
 import numpy as np
 import os
@@ -17,10 +18,12 @@ from mct.utils.pipeline import Scene
 def async_startup(app):
     with app.app_context():
 
-        ########### mock test ###########
+        ########### clean database for each mock test run ###########
         for entity in [Message, Notification, Productivity, Detection, STA]:
             for record in entity.query.all():
                 db.session.delete(record)
+        for u in User.query.all():
+            u.last_message_read_time = datetime.datetime(2001, 5, 24)
         db.session.commit()
         #################################
 

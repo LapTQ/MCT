@@ -11,7 +11,7 @@ COLORS = [
 ]
 
 
-def plot_box(img, boxes, thickness=4, texts=None, text_prefix=None):
+def plot_box(img, boxes, thickness=4, texts=None):
     """
     boxes: [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
     """
@@ -49,7 +49,7 @@ def plot_box(img, boxes, thickness=4, texts=None, text_prefix=None):
                 img, 
                 str(ids[i]) + \
                     (f' ({int(confs[i] * 100)})' if confs[i] != -1 else '') + \
-                        (f'<{text_prefix}{texts[i]}>' if texts is not None and texts[i] != -1 else ''), 
+                        ((' ' + texts[i]) if texts is not None else ''), 
                 (x_text, y_text), 
                 cv2.FONT_HERSHEY_SIMPLEX, 
                 2.0,

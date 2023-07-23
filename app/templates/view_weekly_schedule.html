@@ -2,7 +2,11 @@
 
 {% block app_content %}
 
-    <h1>Weekly schedule</h1>
+    <div class="row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+        <div class="col-md-5" style="display: flex; justify-content: start; width: 100%;">
+            <h1>Weekly schedule</h1>
+        </div>
+    </div>
 
     <table class="table table-striped">
         <thead>
@@ -21,7 +25,7 @@
                     {% for d in week[ds]['info'] %}
                     <td>
                         {% for user in week[ds]['info'][d] %}
-                            <p>{{ user.name }}</p>
+                            <p><a href="{{ url_for('main.view_workshifts', username=user.username) }}">{{ user.name }}</a></p>
                         {% endfor %}
                     </td>
                     {% endfor %}
