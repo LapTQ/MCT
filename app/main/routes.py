@@ -276,14 +276,16 @@ def video_feed(cam_id):
                     # deligate the FPS responsibility to the Visualizer
                     item = self.display_queue.get(block=True)
 
+                    img = item['frame_img']
+                    img = cv2.resize(img, (480, 240))
+
                     if item == '<EOS>' or time.time() - self.last_access > 2:
                         monitor.withdraw_display(self.cam_id, self.key)
                         break
 
-                    img = item['frame_img']
-                    img = cv2.resize(img, (480, 240))
-
                     self.frame = self._encode_img(img)
+                    
+                    
 
 
         def _encode_img(self, img):

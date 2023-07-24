@@ -10,7 +10,7 @@ class FakeClock:
         self._true_start_time = datetime.now()
 
     def now(self):
-            return self._fake_start_time + (datetime.now() - self._true_start_time)
+        return self._fake_start_time + (datetime.now() - self._true_start_time)
     
 
 fake_signin_time = {

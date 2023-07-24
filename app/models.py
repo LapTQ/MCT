@@ -195,19 +195,19 @@ class User(UserMixin, db.Model):
         if not self.has_workshifts:
             return
         
-        self.productivity_created = False
-        self.arrived = False
-        self.lateness_alert_sent = False
-        self.n_misses = 0
-        self.absence_alert_sent = False
-        self.absence = datetime.timedelta(0)
-        self.staying = datetime.datetime.combine(today, workshift.dayshift.end_time) - \
+        self._productivity_created = False
+        self._arrived = False
+        self._lateness_alert_sent = False
+        self._n_misses = 0
+        self._absence_alert_sent = False
+        self._absence = datetime.timedelta(0)
+        self._staying = datetime.datetime.combine(today, workshift.dayshift.end_time) - \
              datetime.datetime.combine(today, workshift.dayshift.start_time)
-        self.last_in_roi = datetime.datetime.combine(today, workshift.dayshift.start_time)
+        self._last_in_roi = datetime.datetime.combine(today, workshift.dayshift.start_time)
 
-        self.ws_start_time = datetime.datetime.combine(date, workshift.dayshift.start_time)
-        self.ws_end_time = datetime.datetime.combine(date, workshift.dayshift.end_time)
-        self.ws_dayshift_id = workshift.dayshift_id
+        self._ws_start_time = datetime.datetime.combine(date, workshift.dayshift.start_time)
+        self._ws_end_time = datetime.datetime.combine(date, workshift.dayshift.end_time)
+        self._ws_dayshift_id = workshift.dayshift_id
 
         logger.info('Loaded next workshift for %s: %s %s %s', self.name, workshift.day, date, workshift.dayshift.name)
 
@@ -249,8 +249,8 @@ class User(UserMixin, db.Model):
             return
         
         if dtime == '<EOS>':
-            if self.productivity_created:
-                self.current_productivity.staying = self.staying
+            if self._productivity_created:
+                self.current_productivity.staying = self._staying
                 db.session.commit()
                 logger.info('Updated staying in %s', self.current_productivity)
             return
@@ -266,30 +266,30 @@ class User(UserMixin, db.Model):
         
         date = dtime.date()
         
-        condition_1 = not self.productivity_created
-        condition_2 = dtime + datetime.timedelta(minutes=30) > self.ws_start_time
-        condition_3 = dtime <= self.ws_start_time
-        condition_4 = self.ws_start_time < dtime < self.ws_end_time
+        condition_1 = not self._productivity_created
+        condition_2 = dtime + datetime.timedelta(minutes=30) > self._ws_start_time
+        condition_3 = dtime <= self._ws_start_time
+        condition_4 = self._ws_start_time < dtime < self._ws_end_time
 
         # create productivity record 30 minutes before the workshift starts
         if condition_1 and condition_2: 
             self.current_productivity = Productivity(
                 user_id=self.id, 
                 date=date, 
-                dayshift_id=self.ws_dayshift_id
+                dayshift_id=self._ws_dayshift_id
             )
             db.session.add(self.current_productivity)
             db.session.commit()
-            self.productivity_created = True
+            self._productivity_created = True
             logger.info('Create %s', self.current_productivity)
 
         # during 30 minutes before the workshift starts
         if condition_2 and condition_3:
-            if loc and not self.arrived:
+            if loc and not self._arrived:
                 self.current_productivity.arrival = dtime.time()
                 db.session.commit()
-                self.arrived = True
-                logger.info('%s arrived in time at %s', self, dtime.replace(microsecond=0).time())
+                self._arrived = True
+                logger.info('%s arrived in time at %s', self, dtime.time()) # .replace(microsecond=0)
         
         # during the workshift
         elif condition_4:   
@@ -297,55 +297,55 @@ class User(UserMixin, db.Model):
             # if the user is detected
             if loc:
                 # if the user has not arrived previously
-                if not self.arrived:
+                if not self._arrived:
 
                     # then save the arrival time
                     self.current_productivity.arrival = dtime.time()
                     db.session.commit()
-                    self.arrived = True
+                    self._arrived = True
+                    self._last_in_roi = dtime
                     
                     # and announce that the user has arrived
-                    if self.lateness_alert_sent:
-                        self.send_alert(f'{self.name} arrived late at {dtime.replace(microsecond=0).time()}')
-                        self.lateness_alert_sent = False
+                    if self._lateness_alert_sent:
+                        self.send_alert(f'{self.name} arrived late at {dtime.time()}') # .replace(microsecond=0)
+                        self._lateness_alert_sent = False
 
                 if self._check_in_workarea(cid, loc):
-                    self.n_misses = 0
-                    self.last_in_roi = dtime
-                    self.staying -= self.absence
-                    self.absence = datetime.timedelta(0)
+                    self._n_misses = 0
+                    self._last_in_roi = dtime
+                    self._absence = datetime.timedelta(0)
 
-                    if self.absence_alert_sent:
-                        self.send_alert(f'{self.name} is back to work area at {dtime.replace(microsecond=0).time()}')
-                        self.absence_alert_sent = False
+                    if self._absence_alert_sent:
+                        self.send_alert(f'{self.name} is back to work area at {dtime.time()}') # .replace(microsecond=0)
+                        self._absence_alert_sent = False
                 else:
-                    self.n_misses += 1
+                    self._n_misses += 1
                     
             # if the user is not detected
             else:
                 # if the user has not arrived
-                if not self.arrived:
+                if not self._arrived:
                     # then send alert if necessary
-                    latency = dtime - self.ws_start_time
-                    if not self.lateness_alert_sent and latency > self.max_latency:
-                        self.send_alert(f'{self.name} was late for {datetime.timedelta(seconds=round(latency.total_seconds()))}')
-                        self.lateness_alert_sent = True
+                    latency = dtime - self._ws_start_time
+                    if not self._lateness_alert_sent and latency > self.max_latency:
+                        self.send_alert(f'{self.name} was late for {latency}') # datetime.timedelta(seconds=round(latency.total_seconds()))
+                        self._lateness_alert_sent = True
                 
-                # if the user has arrived previously
-                else:
-                    self.n_misses += 1      # accumulate the absence time
+                self._n_misses += 1      # accumulate the absence time
             
             # if the user does not stay in work area for a certain period
-            if self.arrived and self.n_misses > current_app.config['MAX_ABSENCE_FRAMES']:
-                self.absence = dtime - self.last_in_roi
-                if not self.absence_alert_sent and self.absence > self.max_absence:
-                    self.send_alert(f'{self.name} was absent from work area since {self.last_in_roi.replace(microsecond=0).time()}')
-                    self.absence_alert_sent = True
+            if  self._n_misses > current_app.config['MAX_ABSENCE_FRAMES']:
+                _absence = dtime - self._last_in_roi
+                self._staying -= _absence - self._absence
+                self._absence = _absence
+                if self._arrived and not self._absence_alert_sent and self._absence > self.max_absence:
+                    self.send_alert(f'{self.name} was absent from work area since {self._last_in_roi.time()}') # .replace(microsecond=0)
+                    self._absence_alert_sent = True
 
         # after the workshift
-        elif self.ws_end_time < dtime:
-            if self.productivity_created:
-                self.current_productivity.staying = self.staying
+        elif self._ws_end_time < dtime:
+            if self._productivity_created:
+                self.current_productivity.staying = self._staying
                 db.session.commit()
                 logger.info('Updated staying in %s', self.current_productivity)
                 self.load_next_workshift()

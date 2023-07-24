@@ -233,12 +233,10 @@ class Pipeline(ABC):
         self.config.switch_pausing()
 
     
-    def _put_to_output_queues(self, item, msg=None):
-        self.lock.acquire()
+    def _put_to_output_queues(self, item):
         for k, oq in self.output_queues.items():
-            logger.debug(f"{self.name}:\t put to {oq.name} with message: {msg}")
+            logger.debug(f"{self.name}:\t put to queue {k}")
             oq.put(item)
-        self.lock.release()
         
 
     def add_output_queue(self, queue, key):
@@ -252,8 +250,11 @@ class Pipeline(ABC):
     
     def remove_output_queue(self, key):
         self.lock.acquire()
+        q = self.output_queues[key]
         del self.output_queues[key]
         self.lock.release()
+
+        return q
 
         logger.info(f'{self.name}:\t removed output queue with key {key}. Remaining {len(self.output_queues)} output queues.')  # type: ignore
 
@@ -321,11 +322,11 @@ class CameraPipeline(Pipeline):
 
             ######### mock check-in #########
             if '<cam_id=1>' in self.name:
-                if frame_id == 227:
+                if frame_id == 217:
                     self.signal_signin(4)
-                elif frame_id == 598:
+                elif frame_id == 614:
                     self.signal_signin(3)
-                elif frame_id == 912:
+                elif frame_id == 889:
                     self.signal_signin(5)
             #################################
 
@@ -1244,7 +1245,7 @@ class VisualizePipeline(Pipeline):
                         wl.append(item)                        
 
             if True not in still_wait:
-                self._put_to_output_queues('<EOS>')
+                # self._put_to_output_queues('<EOS>')
                 logger.info(f'{self.name}:\t reached <EOS> token')
                 self.wait_list = self._new_wait_list()  # release memory TODO very naive
                 break
@@ -1334,7 +1335,7 @@ class VisualizePipeline(Pipeline):
                     else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
                 time.sleep(sleep)
 
-                self._put_to_output_queues(out_item, f"frame_id={adict['frame_id'][1][t]}")
+                self._put_to_output_queues(out_item)
 
                 mid_time = end_time
                 logger.debug(f'{self.name}:\t slept {sleep}')
@@ -1538,6 +1539,7 @@ class MCMapPipeline(Pipeline):
                     time.sleep(sleep)
 
                     # expecting key of the output queue is camera ID
+                    self.lock.acquire()
                     for cid, oq in self.output_queues.items():
                         oq.put(                                
                             {
@@ -1547,7 +1549,7 @@ class MCMapPipeline(Pipeline):
                                 'signin_user_id': signin_user_id if cid == self.checkin_cid else None
                             }
                         )
-                        
+                    self.lock.release()
                     mid_time = end_time
                     logger.debug(f'{self.name}:\t slept {sleep}')
 
@@ -1927,26 +1929,23 @@ class Monitor:
         
         if not hasattr(self, 'display_queues'):
             return
-        
-        lock = Lock()
 
-        lock.acquire()
         if cam_id not in self.pl_visualizes:
-            lock.release()
             return
 
         if cam_id not in self.display_queues:
-            lock.release()
             return
         
         if key not in self.display_queues[cam_id]:
-            lock.release()
             return
         
         # remove output queue from visualize
         pl_visualize = self.pl_visualizes[cam_id]
-        pl_visualize.remove_output_queue(key)
-        display_queue = self.display_queues[cam_id][key]
+        display_queue = pl_visualize.remove_output_queue(key)
+        self._release_queue(display_queue)
+        
+        lock = Lock()
+        lock.acquire()
         del self.display_queues[cam_id][key]
         del display_queue
         
@@ -1955,7 +1954,6 @@ class Monitor:
 
             logger.info(f'Destructing VisualizePipeline for camera {cam_id}...')
 
-            # pl_visualize.stop()
             oq_video = pl_visualize.video_queue
             oq_annot = pl_visualize.annot_queue
             del self.pl_visualizes[cam_id]
@@ -1971,6 +1969,11 @@ class Monitor:
         
     def signal_signin(self, user_id):
         self.pl_cameras[self.checkin_cid].signal_signin(user_id)
+
+
+    def _release_queue(self, queue):
+        while not queue.empty():
+            queue.get()
 
         
 
