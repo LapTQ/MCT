@@ -1,5 +1,5 @@
 import os
-from mct.utils.pipeline import ConfigPipeline
+from mct.sta.base import ConfigPipeline
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 
@@ -11,7 +11,8 @@ class Config:
     SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(basedir, 'app.db')    
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    PIPELINE = ConfigPipeline('data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/config_pred_mct_trackertracker_18.yaml')
+    PIPELINE = ConfigPipeline('mct/configs/sta.yaml')
+    USE_REAL_TRACKER = False
     
     MAX_LATENCY = 5                   # seconds
     MAX_ABSENCE = 5                   # seconds

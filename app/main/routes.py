@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 
 from app.extensions import db
 from app.main import bp
-from app.models import User, RegisteredWorkshift, DayShift, Camera, Message, Notification, Productivity
+from app.entities import User, RegisteredWorkshift, DayShift, Camera, Message, Notification, Productivity
 from app.main.forms import EmptyForm
 from app.auth.forms import EmptyForm as AuthEmptyForm
 
@@ -251,14 +251,10 @@ def video_feed(cam_id):
             self.key = key
             self.display_queue = display_queue
 
-            self.blank_img = self._encode_img(np.zeros((240, 480, 3), dtype=np.uint8))
-
 
         def start(self):
             Thread(target=self._thread).start()
-            
-            # self.frame = self.blank_img
-            
+                        
             while True:
                 self.last_access = time.time()
                 time.sleep(0.01)
@@ -285,8 +281,6 @@ def video_feed(cam_id):
 
                     self.frame = self._encode_img(img)
                     
-                    
-
 
         def _encode_img(self, img):
             imgbyte = cv2.imencode('.jpg', img)[1].tobytes()

@@ -1,6 +1,6 @@
 from app import create_app
 from app.extensions import db
-from app.models import User, DayShift, RegisteredWorkshift, Camera, Region, CameraMatchingPoint, Message, Notification, Productivity
+from app.entities import User, DayShift, RegisteredWorkshift, Camera, Region, CameraMatchingPoint, Message, Notification, Productivity
 
 
 app = create_app()

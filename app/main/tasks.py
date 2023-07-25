@@ -3,7 +3,7 @@ from flask import current_app
 import cv2
 
 from app.extensions import monitor, db
-from app.models import User, Camera, Region, CameraMatchingPoint, Message, Notification, Productivity, Detection, STA
+from app.entities import User, Camera, Region, CameraMatchingPoint, Message, Notification, Productivity, Detection, STA
 import json
 import datetime
 
@@ -12,13 +12,13 @@ import os
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
-from mct.utils.pipeline import Scene
+from mct.sta.engines import Scene
 
 
 def async_startup(app):
     with app.app_context():
 
-        ########### clean database for each mock test run ###########
+        ########### MOCK TEST ###########
         for entity in [Message, Notification, Productivity, Detection, STA]:
             for record in entity.query.all():
                 db.session.delete(record)
@@ -39,7 +39,10 @@ def async_startup(app):
             
             video_name = os.path.split(camera.address)[1][:-4]
             meta_path = f'data/recordings/2d_v4/meta/{video_name}.yaml'
-            txt_path=f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{video_name}.txt'
+
+            ######### MOCK TEST #########
+            txt_path = f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{video_name}.txt'
+            #############################
 
             monitor.register_camera(
                 cam_id=camera.id,

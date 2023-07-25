@@ -4,7 +4,7 @@ from werkzeug.urls import url_parse
 
 from app.extensions import db
 from app.auth import bp
-from app.models import User
+from app.entities import User
 from app.auth.forms import LoginForm, CreateAccountForm, EmptyForm
 
 
@@ -26,10 +26,10 @@ def login():
         login_user(user, remember=form.remember_me.data)
         flash(f'Hello {user}!')
 
-        # ##### START HERE #####
+        ########### MOCK TEST ###########
         # if user.role in ['intern', 'engineeer']:
         #     monitor.signal_signin(user.id)
-        # ##### END HERE #####
+        #################################
     
         next_page = request.args.get('next')
         if not next_page or url_parse(next_page).netloc != '':

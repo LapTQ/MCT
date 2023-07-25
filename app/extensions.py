@@ -17,7 +17,7 @@ fake_clock = FakeClock()
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
-from mct.utils.pipeline import Monitor
+from app.engines import Monitor
 
 monitor = Monitor()
 
