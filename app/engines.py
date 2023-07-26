@@ -568,8 +568,6 @@ class Monitor:
         )
 
         # create tracker
-        with self.app.app_context():
-            use_real_tracker = self.app.config['USE_REAL_TRACKER']
         tracker = Tracker(
             detection_mode=self.config.get('DETECTION_MODE'),
             tracking_mode=self.config.get('TRACKING_MODE'),
@@ -580,7 +578,7 @@ class Monitor:
             tracking_config=self.config.get('TRACKING_CONFIG'),
             device=self.config.get('DEVICE'),
             txt_path=txt_path,
-            use_real_tracker=use_real_tracker,
+            use_real_tracker=self.config.get('USE_REAL_TRACKER'),
         )
 
         # commit output queue to camera pipeline

@@ -12,7 +12,6 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     PIPELINE = ConfigPipeline('mct/configs/sta.yaml')
-    USE_REAL_TRACKER = False
     
     MAX_LATENCY = 5                   # seconds
     MAX_ABSENCE = 5                   # seconds

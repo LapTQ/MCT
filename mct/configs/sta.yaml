@@ -6,6 +6,7 @@ CAMERA_FRAME_HEIGHT: 1080
 CAMERA_FPS: null
 
 # SCT pipeline
+USE_REAL_TRACKER: false
 DETECTION_MODE: 'pose'   # 'box', 'pose'         # tune
 DETECTION_WEIGHT: 'mct/weights/yolov7-w6-pose.pt'
 DETECTION_CONF_THRES: 0.25

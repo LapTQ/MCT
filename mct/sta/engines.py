@@ -109,6 +109,8 @@ class Tracker:
             self._load_tracker()
         else:
             self._load_txt_result()
+            if self.use_real_tracker:
+                self._load_tracker()
 
         logger.info(f'{self.name}:\t initialized with DETECTION_MODE={self.detection_mode}, TRACKING_MODE={self.tracking_mode}')
 

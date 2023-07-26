@@ -39,10 +39,7 @@ def async_startup(app):
             
             video_name = os.path.split(camera.address)[1][:-4]
             meta_path = f'data/recordings/2d_v4/meta/{video_name}.yaml'
-
-            ######### MOCK TEST #########
             txt_path = f'data/recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct/{video_name}.txt'
-            #############################
 
             monitor.register_camera(
                 cam_id=camera.id,
