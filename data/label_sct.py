@@ -1,9 +1,5 @@
 import os
-import argparse
-import time
-from datetime import datetime, timedelta
 from tqdm import tqdm
-from threading import Thread
 from pathlib import Path
 
 import numpy as np
@@ -18,142 +14,215 @@ from mct.utils.draw import plot_box
 HERE = Path(__file__).parent
 
 
-def visualize_from_txt(vid_path, txt_path, **kwargs):
+def visualize_multi_camera(
+        caps, 
+        grid_size,
+        scts=None,
+        global_ids_mapper=None,
+        out_video_path=None,
+        resize=None,
+        show=False,
+    ):
 
-    out_dir = str(HERE / '../output')
-    filename = os.path.split(vid_path)[1]
+    if global_ids_mapper is None:
+        global_ids_mapper = [None] * len(caps)
 
-    cap = cv2.VideoCapture(vid_path)
-    with open(txt_path, 'r') as f:
-        det_seq = np.array([[eval(e) for e in l.strip().split(',' if ',' in l else None)[:7]] for l in f.readlines()])
+    if scts is None:
+        scts = [None] * len(caps)
 
-    if 'vid_path2' in kwargs:
-        cap2 = cv2.VideoCapture(kwargs['vid_path2'])
-        with open(kwargs['txt_path2'], 'r') as f:
-            det_seq2 = np.array([[eval(e) for e in l.strip().split(',' if ',' in l else None)[:7]] for l in f.readlines()])
+    writer_created = False
+    H = grid_size[0] * int(caps[0].get(cv2.CAP_PROP_FRAME_HEIGHT))
+    W = grid_size[1] * int(caps[0].get(cv2.CAP_PROP_FRAME_WIDTH))
 
-    if kwargs.get('save_video', False):
-        if 'vid_path2' in kwargs:
-            filename2 = os.path.split(kwargs['vid_path2'])[1]
-        writer = cv2.VideoWriter(os.path.join(out_dir, 'vis_' + (filename if 'vid_path2' not in kwargs else filename + '_' + filename2)),
-                             cv2.VideoWriter_fourcc(*'XVID'),
-                             cap.get(cv2.CAP_PROP_FPS),
-                             (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) + (0 if 'vid_path2' not in kwargs else cap2.get(cv2.CAP_PROP_FRAME_WIDTH)) ), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        )
+    n_frames = min([int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) for cap in caps])
+    for fid in tqdm(range(1, n_frames + 1)):
 
-    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if 'vid_path2' in kwargs:
-        n_frames = min(n_frames, int(cap2.get(cv2.CAP_PROP_FRAME_COUNT)))
-    for frame_count in tqdm(range(n_frames)):
-        dets = det_seq[det_seq[:, 0] == frame_count]
-        success, frame = cap.read()
-        n_uniques_1 = np.unique(det_seq[:, 1])
-        if 'vid_path2' not in kwargs:
-            vis_img = plot_box(frame, dets)
-            cv2.putText(vis_img, str(n_uniques_1), (800, 80), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 255), thickness=6)
-            show_img = vis_img
-        else:
-            vid_id = int(filename.split('_')[1])
+        grid = np.zeros((H, W, 3), dtype=np.uint8)
 
-            dets2 = det_seq2[det_seq2[:, 0] == frame_count]
-            success2, frame2 = cap2.read()
-            n_uniques_2 = np.unique(det_seq2[:, 1])
+        frames = []
+        for cap, sct, gID in zip(caps, scts, global_ids_mapper):
+            _, img = cap.read()
 
-            if 'correspondence' in kwargs:
-                correspondence = kwargs['correspondence'][kwargs['correspondence'][:, 1] == vid_id]
-                for id1, id2 in correspondence[:, [2, 5]]:
-                    dets[dets[:, 1] == id1, 1] = 100 - id2
-                    dets2[dets2[:, 1] == id2, 1] = 100 - id2
+            if sct is not None:
+                dets = sct[sct[:, 0] == fid]
 
-            vis_img = plot_box(frame, dets)
-            cv2.putText(vis_img, str(n_uniques_1), (800, 80), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 255), thickness=6)
-            vis_img2 = plot_box(frame2, dets2)
-            cv2.putText(vis_img2, str(n_uniques_2), (800, 80), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 255), thickness=6)
-            show_img = np.concatenate([vis_img, vis_img2], axis=1)
+                if gID is not None:
+                    for i, d in enumerate(dets):
+                        dets[i, 1] = gID[int(dets[i, 1])]
+                
+                img = plot_box(img, dets, thickness=8)
 
-        if kwargs.get('save_video', False):
-            writer.write(show_img)
+            frames.append(img)
+        
+        for i, frame in enumerate(frames):
+            row = i // grid_size[1]
+            col = i % grid_size[1]
+            grid[row * frame.shape[0]:(row + 1) * frame.shape[0], col * frame.shape[1]:(col + 1) * frame.shape[1]] = frame
 
-        if kwargs.get('display', False):
-            cv2.namedWindow(filename, cv2.WINDOW_NORMAL)
-            cv2.imshow(filename, show_img)
-            key = cv2.waitKey(2)
+        if out_video_path is not None:
+            if not writer_created:
+                writer = cv2.VideoWriter(
+                    out_video_path,
+                    cv2.VideoWriter_fourcc(*'XVID'),
+                    caps[0].get(cv2.CAP_PROP_FPS),
+                    (W, H) if resize is None else resize
+                )
+                writer_created = True
+            
+            if resize is not None:
+                grid = cv2.resize(grid, resize)
+            
+            writer.write(grid)
+        
+        if show:
+            cv2.namedWindow('grid', cv2.WINDOW_NORMAL)
+            cv2.imshow('grid', grid)
+            key = cv2.waitKey(1)
             if key == 27:
                 break
             elif key == ord('e'):
                 exit(0)
             elif key == ord(' '):
                 cv2.waitKey(0)
-
-
-    cap.release()
-    if kwargs.get('save_video', False):
+    
+    if out_video_path is not None:
         writer.release()
     cv2.destroyAllWindows()
 
 
-def show(vid_path1, vid_path2):
+def create_global_id_mapper(scts, matches):
+    """assuming [[[c1, c2], ...], [[c2, c3], ...], [[c3, c4], ...], ...]"""
+
+    global_ids_mapper = [{} for _ in range(len(matches) + 1)]
+    global_id_count = 0
+    
+    table = np.full((sum([len(m) for m in matches]), len(matches) + 1), -1, dtype=int)
+    i = 0
+    for j, m in enumerate(matches):
+        for id1, id2 in m:
+            table[i, j] = id1
+            table[i, j + 1] = id2
+            i += 1
+    
+    for i_out in range(table.shape[0]):
+        rows = []
+        k = 0
+        if table[i_out, 0] != -1:
+            rows.append((i_out, table[i_out].copy()))
+            table[i_out] = -1
+        while k < len(rows):
+            i, row = rows[k]
+            for j, id in enumerate(row):
+                if id != -1:
+                    for new_i in np.where(table[:, j] == id)[0]:
+                        if i != new_i:
+                            rows.append((new_i, table[new_i].copy()))
+                        table[new_i] = -1
+            k += 1
+
+        if len(rows) > 0:
+            global_id_count += 1
+            for row in rows:
+                for j, id in enumerate(row[1]):
+                    if id != -1:
+                        global_ids_mapper[j][id] = global_id_count
+
+    for i, sct in enumerate(scts):
+        for id in np.unique(sct[:, 1]).astype('int32'):
+            if id not in global_ids_mapper[i]:
+                global_id_count += 1
+                global_ids_mapper[i][id] = global_id_count
+    
+    print(global_ids_mapper)
+    
+    return global_ids_mapper
+
+
+def run(
+    video_set,
+    detection_mode,
+    config_pred_option,
+    cam_id1,
+    cam_id2,
+    cam_id3,
+    video_id,
+    tracker,
+):  
+    
+    print('Processing video', video_id)
+
+    ROOT_DIR = HERE / 'recordings' / video_set
+    VID_DIR = HERE / 'recordings' / video_set / 'videos'
+    TRACKER_DIR = HERE / 'recordings' / video_set / tracker / 'sct'
+    GT_DIR = HERE / 'recordings' / video_set / f'gt{"_pose" if detection_mode == "pose" else ""}'
+
+    vid_w_prefix = ('00000' + str(video_id))[-5:]
+    vid_path1 = str(list(VID_DIR.glob(f'{cam_id1}_{vid_w_prefix}_*.avi'))[0])
+    txt_path1 = list(TRACKER_DIR.glob(f'{cam_id1}_{vid_w_prefix}_*.txt'))[0]
+    vid_path2 = str(list(VID_DIR.glob(f'{cam_id2}_{vid_w_prefix}_*.avi'))[0])
+    txt_path2 = list(TRACKER_DIR.glob(f'{cam_id2}_{vid_w_prefix}_*.txt'))[0]
+    vid_path3 = str(list(VID_DIR.glob(f'{cam_id3}_{vid_w_prefix}_*.avi'))[0])
+    txt_path3 = list(TRACKER_DIR.glob(f'{cam_id3}_{vid_w_prefix}_*.txt'))[0]
+
+    out_video_path = str(ROOT_DIR / tracker / f'pred/{config_pred_option}_val' / f'frame2track_{video_id}.avi')
+    print(out_video_path)
+    
+    match12 = np.loadtxt(ROOT_DIR / tracker / 'pred' / f'{config_pred_option}_frame2track_{cam_id1}_{cam_id2}.txt', delimiter=',', dtype=int)
+    match12 = match12[match12[:, 1] == video_id][:, [2, 5]]
+    match23 = np.loadtxt(ROOT_DIR / tracker / 'pred' / f'{config_pred_option}_frame2track_{cam_id2}_{cam_id3}.txt', delimiter=',', dtype=int)
+    match23 = match23[match23[:, 1] == video_id][:, [2, 5]]
+    
     cap1 = cv2.VideoCapture(vid_path1)
     cap2 = cv2.VideoCapture(vid_path2)
+    cap3 = cv2.VideoCapture(vid_path3)
+    try:
+        dets1 = np.loadtxt(txt_path1, delimiter=',')
+    except:
+        dets1 = np.loadtxt(txt_path1)
+    try:
+        dets2 = np.loadtxt(txt_path2, delimiter=',')
+    except:
+        dets2 = np.loadtxt(txt_path2)
+    try:
+        dets3 = np.loadtxt(txt_path3, delimiter=',')
+    except:
+        dets3 = np.loadtxt(txt_path3)
 
-    window_name = os.path.split(vid_path1)[1]
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    # cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    while True:
-        _, frame1 = cap1.read()
-        __, frame2 = cap2.read()
-        
-        if not (_ and __):
-            break
-        
-        collage = np.concatenate([frame1, frame2], axis=1)
+    global_ids_mapper = create_global_id_mapper([dets1, dets2, dets3], [match12, match23])
 
-        cv2.imshow(os.path.split(vid_path1)[1], collage)
-
-        key = cv2.waitKey(10)
-        if key == 27 or not _:
-            break
-        elif key == ord('q'):
-            exit(0)
-        elif key == ord(' '):
-            cv2.waitKey(0)
-
-    cv2.destroyAllWindows()
-
-
-
+    visualize_multi_camera(
+        caps=[cap1, cap2, cap3],
+        scts=[dets1, dets2, dets3],
+        grid_size=(2, 2),
+        global_ids_mapper=global_ids_mapper,
+        resize=(960, 480),
+        out_video_path=out_video_path,
+        show=False,
+    )
 
 
 if __name__ == '__main__':
 
+    video_set = '2d_v4'
+    detection_mode = 'pose' # 'box' or 'pose'
+    config_pred_option = 18
+    cam_id1 = 41
+    cam_id2 = 42
+    cam_id3 = 43
+    tracker = f'YOLOv7{detection_mode}_pretrained-640-ByteTrack-IDfixed'
 
+    for video_id in [4, 9, 11]:
+        run(
+            video_set=video_set,
+            detection_mode=detection_mode,
+            config_pred_option=config_pred_option,  
+            cam_id1=cam_id1,
+            cam_id2=cam_id2,
+            cam_id3=cam_id3,
+            video_id=video_id,
+            tracker=tracker,
+        )
 
-    ROOT_DIR = os.path.join(HERE, 'recordings/2d_v4')
-    VID_DIR = os.path.join(HERE, 'recordings/2d_v4/videos')
-    TRACKER_DIR = os.path.join(HERE, 'recordings/2d_v4/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/sct')
-    GT_DIR = os.path.join(HERE, 'recordings/2d_v4/gt_pose')
-
-    vid_list1 = sorted([str(path) for path in Path(VID_DIR).glob('42_00011*.avi')]) # ['21_00000_2022-11-03_14-56-57-643967.avi']
-    txt_list1 = sorted([str(path) for path in Path(TRACKER_DIR).glob('42_00011*.txt')])
-    vid_list2 = sorted([str(path) for path in Path(VID_DIR).glob('43_00011*.avi')])
-    txt_list2 = sorted([str(path) for path in Path(TRACKER_DIR).glob('43_00011*.txt')])
-    #
-    # correspondence = np.loadtxt(f'{ROOT_DIR}/pred_mct_gtgt_correspondences.txt', delimiter=',', dtype=int)   # pred_mct_gtgt_correspondences.txt true_mct_gtgt_correspondences.txt
-    correspondence = np.loadtxt(f'{ROOT_DIR}/YOLOv7pose_pretrained-640-ByteTrack-IDfixed/pred/18_frame2track_42_43.txt', delimiter=',', dtype=int)
-    #
-    for vid_path1, txt_path1, vid_path2, txt_path2 in zip(vid_list1, txt_list1, vid_list2, txt_list2):
-        visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True, vid_path2=vid_path2, txt_path2=txt_path2, correspondence=correspondence) # , correspondence=correspondence
-
-    # for vid_path1, txt_path1 in zip(vid_list1, txt_list1):
-    #     visualize_from_txt(vid_path1, txt_path1, save_video=False, display=True) # , correspondence=correspondence
-
-    # for vid_id in range(19, 25):
-    #     vid_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/videos').glob(f'21_000{vid_id}*.avi'))[0])
-    #     txt_path1 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/gt').glob(f'21_000{vid_id}*.txt'))[0])
-    #     vid_path2 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/videos').glob(f'27_000{vid_id}*.avi'))[0])
-    #     txt_path2 = str(list(Path('/media/tran/003D94E1B568C6D11/Workingspace/MCT/data/recordings/2d_v2/gt').glob(f'27_000{vid_id}*.txt'))[0])
-    #     visualize_from_txt(vid_path1, txt_path1, vid_path2=vid_path2,txt_path2=txt_path2)
-
-
-    # for vid_path1, vid_path2 in zip(vid_list1, vid_list2):
-    #     show(vid_path1, vid_path2)
+    
+    
+    
