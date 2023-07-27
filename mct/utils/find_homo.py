@@ -5,19 +5,19 @@ import argparse
 
 HERE = Path(__file__).parent
 
-#CAM1 = str(HERE / 'recordings/2d_v1/videos/21_00000_2022-11-03_14-56-57-643967.avi')
-#CAM2 = str(HERE / 'recordings/2d_v1/videos/27_00000_2022-11-03_14-56-56-863473.avi')
+#CAM1 = str(HERE / '../../data/recordings/2d_v1/videos/21_00000_2022-11-03_14-56-57-643967.avi')
+#CAM2 = str(HERE / '../../data/recordings/2d_v1/videos/27_00000_2022-11-03_14-56-56-863473.avi')
 
-#CAM1 = str(HERE / 'recordings/2d_v2/videos/21_00019_2022-12-02_18-15-20-498917.avi')
-#CAM2 = str(HERE / 'recordings/2d_v2/videos/27_00019_2022-12-02_18-15-21-292795.avi')
+#CAM1 = str(HERE / '../../data/recordings/2d_v2/videos/21_00019_2022-12-02_18-15-20-498917.avi')
+#CAM2 = str(HERE / '../../data/recordings/2d_v2/videos/27_00019_2022-12-02_18-15-21-292795.avi')
 
-#CAM1 = str(HERE / 'recordings/2d_v3/frames/frame_cam121.png')
-#CAM2 = str(HERE / 'recordings/2d_v3/frames/frame_cam127.png')
+#CAM1 = str(HERE / '../../data/recordings/2d_v3/frames/frame_cam121.png')
+#CAM2 = str(HERE / '../../data/recordings/2d_v3/frames/frame_cam127.png')
 
-CAM1 = str(HERE / 'recordings/2d_v4/frames/frame_cam42_2.png')
-CAM2 = str(HERE / 'recordings/2d_v4/frames/frame_cam43.png')
-#CAM1 = str(HERE / 'recordings/2d_v4/frames/frame_cam42_2.png')
-#CAM2 = str(HERE / 'recordings/2d_v4/frames/frame_cam43.png')
+CAM1 = str(HERE / '../../data/recordings/2d_v4/frames/frame_cam42_2.png')
+CAM2 = str(HERE / '../../data/recordings/2d_v4/frames/frame_cam43.png')
+#CAM1 = str(HERE / '../../data/recordings/2d_v4/frames/frame_cam42_2.png')
+#CAM2 = str(HERE / '../../data/recordings/2d_v4/frames/frame_cam43.png')
 
 # rtsp://admin:123456a@@192.168.3.63/live
 # rtsp://admin:123456a@@192.168.3.64/live
@@ -170,7 +170,7 @@ def select_ROI(src, dst, homo):
         global points
 
         if event == cv2.EVENT_LBUTTONDOWN:
-            points.append([x, y])
+            points.append([x, y])       # type: ignore
             print('[INFO] Selected', points[-1])
 
             cv2.circle(show_img, (x, y), radius=10, color=(0, 0, 255), thickness=2)
