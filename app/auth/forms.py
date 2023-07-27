@@ -15,14 +15,14 @@ class LoginForm(FlaskForm):
 
 class CreateAccountForm(FlaskForm):
     
-    username = StringField('Username', validators=[DataRequired()])
-    password = PasswordField('Password', validators=[DataRequired()])
-    password2 = PasswordField('Repeat Password', validators=[DataRequired(), EqualTo('password')])
+    username = StringField('Username *', validators=[DataRequired()])
+    password = PasswordField('Password *', validators=[DataRequired()])
+    password2 = PasswordField('Repeat Password *', validators=[DataRequired(), EqualTo('password')])
     role = SelectField(
-        'Role',
+        'Role *',
         choices=[('manager', 'Manager'), ('intern', 'Sale Associate'), ('engineer', 'Warehouse Staff')],
     )
-    name = StringField('Name', validators=[DataRequired()])
+    name = StringField('Name *', validators=[DataRequired()])
     phone = StringField('Phone', validators=[DataRequired()])
     email = StringField('Email', validators=[DataRequired(), Email()])
     address = StringField('Address', validators=[DataRequired()])
