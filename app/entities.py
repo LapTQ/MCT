@@ -307,7 +307,7 @@ class User(UserMixin, db.Model):
                     
                     # and announce that the user has arrived
                     if self._lateness_alert_sent:
-                        self.send_alert(f'{self.name} arrived late at {dtime.time()}') # .replace(microsecond=0)
+                        self.send_alert(f'{self.name} arrived late at {dtime.time().replace(microsecond=0)}') # .replace(microsecond=0)
                         self._lateness_alert_sent = False
 
                 if self._check_in_workarea(cid, loc):
@@ -316,7 +316,7 @@ class User(UserMixin, db.Model):
                     self._absence = datetime.timedelta(0)
 
                     if self._absence_alert_sent:
-                        self.send_alert(f'{self.name} is back to work area at {dtime.time()}') # .replace(microsecond=0)
+                        self.send_alert(f'{self.name} is back to work area at {dtime.time().replace(microsecond=0)}') # .replace(microsecond=0)
                         self._absence_alert_sent = False
                 else:
                     self._n_misses += 1
@@ -328,7 +328,7 @@ class User(UserMixin, db.Model):
                     # then send alert if necessary
                     latency = dtime - self._ws_start_time
                     if not self._lateness_alert_sent and latency > self.max_latency:
-                        self.send_alert(f'{self.name} was late for {latency}') # datetime.timedelta(seconds=round(latency.total_seconds()))
+                        self.send_alert(f'{self.name} was late for {datetime.timedelta(seconds=round(latency.total_seconds()))}') # datetime.timedelta(seconds=round(latency.total_seconds()))
                         self._lateness_alert_sent = True
                 
                 self._n_misses += 1      # accumulate the absence time
@@ -339,7 +339,7 @@ class User(UserMixin, db.Model):
                 self._staying -= _absence - self._absence
                 self._absence = _absence
                 if self._arrived and not self._absence_alert_sent and self._absence > self.max_absence:
-                    self.send_alert(f'{self.name} was absent from work area since {self._last_in_roi.time()}') # .replace(microsecond=0)
+                    self.send_alert(f'{self.name} was absent from work area since {self._last_in_roi.time().replace(microsecond=0)}') # .replace(microsecond=0)
                     self._absence_alert_sent = True
 
         # after the workshift

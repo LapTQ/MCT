@@ -24,6 +24,15 @@ def async_startup(app):
                 db.session.delete(record)
         for u in User.query.all():
             u.last_message_read_time = datetime.datetime(2001, 5, 24)
+        db.session.add(Productivity(user_id=3, date=datetime.datetime(day=11, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=11, microsecond=1234), staying=datetime.timedelta(seconds=55, milliseconds=123)))
+        db.session.add(Productivity(user_id=4, date=datetime.datetime(day=11, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=9, microsecond=5678), staying=datetime.timedelta(seconds=60, milliseconds=456)))
+        db.session.add(Productivity(user_id=5, date=datetime.datetime(day=11, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=6, microsecond=1011), staying=datetime.timedelta(seconds=57, milliseconds=789)))
+        db.session.add(Productivity(user_id=3, date=datetime.datetime(day=10, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=19, microsecond=5678), staying=datetime.timedelta(seconds=45, milliseconds=123)))
+        db.session.add(Productivity(user_id=4, date=datetime.datetime(day=10, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=12, microsecond=9101), staying=datetime.timedelta(seconds=55, milliseconds=456)))
+        db.session.add(Productivity(user_id=5, date=datetime.datetime(day=10, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=5, microsecond=1234), staying=datetime.timedelta(seconds=40, milliseconds=789)))
+        db.session.add(Productivity(user_id=3, date=datetime.datetime(day=7, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=2, microsecond=5678), staying=datetime.timedelta(seconds=49, milliseconds=123)))
+        db.session.add(Productivity(user_id=4, date=datetime.datetime(day=7, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=8, microsecond=9101), staying=datetime.timedelta(seconds=45, milliseconds=456)))
+        db.session.add(Productivity(user_id=5, date=datetime.datetime(day=7, month=4, year=2023).date(), dayshift_id=1, arrival=datetime.time(hour=8, minute=30, second=17, microsecond=1234), staying=datetime.timedelta(seconds=42, milliseconds=789)))
         db.session.commit()
         #################################
 
