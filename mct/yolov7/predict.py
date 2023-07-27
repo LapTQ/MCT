@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torchvision import transforms
 import sys
+import time
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
@@ -40,6 +41,9 @@ class YOLOv7Pose(object):
         if self.device.type == 'cuda':
             self.model.half().to(self.device)
         
+        dummy_input = torch.randn(1, 3, self.test_size, self.test_size).half().to(self.device)
+        self.model(dummy_input)
+
 
     def inference(self, img):
         image, (ratio_w, ratio_h), (pad_w, pad_h) = letterbox(img, self.test_size, stride=64, auto=True)
@@ -47,10 +51,11 @@ class YOLOv7Pose(object):
         image = torch.tensor(np.array([image.numpy()]))
         if self.device.type == 'cuda':
             image = image.half().to(self.device)
+        
         with torch.no_grad():
             output, _ = self.model(image)  # shape [1, 34425, 57]
             output = non_max_suppression_kpt(output, self.conf_thres, self.iou_thres, nc=self.model.yaml['nc'], nkpt=self.model.yaml['nkpt'], kpt_label=True)
-            output = output_to_keypoint(output)
+            output = output_to_keypoint(output)        
 
         # rescale to original image size
         if len(output) > 0:
@@ -58,7 +63,7 @@ class YOLOv7Pose(object):
             output[:, 4:6] = output[:, 4:6] / [ratio_w, ratio_h]
             for i in range(17):
                 output[:, 7 + i*3 : 9 + i*3] = (output[:, 7 + i*3 : 9 + i*3] - [pad_w, pad_h]) / [ratio_w, ratio_h]
-
+        
         # output is of [[batch_id, class_id, x, y, w, h, conf, *kpts], ...]
         return output
 

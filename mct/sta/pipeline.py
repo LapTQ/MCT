@@ -205,6 +205,7 @@ class SCTPipeline(Pipeline):
                     else:
                         items = [item]
             else:
+                assert not self.config.get('USE_REAL_TRACKER'), 'Cannot use real tracker in offline mode'
                 while still_wait:
                     item = self.input_queue.get()
                     if item == '<EOS>':

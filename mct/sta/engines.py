@@ -175,8 +175,6 @@ class Tracker:
         # outputs_kpt is None or of [[batch_id, class_id, x, y, w, h, conf, *kpts], ...]
 
         # outputs[0] <=> det
-        start_tracker_time = time.time()
-
         outputs_kpt = outputs_kpt.reshape(-1, 58)
         # re-format to [[batch_id, class_id, x1, y1, x2, y2, conf, *kpts],...]
         outputs_kpt[:, 2:4] -= outputs_kpt[:, 4:6] / 2
@@ -190,8 +188,6 @@ class Tracker:
             )
             outputs_box = torch.from_numpy(outputs_box)
             outputs_box = self.tracking.update(outputs_box, img, return_original_box=True)
-        end_tracker_time = time.time()
-        self.tracker_time = 0.5 * self.tracker_time + 0.5 * (end_tracker_time - start_tracker_time)
 
         dets = []
         for output in outputs_box:
@@ -225,7 +221,7 @@ class Tracker:
         self.frame_idx += 1
         self.prev_frame = img
 
-        logger.debug(f'{self.name}:\t {1/self.inference_time} FPS detection, {1/self.tracker_time} FPS tracking => {1/(self.inference_time + self.tracker_time)} FPS')
+        logger.info(f'{self.name}:\t {1/self.inference_time} FPS detection')
 
         return dets
 
