@@ -231,8 +231,14 @@ def visualize_sta_result(
 
     fps = cap_1.get(cv2.CAP_PROP_FPS)
 
-    sct_1 = np.loadtxt(sct_1_path)
-    sct_2 = np.loadtxt(sct_2_path)
+    try:
+        sct_1 = np.loadtxt(sct_1_path)
+    except:
+        sct_1 = np.loadtxt(sct_1_path, delimiter=',')
+    try:
+        sct_2 = np.loadtxt(sct_2_path)
+    except:
+        sct_2 = np.loadtxt(sct_2_path, delimiter=',')
 
     with open(validate_sta_path, 'r') as f:
         sta = f.read().strip().split('\n')
@@ -616,20 +622,20 @@ def run():
         '2d_v1': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(0, 16)},
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(19, 25)},
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'range_': range(1, 13)},
-        # '2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': range(1, 13)},
-        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(1, 13)},
+        '2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': [2, 10, 12]},
+        # '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': [4, 9, 11]},
     }
     VIS_EVAL_STR = {
-        # '2d_v4': {
-        #     2: '616 <= p <= 742 or 1012 <= p <= 1103 or 2014 <= p <= 2129',
-        #     10: '641 <= p <= 767 or 947 <= p <= 1034 or 1460 <= p <= 1565 or 2576 <= p <= 2700',
-        #     12: '667 <= p <= 778 or 994 <= p <= 1066 or 1603 <= p <= 1749 or 3048 <= p <= 3274',
-        # },
         '2d_v4': {
-           4: '786 <= p <= 874 or 1449 <= p <= 1624 or 1932 <= p <= 2020',
-           9: '1027 <= p <= 1104 or 1945 <= p <= 2110 or 2352 <= p <= 2472',
-           11: '1084 <= p <= 1149 or 1703 <= p <= 1917 or 2137 <= p <= 2310',
-        }
+            2: '616 <= p <= 742 or 1012 <= p <= 1103 or 2014 <= p <= 2129',
+            10: '641 <= p <= 767 or 947 <= p <= 1034 or 1460 <= p <= 1565 or 2576 <= p <= 2700',
+            12: '667 <= p <= 778 or 994 <= p <= 1066 or 1603 <= p <= 1749 or 3048 <= p <= 3274',
+        },
+        # '2d_v4': {
+        #    4: '786 <= p <= 874 or 1449 <= p <= 1624 or 1932 <= p <= 2020',
+        #    9: '1027 <= p <= 1104 or 1945 <= p <= 2110 or 2352 <= p <= 2472',
+        #    11: '1084 <= p <= 1149 or 1703 <= p <= 1917 or 2137 <= p <= 2310',
+        # }
     }
     for video_set in VIDEO_SET:
         VIDEO_SET[video_set]['video_set_dir'] = str(HERE / '../../data/recordings' / video_set)
@@ -651,8 +657,8 @@ def run():
     
 
     video_set = '2d_v4'
-    tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack-IDfixed'
-    for config_pred_option in [0, 18]:
+    tracker_name = 'YOLOv7box_pretrained-640-ByteTrack-IDfixed'
+    for config_pred_option in [0, 2, 6, 10]:
     
         video_set_dir = VIDEO_SET[video_set]['video_set_dir']
         cam1_id = VIDEO_SET[video_set]['cam_id1']
@@ -784,26 +790,26 @@ def run():
 
             # export video
             out_video_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_val' / f'{cam1_id}_{cam2_id}_{video_id}.avi')
-            # visualize_sta_result(
-            #     vid1_path,
-            #     vid2_path,
-            #     tracker_txt1_path,
-            #     tracker_txt2_path,
-            #     out_validate_pred_mct_trackertracker_path,
-            #     roi_path,
-            #     matches_path,
-            #     out_video_path,
-            #     mode='box' if 'pose' not in tracker_name else 'pose',
-            #     eval_str=VIS_EVAL_STR[video_set][video_id]
-            # )
+            visualize_sta_result(
+                vid1_path,
+                vid2_path,
+                tracker_txt1_path,
+                tracker_txt2_path,
+                out_validate_pred_mct_trackertracker_path,
+                roi_path,
+                matches_path,
+                out_video_path,
+                mode='box' if 'pose' not in tracker_name else 'pose',
+                eval_str=VIS_EVAL_STR[video_set][video_id]
+            )
 
-            frame2track_results.append(frame2track(
-                cam1_id,
-                cam2_id,
-                video_id,
-                out_pred_mct_trackertracker_path, 
-                out_validate_pred_mct_trackertracker_path
-            ))
+            # frame2track_results.append(frame2track(
+            #     cam1_id,
+            #     cam2_id,
+            #     video_id,
+            #     out_pred_mct_trackertracker_path, 
+            #     out_validate_pred_mct_trackertracker_path
+            # ))
 
             # pred_reid_path = str(Path(video_set_dir) / 'Re-ID' / vid1_name[3:-4] / 'all_cams_reid.txt')
             # eval_reid(cam1_id, cam2_id, video_id, pred_reid_path, out_validate_pred_mct_trackertracker_path)
