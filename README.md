@@ -1,8 +1,3 @@
-## TODO
-- pull wieghts if not downloaded
-- pull videos if not downloaded
-- inform that video was ended
-- max queue size
 
 
 ## Setup
