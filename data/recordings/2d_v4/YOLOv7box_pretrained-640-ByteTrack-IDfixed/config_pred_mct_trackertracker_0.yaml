@@ -16,7 +16,7 @@ CAMERA_FRAME_HEIGHT: null
 CAMERA_FPS: null
 
 # SCT pipeline
-DETECTION_MODE: 'box'   # 'box', 'pose'         # tune
+DETECTION_MODE: 'box'   # 'box', 'pose'
 TRACKING_MODE: 'bytetrack'
 SCT_TXT_SLEEP: 0
 
@@ -28,16 +28,16 @@ TIME_DIFF_THRESH: 0.1    # null
 STA_PSEUDO_SAME_CAMERA: false
 STA_PSEUDO_IN_ROI_ACCORD_CAM1: false             # true if the gt is created by just correcting for only the association, and not the detection, of SCT
 STA_PSEUDO_IN_ROI_LOC_INFER_MODE_CAM1: 1
-LOC_INFER_MODE: 1   # 1, 2                      # tune
-FP_FILTER: 'iqr'   # null, 'gmm', 'iqr'         # tune
+LOC_INFER_MODE: 1   # 1, 2, 3
+FP_FILTER: null   # null, 'gmm', 'iqr'
 FP_REMAP: false                                 # tune
 MIN_SAMPLE_SIZE_TO_FP_FILTER: 15
-FP_GMM_N_COMPONENTS: 2                          # tune
-FP_GMM_STD_COEF: 3                              # tune
-FP_IQR_LOWER: 20                                # tune
-FP_IQR_UPPER: 80                                # tune
-DIST_WINDOW_SIZE: 11                             # tune
-DIST_WINDOW_BOUNDARY: 10                         # tune
+FP_GMM_N_COMPONENTS: 2
+FP_GMM_STD_COEF: 3
+FP_IQR_LOWER: 30
+FP_IQR_UPPER: 70
+DIST_WINDOW_SIZE: 1
+DIST_WINDOW_BOUNDARY: 0
 
 # Scene
 ROI_TEST_OFFSET: -5

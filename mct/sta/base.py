@@ -60,6 +60,7 @@ class ConfigPipeline:
     
     def _check_config(self):
         assert self.config.get('RUNNING_MODE') in ['online', 'offline']
+        # assert not (self.config.get('RUNNING_MODE') == 'offline' and self.config.get('USE_REAL_TRACKER')), 'Cannot use real tracker in offline mode'
 
         # camera
         

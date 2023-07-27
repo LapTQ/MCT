@@ -104,6 +104,8 @@ class Tracker:
         self.use_real_tracker = use_real_tracker
         self.name = name
 
+        assert not (self.txt_path is None and not self.use_real_tracker), 'txt_path must be provided if use_real_tracker is False'
+
         # if using offline mock tracking result
         if txt_path is None:
             self._load_tracker()

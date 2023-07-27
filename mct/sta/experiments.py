@@ -123,7 +123,7 @@ def validate_pred_mct_trackertracker(
     f = open(out_path, 'w')
 
     for i, (T, P) in enumerate(zip(pseudotrue, pred)):
-        assert T['frame_id_1'] == P['frame_id_1'] and T['frame_id_2'] == P['frame_id_2']
+        assert T['frame_id_1'] == P['frame_id_1'] and T['frame_id_2'] == P['frame_id_2'], f'Frame IDs between mct pseudotrue and mct pred do not match: \nT["frame_id_1"]={T["frame_id_1"]}, P["frame_id_1"]={P["frame_id_1"]}, T["frame_id_2"]={T["frame_id_2"]}, P["frame_id_2"]={P["frame_id_2"]} \nPlease check file {pseudotrue_mct_trackertracker_path} \nand file {pred_mct_trackertracker_path}'
 
         out_item = {
             'frame_id_1': P['frame_id_1'],
@@ -612,20 +612,20 @@ def run():
         '2d_v1': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(0, 16)},
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(19, 25)},
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'range_': range(1, 13)},
-        '2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': range(1, 13)},
-        #'2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': [4, 9, 11]},
+        # '2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': range(1, 13)},
+        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': range(1, 13)},
     }
     VIS_EVAL_STR = {
+        # '2d_v4': {
+        #     2: '616 <= p <= 742 or 1012 <= p <= 1103 or 2014 <= p <= 2129',
+        #     10: '641 <= p <= 767 or 947 <= p <= 1034 or 1460 <= p <= 1565 or 2576 <= p <= 2700',
+        #     12: '667 <= p <= 778 or 994 <= p <= 1066 or 1603 <= p <= 1749 or 3048 <= p <= 3274',
+        # },
         '2d_v4': {
-            2: '616 <= p <= 742 or 1012 <= p <= 1103 or 2014 <= p <= 2129',
-            10: '641 <= p <= 767 or 947 <= p <= 1034 or 1460 <= p <= 1565 or 2576 <= p <= 2700',
-            12: '667 <= p <= 778 or 994 <= p <= 1066 or 1603 <= p <= 1749 or 3048 <= p <= 3274',
-        },
-        #'2d_v4': {
-        #    4: '786 <= p <= 874 or 1449 <= p <= 1624 or 1932 <= p <= 2020',
-        #    9: '1027 <= p <= 1104 or 1945 <= p <= 2110 or 2352 <= p <= 2472',
-        #    11: '1084 <= p <= 1149 or 1703 <= p <= 1917 or 2137 <= p <= 2310',
-        #}
+           4: '786 <= p <= 874 or 1449 <= p <= 1624 or 1932 <= p <= 2020',
+           9: '1027 <= p <= 1104 or 1945 <= p <= 2110 or 2352 <= p <= 2472',
+           11: '1084 <= p <= 1149 or 1703 <= p <= 1917 or 2137 <= p <= 2310',
+        }
     }
     for video_set in VIDEO_SET:
         VIDEO_SET[video_set]['video_set_dir'] = str(HERE / '../../data/recordings' / video_set)
@@ -650,8 +650,6 @@ def run():
     tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack-IDfixed'
     for config_pred_option in [18]:
     
-
-    
         video_set_dir = VIDEO_SET[video_set]['video_set_dir']
         cam1_id = VIDEO_SET[video_set]['cam_id1']
         cam2_id = VIDEO_SET[video_set]['cam_id2']
@@ -665,6 +663,7 @@ def run():
         paths = []
 
         for video_id in tqdm(range_):
+            print('Processing video', video_id)
 
             ################# retrieve paths #############
             vid1_path = list((Path(video_set_dir) / 'videos').glob(f"{cam1_id}_{('00000' + str(video_id))[-5:]}_*_*.avi"))
@@ -812,10 +811,19 @@ if __name__ == '__main__':
 
     run()
 
-    
+
+# best config:
+# box:
+# - baseline: 0
+# - FP filtering: 2
+# - window-based mapping: 6
+# - combine: 10
+# pose:
+# - baseline: 0
+# - combine: 18
 
 
-# cuts:
+# cuts videos for visualization:
 # cam 42 - 43
 # 4: 786 <= p <= 874 or 1449 <= p <= 1624 or 1932 <= p <= 2020
 # 9: 1027 <= p <= 1104 or 1945 <= p <= 2110 or 2352 <= p <= 2472
