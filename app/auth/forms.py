@@ -20,7 +20,7 @@ class CreateAccountForm(FlaskForm):
     password2 = PasswordField('Repeat Password', validators=[DataRequired(), EqualTo('password')])
     role = SelectField(
         'Role',
-        choices=[('manager', 'Manager'), ('intern', 'Intern'), ('engineer', 'Engineer')],
+        choices=[('manager', 'Manager'), ('intern', 'Sale Associate'), ('engineer', 'Warehouse Staff')],
     )
     name = StringField('Name', validators=[DataRequired()])
     phone = StringField('Phone', validators=[DataRequired()])

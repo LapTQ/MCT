@@ -34,7 +34,7 @@
             {% for user in users%}
                 <tr>
                     <td><a href="{{ url_for('main.user', username=user.username) }}">{{ user.name }}</a></td>
-                    <td>{{ user.role }}</td>
+                    <td>{{ user.role_name }}</td>
                     {% set late_days = user.overall_latency() %}
                     {% set worked_days = user.productivities.count() %}
                     {% if worked_days == 0 %}
@@ -87,7 +87,7 @@
                     <td>{{ user.id }}</td>
                     <td>{{ user.name }}</td>
                     <td>{{ user.username }}</td>
-                    <td>{{ user.role }}</td>
+                    <td>{{ user.role_name }}</td>
                     <td>
                         <form action=" {{ url_for('auth.delete_account', username=user.username) }} " method="post" novalidate>
                             {% with del_acc_form = del_acc_form_class() %}

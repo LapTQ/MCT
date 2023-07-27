@@ -50,11 +50,11 @@ class User(UserMixin, db.Model):
 
 
     def __repr__(self) -> str:
-        return  f'User(username={self.username}, role={self.role}, last_message_read_time={self.last_message_read_time})'    
+        return  f'User(username={self.username}, role={self.role_name}, last_message_read_time={self.last_message_read_time})'    
     
 
     def __str__(self) -> str:
-        return f'{self.role} {self.name}'
+        return f'{self.role_name} {self.name}'
 
 
     def set_password(self, password):
@@ -63,6 +63,16 @@ class User(UserMixin, db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+    
+
+    @property
+    def role_name(self):
+        if self.role == 'intern':
+            return 'sale associate'
+        elif self.role == 'engineer':
+            return 'warehouse staff'
+        else:
+            return self.role
 
 
     def new_messages(self):
