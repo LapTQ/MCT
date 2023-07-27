@@ -362,7 +362,7 @@ def frame2track(
         cam2_id,
         video_id,
         pred_mct_trackertracker_path,
-        validate_pred_mct_trackertracker_path
+        validate_pred_mct_trackertracker_path,
     ):
 
     with open(pred_mct_trackertracker_path, 'r') as f:
@@ -416,10 +416,12 @@ def frame2track(
                     id3 = id1 if sub_m[id1] < sub_m[id2] else id2
                     matches[(id3, id)] = -1
 
-    # print(matches)
+    print('Track-level matches by the proposed method:', matches)
     matches = [k for k, v in matches.items() if v > 0]
-    # for k in matches:
-    #     print(f'{cam1_id},{video_id},{k[0]},{cam2_id},{video_id},{k[1]}')
+
+    ret = []
+    for k in matches:
+        ret.append(f'{cam1_id},{video_id},{k[0]},{cam2_id},{video_id},{k[1]}')
 
     true_matches = []
     for item in true:
@@ -429,7 +431,7 @@ def frame2track(
             if m not in true_matches:
                 true_matches.append(m)
     
-    print(true_matches)
+    print('Track-level matches by ground-truth:',true_matches)
 
     matches = set(matches)
     true_matches = set(true_matches)
@@ -437,6 +439,8 @@ def frame2track(
     FP = matches.difference(true_matches)
     FN = true_matches.difference(matches)
     print(f'TP: {len(TP)}, FP: {len(FP)}, FN: {len(FN)}')
+
+    return ret
 
 
 def eval_reid(
@@ -648,7 +652,7 @@ def run():
 
     video_set = '2d_v4'
     tracker_name = 'YOLOv7pose_pretrained-640-ByteTrack-IDfixed'
-    for config_pred_option in [18]:
+    for config_pred_option in [0, 18]:
     
         video_set_dir = VIDEO_SET[video_set]['video_set_dir']
         cam1_id = VIDEO_SET[video_set]['cam_id1']
@@ -659,8 +663,10 @@ def run():
         config_true_path = str(Path(video_set_dir) / tracker_name / 'config_pseudotrue_sct_gttracker.yaml')
         config_pred_path = str(Path(video_set_dir) / tracker_name / f'config_pred_mct_trackertracker_{config_pred_option}.yaml')
         out_eval_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_eval_{cam1_id}_{cam2_id}.txt')
+        out_frame2track_path = str(Path(video_set_dir) / tracker_name / 'pred' / f'{config_pred_option}_frame2track_{cam1_id}_{cam2_id}.txt')
 
-        paths = []
+        eval_paths = []
+        frame2track_results = []
 
         for video_id in tqdm(range_):
             print('Processing video', video_id)
@@ -791,20 +797,25 @@ def run():
             #     eval_str=VIS_EVAL_STR[video_set][video_id]
             # )
 
-            # frame2track(
-            #     cam1_id,
-            #     cam2_id,
-            #     video_id,
-            #     out_pred_mct_trackertracker_path, 
-            #     out_validate_pred_mct_trackertracker_path
-            # )
+            frame2track_results.append(frame2track(
+                cam1_id,
+                cam2_id,
+                video_id,
+                out_pred_mct_trackertracker_path, 
+                out_validate_pred_mct_trackertracker_path
+            ))
 
             # pred_reid_path = str(Path(video_set_dir) / 'Re-ID' / vid1_name[3:-4] / 'all_cams_reid.txt')
             # eval_reid(cam1_id, cam2_id, video_id, pred_reid_path, out_validate_pred_mct_trackertracker_path)
 
-            paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
+            eval_paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
 
-        prf(paths, out_path=out_eval_path)
+        # prf(eval_paths, out_path=out_eval_path)
+
+        # with open(out_frame2track_path, 'w') as f:
+        #     frame2track_results = [i for f2t in frame2track_results for i in f2t]
+        #     f.write('\n'.join(frame2track_results))
+        # f.close()
 
 
 if __name__ == '__main__':
