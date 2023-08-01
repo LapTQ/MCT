@@ -223,7 +223,7 @@ class Tracker:
         self.frame_idx += 1
         self.prev_frame = img
 
-        logger.info(f'{self.name}:\t {1/self.inference_time} FPS detection')
+        logger.debug(f'{self.name}:\t {1/self.inference_time} FPS detection')
 
         return dets
 

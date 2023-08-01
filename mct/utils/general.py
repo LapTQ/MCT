@@ -157,3 +157,51 @@ def map_mono(A, B, diff_thresh=None):
     M2 = np.array(M2)[idx]                  # type: ignore
 
     return M1, M2
+
+
+def create_global_id_mapper(scts, matches):
+    """assuming [[[c1, c2], ...], [[c2, c3], ...], [[c3, c4], ...], ...]"""
+
+    global_ids_mapper = [{} for _ in range(len(matches) + 1)]
+    global_id_count = 0
+
+    table = np.full((sum([len(m) for m in matches]), len(matches) + 1), -1, dtype=int)
+    i = 0
+    for j, m in enumerate(matches):
+        for id1, id2 in m:
+            table[i, j] = id1
+            table[i, j + 1] = id2
+            i += 1
+
+    for i_out in range(table.shape[0]):
+        rows = []
+        k = 0
+        if table[i_out, 0] != -1:
+            rows.append((i_out, table[i_out].copy()))
+            table[i_out] = -1
+        while k < len(rows):
+            i, row = rows[k]
+            for j, id in enumerate(row):
+                if id != -1:
+                    for new_i in np.where(table[:, j] == id)[0]:
+                        if i != new_i:
+                            rows.append((new_i, table[new_i].copy()))
+                        table[new_i] = -1
+            k += 1
+
+        if len(rows) > 0:
+            global_id_count += 1
+            for row in rows:
+                for j, id in enumerate(row[1]):
+                    if id != -1:
+                        global_ids_mapper[j][id] = global_id_count
+
+    for i, sct in enumerate(scts):
+        for id in np.unique(sct[:, 1]).astype('int32'):
+            if id not in global_ids_mapper[i]:
+                global_id_count += 1
+                global_ids_mapper[i][id] = global_id_count
+
+    print(global_ids_mapper)
+
+    return global_ids_mapper

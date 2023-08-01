@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from tqdm import tqdm
 
 
 COLORS = [
@@ -60,7 +61,7 @@ def plot_box(img, boxes, thickness=4, texts=None):
     return img
 
 
-def plot_loc(img, locs, radius=8, texts=None, text_thickness=2):
+def plot_loc(img, locs, radius=8, texts=None, text_thickness=4):
     # locs: [[frame, id, x, y, ...],...]
     if not isinstance(locs, np.ndarray):
         locs = np.array(locs)
@@ -83,7 +84,7 @@ def plot_loc(img, locs, radius=8, texts=None, text_thickness=2):
         
         cv2.circle(img, xyxy[i], radius=radius, color=color, thickness=-1)      # type: ignore
         if texts is not None:
-            cv2.putText(img, texts[i], xyxy[i] + [4, -4], cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, text_thickness)   # type: ignore
+            cv2.putText(img, texts[i], xyxy[i] + [0, -10], cv2.FONT_HERSHEY_SIMPLEX, 2.0, color, text_thickness)   # type: ignore
     
     return img
 
@@ -165,6 +166,85 @@ def draw_track(img, track, id, color, radius=2, **kwargs):
         cv2.line(img, np.int32(track[i]), np.int32(track[i - 1]), color=color, thickness=2 * radius)
 
     return img
+
+
+def visualize_multi_camera(
+        caps,
+        grid_size,
+        scts=None,
+        global_ids_mapper=None,
+        out_video_path=None,
+        resize=None,
+        show=False,
+    ):
+
+    if global_ids_mapper is None:
+        global_ids_mapper = [None] * len(caps)
+
+    if scts is None:
+        scts = [None] * len(caps)
+
+    writer_created = False
+    H = grid_size[0] * int(caps[0].get(cv2.CAP_PROP_FRAME_HEIGHT))
+    W = grid_size[1] * int(caps[0].get(cv2.CAP_PROP_FRAME_WIDTH))
+
+    n_frames = min([int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) for cap in caps])
+    for fid in tqdm(range(1, n_frames + 1)):
+
+        grid = np.zeros((H, W, 3), dtype=np.uint8)
+
+        frames = []
+        for cap, sct, gID in zip(caps, scts, global_ids_mapper):
+            _, img = cap.read()
+
+            if sct is not None:
+                dets = sct[sct[:, 0] == fid]
+
+                if gID is not None:
+                    for i, d in enumerate(dets):
+                        dets[i, 1] = gID[int(dets[i, 1])]
+
+                # do not show confident score
+                dets[:, 6] = -1
+
+                img = plot_box(img, dets, thickness=8)
+
+            frames.append(img)
+
+        for i, frame in enumerate(frames):
+            row = i // grid_size[1]
+            col = i % grid_size[1]
+            grid[row * frame.shape[0]:(row + 1) * frame.shape[0], col * frame.shape[1]:(col + 1) * frame.shape[1]] = frame
+
+        if out_video_path is not None:
+            if not writer_created:
+                writer = cv2.VideoWriter(
+                    out_video_path,
+                    cv2.VideoWriter_fourcc(*'XVID'),
+                    caps[0].get(cv2.CAP_PROP_FPS),
+                    (W, H) if resize is None else resize
+                )
+                writer_created = True
+
+            if resize is not None:
+                grid = cv2.resize(grid, resize)
+
+            writer.write(grid)
+
+        if show:
+            cv2.namedWindow('grid', cv2.WINDOW_NORMAL)
+            cv2.imshow('grid', grid)
+            key = cv2.waitKey(1)
+            if key == 27:
+                break
+            elif key == ord('e'):
+                exit(0)
+            elif key == ord(' '):
+                cv2.waitKey(0)
+
+    if out_video_path is not None:
+        writer.release()
+    cv2.destroyAllWindows()
 
 
 

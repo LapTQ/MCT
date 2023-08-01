@@ -299,6 +299,10 @@ def visualize_sta_result(
             dets_1 = sct_1[sct_1[:, 0] == fid_1]
             dets_2 = sct_2[sct_2[:, 0] == fid_2]
 
+            # do not show confident score
+            dets_1[:, 6] = -1
+            dets_2[:, 6] = -1
+
             fim_1 = plot_box(fim_1, dets_1)
             fim_2 = plot_box(fim_2, dets_2)
 
@@ -317,8 +321,8 @@ def visualize_sta_result(
                 locs_1_ori = locs_1
             else:
                 locs_1_ori = np.concatenate([locs_1[:, :2], cv2.perspectiveTransform(locs_1[:, 2:].reshape(-1, 1, 2), homo_inv).reshape(-1, 2)], axis=1)
-            texts_1 = [f'{k} (0)' for k in sta[p]['locs'][0]]
-            texts_2 = [f'{k} (1)' for k in sta[p]['locs'][1]]
+            texts_1 = [f'{k}"' for k in sta[p]['locs'][0]]
+            texts_2 = [f'{k}' for k in sta[p]['locs'][1]]
             fim_1 = plot_loc(fim_1, locs_1_ori)
             fim_2 = plot_loc(fim_2, locs_2)
             black = plot_loc(black, locs_1, texts=texts_1)
@@ -622,20 +626,20 @@ def run():
         '2d_v1': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(0, 16)},
         '2d_v2': {'cam_id1': 21, 'cam_id2': 27, 'range_': range(19, 25)},
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'range_': range(1, 13)},
-        '2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': [2, 10, 12]},
-        # '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': [4, 9, 11]},
+        # '2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': [2, 10, 12]},
+        '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': [9]},
     }
     VIS_EVAL_STR = {
-        '2d_v4': {
-            2: '616 <= p <= 742 or 1012 <= p <= 1103 or 2014 <= p <= 2129',
-            10: '641 <= p <= 767 or 947 <= p <= 1034 or 1460 <= p <= 1565 or 2576 <= p <= 2700',
-            12: '667 <= p <= 778 or 994 <= p <= 1066 or 1603 <= p <= 1749 or 3048 <= p <= 3274',
-        },
         # '2d_v4': {
-        #    4: '786 <= p <= 874 or 1449 <= p <= 1624 or 1932 <= p <= 2020',
-        #    9: '1027 <= p <= 1104 or 1945 <= p <= 2110 or 2352 <= p <= 2472',
-        #    11: '1084 <= p <= 1149 or 1703 <= p <= 1917 or 2137 <= p <= 2310',
-        # }
+        #     2: '616 <= p <= 742 or 1012 <= p <= 1103 or 2014 <= p <= 2129',
+        #     10: '641 <= p <= 767 or 947 <= p <= 1034 or 1460 <= p <= 1565 or 2576 <= p <= 2700',
+        #     12: '667 <= p <= 778 or 994 <= p <= 1066 or 1603 <= p <= 1749 or 3048 <= p <= 3274',
+        # },
+        '2d_v4': {
+           4: '786 <= p <= 874 or 1449 <= p <= 1624 or 1932 <= p <= 2020',
+           9: '1027 <= p <= 1104 or 1945 <= p <= 2110 or 2352 <= p <= 2472',
+           11: '1084 <= p <= 1149 or 1703 <= p <= 1917 or 2137 <= p <= 2310',
+        }
     }
     for video_set in VIDEO_SET:
         VIDEO_SET[video_set]['video_set_dir'] = str(HERE / '../../data/recordings' / video_set)
@@ -657,8 +661,8 @@ def run():
     
 
     video_set = '2d_v4'
-    tracker_name = 'YOLOv7box_pretrained-640-ByteTrack-IDfixed'
-    for config_pred_option in [0, 2, 6, 10]:
+    tracker_name = 'YOLOv7box_pretrained-640-ByteTrack'
+    for config_pred_option in [10]:
     
         video_set_dir = VIDEO_SET[video_set]['video_set_dir']
         cam1_id = VIDEO_SET[video_set]['cam_id1']
