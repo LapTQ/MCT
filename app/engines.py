@@ -1,6 +1,7 @@
 import logging
+import math
 import yaml
-from threading import Lock
+from threading import Lock, Thread
 from app.entities import CameraMatchingPoint, Region, User
 from mct.sta.base import ConfigPipeline, Pipeline
 from mct.sta.engines import MyQueue, Scene, Tracker
@@ -28,23 +29,19 @@ class VisualizePipeline(Pipeline):
             config: ConfigPipeline,
             cam_id: int,
             annot_queue: MyQueue,
-            video_queue: MyQueue,
-            online_put_sleep: Union[int, float] = 0,
+            fps,
             name='Visualizer'
     ) -> None:
-        super().__init__(config, online_put_sleep, name)
+        super().__init__(config, name)
 
         self.app = app
         self.db = db
 
         self.cam_id = cam_id
+        self._expected_sleep = 1 / fps
         self.annot_queue = annot_queue
-        self.video_queue = video_queue
-        self._check_video_queue()
 
         self._load_scenes()
-
-        self.wait_list = self._new_wait_list()
 
         logger.info(f'{self.name}:\t initialized')
 
@@ -92,151 +89,72 @@ class VisualizePipeline(Pipeline):
 
         assert self.config.get('RUNNING_MODE') == 'online'
 
-        start_time = time.time()
         pop_signin_count = 0
         pop_signin_id = None
 
-        still_wait = [True, True]
+        still_wait = True
+        start_time = time.time()
 
         while not self.is_stopped():
 
             self.trigger_pause()
 
-            for i, (wl, iq) in enumerate(
-                zip(self.wait_list, [self.annot_queue,
-                                     self.video_queue])
-            ):
-                if still_wait[i]:
-                    item = iq.get(block=True)
-                    if item == '<EOS>':
-                        still_wait[i] = False
-                    else:
-                        wl.append(item)
+            if still_wait:
+                item = self.annot_queue.get(block=True)
+                if item == '<EOS>':
+                    still_wait = False
 
-            if True not in still_wait:
+            if not still_wait:
                 # self._put_to_output_queues('<EOS>')
                 logger.info(f'{self.name}:\t reached <EOS> token')
-                self.wait_list = self._new_wait_list()  # release memory TODO very naive
                 break
 
-            active_list = self.wait_list
-            self.wait_list = self._new_wait_list()
+            frame_img = item['frame_img']   # type: ignore
+            dets = item['sct_output']       # type: ignore
 
-            adict = {}
-            for i, al in enumerate(active_list):
-                for item in al:
-                    for k, v in item.items():
-                        if k not in adict:
-                            adict[k] = [[], []]
-                        adict[k][i].append(v)
+            for scene_type, scenes in self.scenes.items():
+                for s in scenes:
+                    frame_img = plot_roi(
+                        frame_img,
+                        s.roi,
+                        self.config.get('VIS_ROI_THICKNESS'),
+                        color=self.SCENE_COLORS[scene_type],
+                    )
 
-            if len(adict) == 0:
-                continue
+            # expecting dets to be in the format of [uid, tid, x1, y1, x2, y2, score, ...]
+            with self.app.app_context():
+                texts = [User.query.filter_by(id=user_id).first().name if user_id != -1 else '' for user_id in np.int32(dets[:, 0]).tolist()]   # type: ignore
+            frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=texts)
+            # if detection_mode == 'pose':
+                # for kpt in dets[:, 10:]:
+                #     frame_img = plot_skeleton_kpts(frame_img, kpt.T, 3)
 
-            c1_adict_matched, c2_adict_matched = self._match_index(*adict['frame_id'])
+            locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
+            frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
 
-            if len(c1_adict_matched) == 0:  # critical because there might be no matches (e.g SCT result comes slower), wo we need to wait more
-                self.wait_list = active_list
-                continue
+            if 'signin_user_id' in item:                # type: ignore
+                signin_user_id = item['signin_user_id'] # type: ignore
+                if signin_user_id is not None:
+                    pop_signin_count = 1
+                    pop_signin_id = signin_user_id
+                if pop_signin_count > 0:
+                    cv2.putText(frame_img, f'user<{pop_signin_id}> signed in', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 4.0, (0, 0, 255), thickness=7)
+                    pop_signin_count += 1
+                if pop_signin_count >= 10:
+                    pop_signin_count = 0
 
-            # add un-processed items to wait list
-            self.wait_list[0].extend(active_list[0][c1_adict_matched[-1] + 1:])
-            self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
+            out_item = {
+                'frame_img': frame_img,
+                'frame_id': item['frame_id']                # type: ignore
+            }
 
-            # using continuous indexes from 0 -> T-1 rather than discrete indexes
-            T = len(c1_adict_matched)
-            logger.debug(f'{self.name}:\t processing {T} frames')
-            for k in adict:
-                if len(adict[k][0]) > 0:
-                    adict[k][0] = [adict[k][0][idx] for idx in c1_adict_matched]
-                if len(adict[k][1]) > 0:
-                    adict[k][1] = [adict[k][1][idx] for idx in c2_adict_matched]
+            end_time = time.time()
+            sleep = max(0, self._expected_sleep - (end_time - start_time))
+            time.sleep(sleep)
+            start_time = end_time
 
-            mid_time = time.time()
-            pre_time = mid_time - start_time
+            self._put_to_output_queues(out_item)
 
-            for t in range(T):
-
-                # handle out-of-memory for exclusively offline
-                self.trigger_pause()
-
-                frame_img = adict['frame_img'][1][t]
-                dets = adict['sct_output'][0][t]
-
-                for scene_type, scenes in self.scenes.items():
-                    for s in scenes:
-                        frame_img = plot_roi(
-                            frame_img,
-                            s.roi,
-                            self.config.get('VIS_ROI_THICKNESS'),
-                            color=self.SCENE_COLORS[scene_type],
-                        )
-
-                # expecting dets to be in the format of [uid, tid, x1, y1, x2, y2, score, ...]
-                with self.app.app_context():
-                    texts = [User.query.filter_by(id=user_id).first().name if user_id != -1 else '' for user_id in np.int32(dets[:, 0]).tolist()]   # type: ignore
-                frame_img = plot_box(frame_img, dets, self.config.get('VIS_SCT_BOX_THICKNESS'), texts=texts)
-                # if detection_mode == 'pose':
-                    # for kpt in dets[:, 10:]:
-                    #     frame_img = plot_skeleton_kpts(frame_img, kpt.T, 3)
-
-                locs = calc_loc(dets, self.config.get('LOC_INFER_MODE'))
-                frame_img = plot_loc(frame_img, np.concatenate([dets[:, :2], locs], axis=1), self.config.get('VIS_SCT_LOC_RADIUS'))
-
-                if 'signin_user_id' in adict:
-                    signin_user_id = adict['signin_user_id'][0][t]
-                    if signin_user_id is not None:
-                        pop_signin_count = 1
-                        pop_signin_id = signin_user_id
-                    if pop_signin_count > 0:
-                        cv2.putText(frame_img, f'user<{pop_signin_id}> signed in', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 4.0, (0, 0, 255), thickness=7)
-                        pop_signin_count += 1
-                    if pop_signin_count >= 60:
-                        pop_signin_count = 0
-
-                out_item = {
-                    'frame_img': frame_img,                   # type: ignore
-                    'frame_id': adict['frame_id'][1][t]
-                }
-
-                end_time = time.time()
-                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                    else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
-                time.sleep(sleep)
-
-                self._put_to_output_queues(out_item)
-
-                mid_time = end_time
-                logger.debug(f'{self.name}:\t slept {sleep}')
-
-            start_time = mid_time
-
-
-    def _match_index(self, a, b):
-        i, j = 0, 0
-        li, lj = [], []
-
-        while i < len(a) and j < len(b):
-
-            if a[i] == b[j]:
-                li.append(i)
-                lj.append(j)
-                i += 1
-                j += 1
-            elif a[i] < b[j]:
-                i += 1
-            else:
-                j += 1
-
-        return li, lj
-
-
-    def _new_wait_list(self):
-        return [[], []]
-
-
-    def _check_video_queue(self):
-        assert isinstance(self.video_queue, MyQueue), f'visualizing SCT requires video input queue, got {type(self.video_queue)}'
 
 
 class MCMapPipeline(Pipeline):
@@ -250,10 +168,9 @@ class MCMapPipeline(Pipeline):
             sta_queues: dict,
             checkin_scene: Scene,
             checkin_cid: int,
-            online_put_sleep: Union[int, float] = 0,
             name='MCMapPipeline'
     ) -> None:
-        super().__init__(config, online_put_sleep, name)
+        super().__init__(config, name)
 
         self.app = app
         self.db = db
@@ -269,6 +186,10 @@ class MCMapPipeline(Pipeline):
 
         logger.info(f'{self.name}:\t initialized')
 
+    
+    def set_switch_cam_max_age(self, switch_cam_max_age):
+        self.switch_cam_max_age = switch_cam_max_age
+
 
     def _load_users(self):
         self.users = {}
@@ -277,6 +198,7 @@ class MCMapPipeline(Pipeline):
             self.users[user.id] = user
             user.load_workareas()
             user.load_next_workshift()
+            user._switch_cam_max_age = self.switch_cam_max_age
 
 
     def _start(self) -> None:
@@ -284,7 +206,6 @@ class MCMapPipeline(Pipeline):
         with self.app.app_context():
             self._load_users()
 
-            start_time = time.time()
             still_wait = [{k: True for k in q} for q in [self.sct_queues, self.sta_queues]]
 
             while not self.is_stopped():
@@ -343,9 +264,6 @@ class MCMapPipeline(Pipeline):
                         wl[k].extend(al[k][idxs[k][-1] + 1:])
                         al[k] = [al[k][idx] for idx in idxs[k]]
 
-                mid_time = time.time()
-                pre_time = mid_time - start_time
-
                 for t in range(T):
 
                     # process sign in
@@ -401,17 +319,12 @@ class MCMapPipeline(Pipeline):
                         if len(out_visualize[cid]) == 0:
                             out_visualize[cid] =  np.empty((0, 10))          # type: ignore , whatever, as long as dim2 >= 2
 
-
-                    end_time = time.time()
-                    sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                        else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
-                    time.sleep(sleep)
-
                     # expecting key of the output queue is camera ID
                     self.lock.acquire()
                     for cid, oq in self.output_queues.items():
                         oq.put(
-                            {
+                            {   
+                                'frame_img': active_list[0][cid][t]['frame_img'], 
                                 'frame_id': active_list[0][cid][t]['frame_id'],
                                 'sct_output': out_visualize[cid],
                                 'sct_detection_mode': active_list[0][cid][t]['sct_detection_mode'],
@@ -420,10 +333,6 @@ class MCMapPipeline(Pipeline):
                             block=True
                         )
                     self.lock.release()
-                    mid_time = end_time
-                    logger.debug(f'{self.name}:\t slept {sleep}')
-
-                start_time = mid_time
 
                 if self.config.get('RUNNING_MODE') == 'offline':
                     for cid, oq in self.output_queues.items():
@@ -538,6 +447,8 @@ class Monitor:
         self.config = app.config['PIPELINE']
         self.fake_clock = fake_clock
 
+        self._queue_maxsize = self.config.get('QUEUE_MAXSIZE')
+
         logger.info(f'{self.name}:\t initialized with app and db')
 
 
@@ -557,13 +468,15 @@ class Monitor:
         if not hasattr(self, 'pl_scts'):
             self.pl_scts = {}
 
+        if not hasattr(self, 'trackers'):
+            self.trackers = {}
+
         # create camera pipeline
         meta = yaml.safe_load(open(meta_path, 'r'))
         pl_camera = CameraPipeline(
             config=self.config,
             source=address,
             meta=meta,
-            online_put_sleep=1.0 / meta['fps'],
             name=f'PL Camera-<cam_id={cam_id}>',
         )
 
@@ -582,7 +495,7 @@ class Monitor:
         )
 
         # commit output queue to camera pipeline
-        queue = MyQueue(name=f'IQ-SCT-<cam_id={cam_id}>')
+        queue = MyQueue(maxsize=self._queue_maxsize, name=f'IQ-SCT-<cam_id={cam_id}>')
         pl_camera.add_output_queue(queue, queue.name)
 
         # create sct pipeline
@@ -590,12 +503,12 @@ class Monitor:
             config=self.config,
             tracker=tracker,
             input_queue=queue,
-            # online_put_sleep=pl_camera.online_put_sleep * 0.1,
             name=f'PL SCT-<cam_id={cam_id}>',
         )
 
         self.pl_cameras[cam_id] = pl_camera
         self.pl_scts[cam_id] = pl_sct
+        self.trackers[cam_id] = tracker
 
 
     def register_overlap(
@@ -616,22 +529,21 @@ class Monitor:
             self.pl_syncs = {}
 
         # create sync pipeline
-        oq_cam_secondary = MyQueue(name=f'IQ-Sync-<*sec={cam_id_secondary}, pri={cam_id_primary}>')
-        oq_cam_primary = MyQueue(name=f'IQ-Sync-<sec={cam_id_secondary}, *pri={cam_id_primary}>')
+        oq_cam_secondary = MyQueue(maxsize=self._queue_maxsize, name=f'IQ-Sync-<*sec={cam_id_secondary}, pri={cam_id_primary}>')
+        oq_cam_primary = MyQueue(maxsize=self._queue_maxsize, name=f'IQ-Sync-<sec={cam_id_secondary}, *pri={cam_id_primary}>')
         self.pl_cameras[cam_id_secondary].add_output_queue(oq_cam_secondary, oq_cam_secondary.name)
         self.pl_cameras[cam_id_primary].add_output_queue(oq_cam_primary, oq_cam_primary.name)
 
         pl_sync = SyncPipeline(
             config=self.config,
             input_queues=[oq_cam_secondary, oq_cam_primary],
-            # online_put_sleep=min(self.pl_cameras[cam_id_secondary].online_put_sleep, self.pl_cameras[cam_id_primary].online_put_sleep) * 0.1,
             name=f'PL Sync-<sec={cam_id_secondary}, pri={cam_id_primary}>',
         )
 
         # commit output queues to sct and sync
-        oq_sct_secondary = MyQueue(name=f'IQ-STA_SCT-<*sec={cam_id_secondary}, pri={cam_id_primary}>')
-        oq_sct_primary = MyQueue(name=f'IQ-STA_SCT-<sec={cam_id_secondary}, *pri={cam_id_primary}>')
-        oq_sync = MyQueue(name=f'IQ-STA_SYNC-<sec={cam_id_secondary}, pri={cam_id_primary}>')
+        oq_sct_secondary = MyQueue(maxsize=self._queue_maxsize, name=f'IQ-STA_SCT-<*sec={cam_id_secondary}, pri={cam_id_primary}>')
+        oq_sct_primary = MyQueue(maxsize=self._queue_maxsize, name=f'IQ-STA_SCT-<sec={cam_id_secondary}, *pri={cam_id_primary}>')
+        oq_sync = MyQueue(maxsize=self._queue_maxsize, name=f'IQ-STA_SYNC-<sec={cam_id_secondary}, pri={cam_id_primary}>')
         self.pl_scts[cam_id_secondary].add_output_queue(oq_sct_secondary, oq_sct_secondary.name)
         self.pl_scts[cam_id_primary].add_output_queue(oq_sct_primary, oq_sct_primary.name)
         pl_sync.add_output_queue(oq_sync, oq_sync.name)
@@ -643,7 +555,6 @@ class Monitor:
             homo=homo,
             sct_queues=[oq_sct_secondary, oq_sct_primary],
             sync_queue=oq_sync,
-            # online_put_sleep=pl_sync.online_put_sleep,
             name=f'PL STA-<sec={cam_id_secondary}, pri={cam_id_primary}>'
         )
 
@@ -667,13 +578,13 @@ class Monitor:
         # commit output queues to sct and sta
         oq_scts = {}
         for cid, pl in self.pl_scts.items():
-            queue = MyQueue(name=f'IQ-MCMap_SCT-<cam_id={cid}>')
+            queue = MyQueue(maxsize=self._queue_maxsize, name=f'IQ-MCMap_SCT-<cam_id={cid}>')
             pl.add_output_queue(queue, queue.name)
             oq_scts[cid] = queue
 
         oq_stas = {}
         for (cid_sec, cid_pri), pl in self.pl_stas.items():
-            queue = MyQueue(name=f'IQ-MCMap_STA-<sec={cid_sec}, pri={cid_pri}>')
+            queue = MyQueue(maxsize=self._queue_maxsize, name=f'IQ-MCMap_STA-<sec={cid_sec}, pri={cid_pri}>')
             pl.add_output_queue(queue, queue.name)
             oq_stas[(cid_sec, cid_pri)] = queue
 
@@ -686,11 +597,37 @@ class Monitor:
             sta_queues=oq_stas,
             checkin_scene=scene,
             checkin_cid=cam_id,
-            # online_put_sleep=min([pl.online_put_sleep for pl in self.pl_cameras.values()]) * 0.1,
         )
 
 
+    def _adapt_fps(self):
+        fps = self.config.get('CAMERA_FPS')
+        if fps is not None:
+            if fps == 'auto':
+                fps_list = []
+                threads = [Thread(target=tracker.estimate_fps, args=(fps_list,)) for tracker in self.trackers.values()]
+                for thread in threads:
+                    thread.start()
+                
+                for thread in threads:
+                    thread.join()
+
+                fps = max(fps_list)
+            logger.info(f'{self.name}:\t Setting camera FPS to {fps}')
+
+            for pl_camera in self.pl_cameras.values():
+                pl_camera.set_fps(fps)
+                
+
+        switch_cam_max_age = round(self.app.config['SWITCH_CAM_MAX_AGE'] * min(pl_camera.fps for pl_camera in self.pl_cameras.values()))
+        logger.info(f'{self.name}:\t Setting switch_cam_max_age to {switch_cam_max_age} frames')
+        self.pl_mcmap.set_switch_cam_max_age(switch_cam_max_age)
+
+            
+
     def start(self):
+
+        self._adapt_fps()
 
         self.fake_clock.start()
 
@@ -760,7 +697,7 @@ class Monitor:
             self.display_queues[cam_id] = {}
 
         if key not in self.display_queues[cam_id]:
-            oq_visualize = MyQueue(name=key)
+            oq_visualize = MyQueue(maxsize=self._queue_maxsize, name=key)
             pl_visualize.add_output_queue(oq_visualize, oq_visualize.name)
             self.display_queues[cam_id][key] = oq_visualize
         lock.release()
@@ -772,9 +709,7 @@ class Monitor:
             logger.info(f'{self.name}:\t waiting for camera {cam_id} to be registered...')
             time.sleep(1)
 
-        oq_video = MyQueue(name=f'IQ-Visualize_Video-<cam_id={cam_id}>')
-        oq_annot = MyQueue(name=cam_id)     # must be exactly cam_id
-        self.pl_cameras[cam_id].add_output_queue(oq_video, oq_video.name)
+        oq_annot = MyQueue(maxsize=self._queue_maxsize, name=cam_id)     # must be exactly cam_id
         self.pl_mcmap.add_output_queue(oq_annot, oq_annot.name)
 
         pl_visualize = VisualizePipeline(
@@ -783,8 +718,7 @@ class Monitor:
             config=self.config,
             cam_id=cam_id,
             annot_queue=oq_annot,
-            video_queue=oq_video,
-            online_put_sleep=self.pl_cameras[cam_id].online_put_sleep,
+            fps=self.pl_cameras[cam_id].fps,
             name=f'PL Visualize-<cam_id={cam_id}>'
         )
         self.pl_visualizes[cam_id] = pl_visualize
@@ -831,13 +765,10 @@ class Monitor:
 
             logger.info(f'Destructing VisualizePipeline for camera {cam_id}...')
 
-            oq_video = pl_visualize.video_queue
             oq_annot = pl_visualize.annot_queue
             del self.pl_visualizes[cam_id]
             del pl_visualize
-            self.pl_cameras[cam_id].remove_output_queue(oq_video.name)
             self.pl_mcmap.remove_output_queue(oq_annot.name)
-            del oq_video
             del oq_annot
             del self.display_queues[cam_id]
 

@@ -7,6 +7,7 @@ import logging
 import sys
 import numpy as np
 from pathlib import Path
+import math
 
 HERE = Path(__file__).parent
 
@@ -45,11 +46,10 @@ class CameraPipeline(Pipeline):
             config: ConfigPipeline, 
             source: Union[int, str],
             meta: Union[dict, None] = None, 
-            online_put_sleep: Union[int, float] = 0,
             ret_img: bool = True,
             name='CameraPipeline'
     ) -> None:
-        super().__init__(config, online_put_sleep, name)
+        super().__init__(config, name)
         
         self.source = source
         self.cap = cv2.VideoCapture(self.source)
@@ -65,6 +65,8 @@ class CameraPipeline(Pipeline):
 
     
     def _start(self) -> None:
+
+        saved_signin_id = None
 
         assert not (self.config.get('RUNNING_MODE') == 'offline' and self.ret_img)
 
@@ -89,15 +91,20 @@ class CameraPipeline(Pipeline):
             else:
                 # running offline without visualizing
                 ret, frame = True, None
-                if frame_id == self.cap.get(cv2.CAP_PROP_FRAME_COUNT):
+                if frame_id == int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)):
                     ret = False
             
             frame_id += 1
 
+            if not ret:
+                self._put_to_output_queues('<EOS>')
+                logger.info(f'{self.name}:\t disconnected from {self.source}')
+                break
+
             if self.meta is None:
                 frame_time = datetime.now().timestamp()
             else:   # if reading from video on disk
-                frame_time = self.record_time + (frame_id - self.meta['start_frame_id']) / self.fps
+                frame_time = self._meta_frame_times[frame_id - 1]
 
             ########### MOCK TEST ###########
             if '<cam_id=1>' in self.name:
@@ -112,29 +119,36 @@ class CameraPipeline(Pipeline):
             signin_user_id = self._observe_signin()
             if signin_user_id is not None:
                 logger.info(f'{self.name}: get sign-in signal with user_id={signin_user_id} at {datetime.fromtimestamp(frame_time)}')
-
+            
             # send None as the end-of-stream signal
-            out_item = '<EOS>' if not ret else {
-                    'frame_img': frame,
-                    'frame_id': frame_id,
-                    'frame_time': frame_time,
-                    'signin_user_id': signin_user_id
-                }
+            out_item = {
+                'frame_img': frame,
+                'frame_id': frame_id,
+                'frame_time': frame_time,
+                'signin_user_id': signin_user_id
+            }
             
             end_time = time.time()
-            # if reading from video on disk, then sleep according to fps to sync time.
-            sleep = 0 if self.meta is None or self.config.get('RUNNING_MODE') == 'offline' \
-                else max(0, self.online_put_sleep - (end_time - start_time))
-            time.sleep(sleep)
-            
-            self._put_to_output_queues(out_item)
 
+            # if reading from video on disk, then sleep according to fps to sync time.
+            sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
+                else max(0, self._expected_sleep - (end_time - start_time))
+            time.sleep(sleep)
             start_time = end_time
+
             logger.debug(f"{self.name}:\t slept {sleep}")
 
-            if out_item == '<EOS>':
-                logger.info(f'{self.name}:\t disconnected from {self.source}')
-                break
+            if self.meta is not None:
+                if not self._use_frame[frame_id - 1] and out_item != '<EOS>':
+                    if signin_user_id is not None:
+                        saved_signin_id = signin_user_id
+                    continue
+
+                if saved_signin_id is not None:
+                    out_item['signin_user_id'] = saved_signin_id    # type: ignore
+                    saved_signin_id = None
+            
+            self._put_to_output_queues(out_item)             
 
         self.cap.release()
 
@@ -144,19 +158,38 @@ class CameraPipeline(Pipeline):
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.get('CAMERA_FRAME_WIDTH'))
         if self.config.get('CAMERA_FRAME_HEIGHT') is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.get('CAMERA_FRAME_HEIGHT'))
-        if self.config.get('CAMERA_FPS') is not None:
-            assert self.meta is None, 'camera_fps must not be set when capturing videos from disk'
-            self.cap.set(cv2.CAP_PROP_FPS, self.config.get('CAMERA_FPS'))
 
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.fps = float(self.cap.get(cv2.CAP_PROP_FPS))
         
         if self.meta is not None:
+
+            assert float(self.cap.get(cv2.CAP_PROP_FPS)) == self.meta['fps']
+
             self.record_time = datetime.strptime(
                 self.meta['start_time'], 
                 '%Y-%m-%d_%H-%M-%S-%f'
             ).timestamp()
+
+            self.set_fps(self.meta['fps'])
+
+    
+    def set_fps(self, fps: float) -> None:
+        if self.meta is not None:
+            
+            frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+            # frame_id (start from 1) in the meta file corresponds to the index frame_id - 1 (start from 0) in _use_frame
+            self._use_frame = [False] * frame_count
+            self._meta_frame_times = [self.record_time + i / self.meta['fps'] for i in range(frame_count)]
+            new_frame_times = [self.record_time + i / fps for i in range(frame_count)]
+
+            meta_frame_ids, _ = map_mono(self._meta_frame_times, new_frame_times)
+            for idx in meta_frame_ids:
+                self._use_frame[idx] = True           
+
+        self.fps = fps
+        self._expected_sleep = 1/(self.fps if self.meta is None else self.meta['fps'])
 
     
     def _observe_signin(self):
@@ -175,10 +208,9 @@ class SCTPipeline(Pipeline):
             config: ConfigPipeline, 
             tracker: Tracker,
             input_queue: MyQueue,
-            online_put_sleep: Union[int, float] = 0,
             name='SCTPipeline'
     ) -> None:
-        super().__init__(config, online_put_sleep, name)
+        super().__init__(config, name)
 
         self.tracker = tracker
         
@@ -189,7 +221,6 @@ class SCTPipeline(Pipeline):
     
     def _start(self) -> None:
 
-        start_time = time.time()
         still_wait = True
         
         while not self.is_stopped():
@@ -219,9 +250,6 @@ class SCTPipeline(Pipeline):
 
             T = len(items)
             logger.debug(f'{self.name}:\t processing {T} frames')
-
-            mid_time = time.time()
-            pre_time = mid_time - start_time
             
             for item in items:
 
@@ -231,6 +259,7 @@ class SCTPipeline(Pipeline):
                     dets = self.tracker.infer(item['frame_img'], item['frame_id'])
                     
                     out_item = {
+                        'frame_img': item['frame_img'],
                         'frame_id': item['frame_id'],
                         'frame_time': item['frame_time'],
                         'sct_output': dets,
@@ -239,17 +268,7 @@ class SCTPipeline(Pipeline):
                         'signin_user_id': item['signin_user_id']
                     }
 
-                end_time = time.time()
-                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                    else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
-                time.sleep(sleep)
-
                 self._put_to_output_queues(out_item)
-
-                mid_time = end_time
-                logger.debug(f'{self.name}:\t slept {sleep}')
-
-            start_time = mid_time
 
             if self.config.get('RUNNING_MODE') == 'offline':
                 self._put_to_output_queues('<EOS>')
@@ -262,10 +281,9 @@ class SyncPipeline(Pipeline):
             self, 
             config: ConfigPipeline, 
             input_queues: List[MyQueue],
-            online_put_sleep: Union[int, float] = 0,
             name='SyncPipeline'
     ) -> None:
-        super().__init__(config, online_put_sleep, name)
+        super().__init__(config, name)
 
         self.input_queues = input_queues
         self._check_input_queues()
@@ -277,7 +295,6 @@ class SyncPipeline(Pipeline):
     
     def _start(self) -> None:
 
-        start_time = time.time()
         still_wait = [True, True]
 
         while not self.is_stopped():
@@ -344,9 +361,6 @@ class SyncPipeline(Pipeline):
             self.wait_list[1].extend(active_list[1][c2_adict_matched[-1] + 1:])
             
             logger.debug(f'{self.name}:\t processing {T} frames')
-
-            mid_time = time.time()
-            pre_time = mid_time - start_time
             
             for i, j in zip(c1_adict_matched, c2_adict_matched):
 
@@ -355,19 +369,9 @@ class SyncPipeline(Pipeline):
                 out_item = {
                     'frame_id_match': (adict['frame_id'][0][i], adict['frame_id'][1][j])
                 }
-                
-                end_time = time.time()
-                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                    else max(0, self.online_put_sleep - (pre_time / T + end_time - mid_time))
-                time.sleep(sleep)
 
                 self._put_to_output_queues(out_item)
-
-                mid_time = end_time
-                logger.debug(f'{self.name}:\t slept {sleep}')
             
-            start_time = mid_time
-
             if self.config.get('RUNNING_MODE') == 'offline':
                 self._put_to_output_queues('<EOS>')
                 break
@@ -390,10 +394,9 @@ class STAPipeline(Pipeline):
             homo: Union[np.ndarray, None],
             sct_queues: List[MyQueue],
             sync_queue: MyQueue,
-            online_put_sleep: Union[int, float] = 0,
             name='STAPipeline'
     ) -> None:
-        super().__init__(config, online_put_sleep, name)
+        super().__init__(config, name)
         """
         homo: tranform the view of scene[0] to scene[1]
         """
@@ -421,7 +424,6 @@ class STAPipeline(Pipeline):
 
     def _start(self) -> None:
 
-        start_time = time.time()
         still_wait = [True, True, True]
         
         while not self.is_stopped():
@@ -600,9 +602,6 @@ class STAPipeline(Pipeline):
 
             self.history = self.history[:len(self.history) - self.wb]   # postponse the last BOUNDARY frames for the next iteration
             
-            mid_time = time.time()
-            pre_time = mid_time - start_time
-            
             for his in self.history[-max(T - self.wb, 0):]:     # postponse the last BOUNDARY frames for the next iteration
                 out_item = {
                     'frame_id_1': his[0],
@@ -610,20 +609,10 @@ class STAPipeline(Pipeline):
                     'locs': his[2],
                     'locs_in_roi': his[3],
                     'matches': his[4]
-                }
-
-                end_time = time.time()
-                sleep = 0 if self.config.get('RUNNING_MODE') == 'offline' \
-                    else max(0, self.online_put_sleep - (pre_time / (T - self.wb) + end_time - mid_time))
-                time.sleep(sleep)    
+                }   
                 
                 self._put_to_output_queues(out_item)
-
-                mid_time = end_time
-                logger.debug(f'{self.name}:\t slept {sleep}')
-            
-            start_time = mid_time
-            
+                        
             if self.config.get('RUNNING_MODE') == 'offline':
                 self._put_to_output_queues('<EOS>')
                 break
@@ -731,7 +720,7 @@ class DisplayPipeline(Pipeline):
             path: Union[str, None] = None,
             name='DisplayPipeline'
     ) -> None:
-        super().__init__(config, 0, name)
+        super().__init__(config, name)
         
         self.input_queue = input_queue
         
@@ -826,7 +815,7 @@ class ExportPipeline(Pipeline):
             path: str, 
             name='ExportPipeline'
     ) -> None:
-        super().__init__(config, 0, name)  # type: ignore
+        super().__init__(config, name)  # type: ignore
 
         self.input_queue = input_queue
 

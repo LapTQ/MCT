@@ -63,6 +63,7 @@ class ConfigPipeline:
         # assert not (self.config.get('RUNNING_MODE') == 'offline' and self.config.get('USE_REAL_TRACKER')), 'Cannot use real tracker in offline mode'
 
         # camera
+        assert self.config.get('CAMERA_FPS') in [None, 'auto'] or isinstance(self.config.get('CAMERA_FPS'), (int, float))
         
         # SCTPipeline
         assert self.config.get('DETECTION_MODE') in ['pose', 'box']
@@ -89,7 +90,6 @@ class Pipeline(ABC):
     def __init__(
             self, 
             config: ConfigPipeline,
-            online_put_sleep: Union[int, float] = 0, 
             name='Pipeline'
     ) -> None:
         
@@ -98,7 +98,6 @@ class Pipeline(ABC):
         self.thread = Thread(target=self._start, args=(), name=self.name)
 
         self.output_queues = {}  
-        self.online_put_sleep = online_put_sleep
 
         self.lock = Lock()
             

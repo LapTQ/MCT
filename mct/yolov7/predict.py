@@ -5,6 +5,7 @@ import torch
 from torchvision import transforms
 import sys
 import time
+from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
@@ -40,9 +41,20 @@ class YOLOv7Pose(object):
 
         if self.device.type == 'cuda':
             self.model.half().to(self.device)
+
+    
+    def estimate_fps(self):
         
         dummy_input = torch.randn(1, 3, self.test_size, self.test_size).half().to(self.device)
-        self.model(dummy_input)
+        
+        elapsed_ma = 0
+        for _ in tqdm(range(30), desc='Estimating FPS'):
+            start = time.time()
+            self.model(dummy_input)
+            elapsed = time.time() - start
+            elapsed_ma = (elapsed_ma + elapsed) / 2
+        
+        return 1 / elapsed_ma
 
 
     def inference(self, img):

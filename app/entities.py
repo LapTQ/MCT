@@ -1,7 +1,7 @@
 from flask_login import UserMixin
 from flask import current_app
 from werkzeug.security import generate_password_hash, check_password_hash
-from app.extensions import db, login, fake_clock, moment
+from app.extensions import db, login, fake_clock
 import datetime
 import json
 import numpy as np
@@ -211,15 +211,14 @@ class User(UserMixin, db.Model):
         self._n_misses = 0
         self._absence_alert_sent = False
         self._absence = datetime.timedelta(0)
-        self._staying = datetime.datetime.combine(today, workshift.dayshift.end_time) - \
-             datetime.datetime.combine(today, workshift.dayshift.start_time)
-        self._last_in_roi = datetime.datetime.combine(today, workshift.dayshift.start_time)
+        self._staying = datetime.datetime.combine(today, workshift.dayshift.end_time) - datetime.datetime.combine(today, workshift.dayshift.start_time) # type: ignore
+        self._last_in_roi = datetime.datetime.combine(today, workshift.dayshift.start_time)     # type: ignore
 
-        self._ws_start_time = datetime.datetime.combine(date, workshift.dayshift.start_time)
-        self._ws_end_time = datetime.datetime.combine(date, workshift.dayshift.end_time)
-        self._ws_dayshift_id = workshift.dayshift_id
+        self._ws_start_time = datetime.datetime.combine(date, workshift.dayshift.start_time)    # type: ignore
+        self._ws_end_time = datetime.datetime.combine(date, workshift.dayshift.end_time)        # type: ignore
+        self._ws_dayshift_id = workshift.dayshift_id                                            # type: ignore
 
-        logger.info('Loaded next workshift for %s: %s %s %s', self.name, workshift.day, date, workshift.dayshift.name)
+        logger.info('Loaded next workshift for %s: %s %s %s', self.name, workshift.day, date, workshift.dayshift.name)      # type: ignore
 
 
     def send_alert(self, message):
@@ -382,7 +381,7 @@ class User(UserMixin, db.Model):
             self._hint_history.append((cam_id, track_id))
             self._hint_age = 0
         
-        if self._hint_age > current_app.config['SWITCH_CAM_MAX_AGE']:
+        if self._hint_age >= self._switch_cam_max_age:
             if len(self._hint_history) > 0:
                 freq = {}
                 for i, m in enumerate(self._hint_history):
@@ -402,7 +401,6 @@ class User(UserMixin, db.Model):
         return self._hint_cam_id, self._hint_track_id
 
     
-
 @login.user_loader
 def load_user(id):
     return User.query.get(int(id))
@@ -518,12 +516,6 @@ class Productivity(db.Model):
     
     def __str__(self):
         return self.__repr__()
-
-    # >>> from datetime import timedelta, time, datetime
-    # >>> p = Productivity(user_id=3, date=datetime(day=13, month=4, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=30, second=11), staying=timedelta(seconds=55))
-    # >>> p = Productivity(user_id=4, date=datetime(day=13, month=4, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=30, second=9), staying=timedelta(seconds=60))
-    # >>> p = Productivity(user_id=5, date=datetime(day=13, month=4, year=2023).date(), dayshift_id=1, arrival=time(hour=8, minute=30, second=6), staying=timedelta(seconds=57))
-    # [Productivity(username=intern, date=2023-04-12, dayshift_id=1, arrival=08:30:19.900000, staying=0:01:02.200000), Productivity(username=engineer1, date=2023-04-12, dayshift_id=1, arrival=08:30:07.533333, staying=0:00:29.932326), Productivity(username=engineer2, date=2023-04-12, dayshift_id=1, arrival=08:30:30.366667, staying=0:00:48.067581)]
 
 
 class Detection(db.Model):

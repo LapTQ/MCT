@@ -144,7 +144,12 @@ class Tracker:
 
         logger.info(f'{self.name}:\t loaded detector and tracker on {self.device}')
 
-
+    
+    def estimate_fps(self, result_list):
+        fps = self.detector.estimate_fps()
+        result_list.append(fps)
+    
+    
     def _refresh_tracker(self):
         self.prev_frame = None
         self.frame_idx = 0

@@ -275,7 +275,7 @@ def video_feed(cam_id):
                     img = item['frame_img']
                     img = cv2.resize(img, (480, 240))
 
-                    if item == '<EOS>' or time.time() - self.last_access > 2:
+                    if item == '<EOS>' or time.time() - self.last_access > self.app.config['VIEW_CAM_EXIT']:
                         monitor.withdraw_display(self.cam_id, self.key)
                         break
 
