@@ -34,6 +34,7 @@ docker compose up
 conda create --name MCT python==3.9.12
 conda activate MCT
 pip install -r requirements.txt
+pip install lap
 ```
 
 ## Start application
