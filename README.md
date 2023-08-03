@@ -31,7 +31,7 @@ docker compose up
 ### Option 2: Conda
 
 ```bash
-conda create --name MCT python==3.10.4
+conda create --name MCT python==3.9.12
 conda activate MCT
 pip install -r requirements.txt
 ```
