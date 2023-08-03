@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.6.2-runtime-ubuntu20.04
+FROM python:3.9.12
 
 WORKDIR /home
 
@@ -15,6 +15,7 @@ RUN ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime && echo $CONT
 RUN apt-get install ffmpeg libsm6 libxext6 libgtk2.0-dev pkg-config -y
 
 RUN pip install -r requirements.txt
+RUN pip install lap
 
 # bash promt when container starts
 ENTRYPOINT ["/bin/bash"]
