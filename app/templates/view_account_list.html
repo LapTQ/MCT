@@ -46,7 +46,7 @@
                     <td>{{ worked_days }}</td>
                     <td>
                         <div class="progress">
-                            <div class="progress-bar" role="progressbar" style="width: {{ late_percent }}%; background-color: #9a031e;" aria-valuenow="{{ late_percent }}" aria-valuemin="0" aria-valuemax="100">{{ late_days }} ({{  late_percent }}%)</div>
+                            <div class="progress-bar" role="progressbar" style="width: {{ late_percent }}%; background-color: #9a031e;" aria-valuenow="{{ late_percent }}" aria-valuemin="0" aria-valuemax="100">{{ late_days }} ({{  late_percent|round(1) }}%)</div>
                         </div>                
                     </td>
                     <td>
