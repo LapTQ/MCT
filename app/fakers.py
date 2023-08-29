@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 
 
 class FakeClock:
@@ -10,6 +11,8 @@ class FakeClock:
         self._true_start_time = datetime.now()
 
     def now(self):
+        while not hasattr(self, '_fake_start_time'):
+            time.sleep(1)
         return self._fake_start_time + (datetime.now() - self._true_start_time)
     
 
