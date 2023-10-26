@@ -124,6 +124,7 @@ def load_gt(file_path, save_path=None):
             tid, x1, y1, x2, y2, fid = map(int, row[:6])
 
             # convert to [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
+            fid += 1
             w = x2 - x1
             h = y2 - y1
 
@@ -245,7 +246,7 @@ if __name__ == "__main__":
                 'width: {}'.format(sample_img.shape[1]),
                 'height: {}'.format(sample_img.shape[0]),
                 'start_time: {}'.format(FAKE_START_TIME),
-                'start_frame_id: 0',
+                'start_frame_id: 1',
                 'frame_count: 795'
             ]))
 

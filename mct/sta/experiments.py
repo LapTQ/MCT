@@ -42,7 +42,19 @@ def make_pseudotrue_mct_trackertracker(
         true_mct_gtgt = f.read().strip().split('\n')
         true_mct_gtgt = [eval(i) for i in true_mct_gtgt]
         true_mct_gtgt = np.array(true_mct_gtgt)
-        true_mct_gtgt = true_mct_gtgt[np.all(true_mct_gtgt[:, [0, 1, 3, 4]] == [cam_id_1, video_id_1, cam_id_2, video_id_2], axis=1)]
+        true_mct_gtgt = true_mct_gtgt[
+            np.logical_or(
+                np.all(true_mct_gtgt[:, [0, 1, 3, 4]] == [cam_id_1, video_id_1, cam_id_2, video_id_2], axis=1),
+                np.all(true_mct_gtgt[:, [3, 4, 0, 1]] == [cam_id_1, video_id_1, cam_id_2, video_id_2], axis=1)
+            )
+        ]
+        index_of_cam_id_1 = np.where(true_mct_gtgt[0] == cam_id_1)[0].item()
+        index_of_cam_id_2 = 3 - index_of_cam_id_1
+        true_mct_gtgt = np.concatenate(
+            [true_mct_gtgt[:, index_of_cam_id_1: index_of_cam_id_1 + 3], 
+             true_mct_gtgt[:, index_of_cam_id_2: index_of_cam_id_2 + 3]], 
+            axis=1
+        )
     
     with open(pseudotrue_sct_gttracker_path_1, 'r') as f:
         pseudotrue_sct_gttracker_1 = f.read().strip().split('\n')
@@ -448,7 +460,14 @@ def frame2track(
     TP = matches.intersection(true_matches)
     FP = matches.difference(true_matches)
     FN = true_matches.difference(matches)
-    print(f'TP: {len(TP)}, FP: {len(FP)}, FN: {len(FN)}')
+    nTP = len(TP)
+    nFP = len(FP)
+    nFN = len(FN)
+    P = nTP / (nTP + nFP)
+    R = nTP / (nTP + nFN)
+    F1 = 2 * P * R / (P + R)
+    print(f'Evaluating STA at the track level on camera {cam1_id} and camera {cam2_id}:')
+    print(f'    => TP: {nTP}, FP: {nFP}, FN: {nFN}, P: {P:.3f}, R: {R:.3f}, F1: {F1:.3f}')
 
     return ret
 
@@ -481,7 +500,7 @@ def eval_reid(
                     if ci == cam1_id and cj == cam2_id:
                         true_matches.append((item[3*i + 2], item[3*j + 2]))
     
-    print(true_matches)
+    # print(true_matches)
 
     with open(pred_reid_path, 'r') as f:
         pred = f.read().strip().split('\n')[1:]
@@ -506,14 +525,21 @@ def eval_reid(
                 if i[0] == cam1_id and j[0] == cam2_id:
                     pred_matches.append((i[1], j[1]))
     
-    print(pred_matches)
+    # print(pred_matches)
 
     matches = set(pred_matches)
     true_matches = set(true_matches)
     TP = matches.intersection(true_matches)
     FP = matches.difference(true_matches)
     FN = true_matches.difference(matches)
-    print(f'TP: {len(TP)}, FP: {len(FP)}, FN: {len(FN)}')
+    nTP = len(TP)
+    nFP = len(FP)
+    nFN = len(FN)
+    P = nTP / (nTP + nFP)
+    R = nTP / (nTP + nFN)
+    F1 = 2 * P * R / (P + R)
+    print(f'Evaluating Re-ID on camera {cam1_id} and camera {cam2_id}:')
+    print(f'    => TP: {nTP}, FP: {nFP}, FN: {nFN}, P: {P:.3f}, R: {R:.3f}, F1: {F1:.3f}')
 
 
 def main(kwargs):
@@ -640,12 +666,12 @@ def run():
         '2d_v3': {'cam_id1': 121, 'cam_id2': 127, 'range_': range(1, 13)},
         # '2d_v4': {'cam_id1': 41, 'cam_id2': 42, 'range_': [2, 10, 12]},
         '2d_v4': {'cam_id1': 42, 'cam_id2': 43, 'range_': [5, 6, 9, 10]},
-        'PETS09': {'cam_id1': 5, 'cam_id2': 1, 'range_': range(1)},
-        # 'PETS09': {'cam_id1': 6, 'cam_id2': 1, 'range_': range(1)},
-        # 'PETS09': {'cam_id1': 7, 'cam_id2': 1, 'range_': range(1)},
-        # 'PETS09': {'cam_id1': 6, 'cam_id2': 5, 'range_': range(1)},
-        # 'PETS09': {'cam_id1': 7, 'cam_id2': 5, 'range_': range(1)},
-        # 'PETS09': {'cam_id1': 7, 'cam_id2': 6, 'range_': range(1)},
+        # 'PETS09': {'cam_id1': 5, 'cam_id2': 1, 'range_': [0]},
+        # 'PETS09': {'cam_id1': 6, 'cam_id2': 1, 'range_': [0]},
+        # 'PETS09': {'cam_id1': 7, 'cam_id2': 1, 'range_': [0]},
+        'PETS09': {'cam_id1': 6, 'cam_id2': 5, 'range_': [0]},
+        # 'PETS09': {'cam_id1': 7, 'cam_id2': 5, 'range_': [0]},
+        # 'PETS09': {'cam_id1': 7, 'cam_id2': 6, 'range_': [0]},
     }
     VIS_EVAL_STR = {
         # '2d_v4': {
@@ -837,15 +863,15 @@ def run():
                 out_validate_pred_mct_trackertracker_path
             ))
 
-            # pred_reid_path = str(Path(video_set_dir) / 'Re-ID' / vid1_name[vid1_name.find('_') + 1:-4] / 'all_cams_reid.txt')
-            # eval_reid(
-            #     cam1_id, cam2_id, 
-            #     video_id, 
-            #     pred_reid_path, 
-            #     *((out_validate_pred_mct_trackertracker_path, False) if video_set != 'PETS09' else (true_mct_gtgt_path, True))
-            # )
+            pred_reid_path = str(Path(video_set_dir) / 'Re-ID' / vid1_name[vid1_name.find('_') + 1:-4] / 'all_cams_reid.txt')
+            eval_reid(
+                cam1_id, cam2_id, 
+                video_id, 
+                pred_reid_path, 
+                *((out_validate_pred_mct_trackertracker_path, False) if video_set != 'PETS09' else (true_mct_gtgt_path, True))
+            )
 
-            # eval_paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
+            eval_paths.append([out_validate_pred_mct_trackertracker_path, f'CAM_ID_1 = {cam1_id}, CAM_ID_2 = {cam2_id}, VIDEO_ID = {video_id}, CONFIG = {config_pred_option}, TIME = {datetime.now()}'])
 
         prf(eval_paths, out_path=out_eval_path)
 

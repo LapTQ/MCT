@@ -193,7 +193,7 @@ class Tracker:
                 [outputs_kpt[:, 2:7], np.tile([1, 0], len(outputs_kpt)).reshape(-1, 2)],
                 axis=1
             )
-            outputs_box = torch.from_numpy(outputs_box)
+            outputs_box = torch.from_numpy(outputs_box) # [[x1, y1, x2, y2, obj_conf, cls_conf, cls_id], ...]
             outputs_box = self.tracking.update(outputs_box, img, return_original_box=True)
 
         dets = []
