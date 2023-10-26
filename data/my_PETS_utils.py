@@ -114,21 +114,19 @@ def load_gt(file_path, save_path=None):
     reader = csv.reader(f, delimiter=' ')
 
     for row in reader:
-        
         # filter out lost tracks
         if row[6] == '1':
             logging.warning('Skipping lost track, please double check')
             continue
 
-        for row in reader:
-            tid, x1, y1, x2, y2, fid = map(int, row[:6])
+        tid, x1, y1, x2, y2, fid = map(int, row[:6])
 
-            # convert to [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
-            fid += 1
-            w = x2 - x1
-            h = y2 - y1
+        # convert to [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
+        fid += 1
+        w = x2 - x1
+        h = y2 - y1
 
-            ret.append([fid, tid, x1, y1, w, h, 1, 1, 1])
+        ret.append([fid, tid, x1, y1, w, h, 1, 1, 1])
     
     f.close()
     
@@ -332,7 +330,6 @@ if __name__ == "__main__":
         dst_roi_path = str(TARGET_DIR / 'roi_{}_wrt_{}.txt'.format(dst_cam_id, src_cam_id))
         logging.warning('Saving overlapping ROI on camera {} (w.r.t camera {}) at {}'.format(dst_cam_id, src_cam_id, dst_roi_path))
         np.savetxt(dst_roi_path, contour.reshape(-1, 2))
-
 
                             
 
