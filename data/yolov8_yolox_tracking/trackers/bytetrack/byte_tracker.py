@@ -27,6 +27,8 @@ class STrack(BaseTrack):
         self.tracklet_len = 0
         self.cls = cls
 
+        self.original_tlwh = self._tlwh.copy()
+
     def predict(self):
         mean_state = self.mean.copy()
         if self.state != TrackState.Tracked:

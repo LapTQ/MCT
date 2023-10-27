@@ -4,7 +4,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 
-DIR = str(HERE / '../recordings/2d_v4/videos')
+DIR = str(HERE / '../recordings/PETS09/videos')
 
 
 def run(vid_path):

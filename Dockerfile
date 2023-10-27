@@ -16,6 +16,7 @@ RUN apt-get install ffmpeg libsm6 libxext6 libgtk2.0-dev pkg-config -y
 
 RUN pip install -r requirements.txt
 RUN pip install lap
+RUN pip install ultralytics==8.0.20
 
 # bash promt when container starts
 ENTRYPOINT ["/bin/bash"]
