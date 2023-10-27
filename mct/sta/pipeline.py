@@ -675,10 +675,14 @@ class STAPipeline(Pipeline):
         locs = [self.history[t][3][0][c1_id]], [self.history[t][3][1][c2_id]]
         
         ns = [0, 0]     # counter for left, right
-        slices = [
-            [self.history[j][3] for j in range(t - 1, t - 1 - self.wb, -1)], 
-            [self.history[j][3] for j in range(t + 1, t + self.wb + 1)]
-        ]
+        try:
+            slices = [
+                [self.history[j][3] for j in range(max(t - 1, -len(self.history)), max(t - 1 - self.wb, -len(self.history) - 1), -1)], 
+                [self.history[j][3] for j in range(min(t + 1, -1), min(t + self.wb + 1, 0))]
+            ]
+        except:
+            print(len(self.history), t, self.wb)
+            exit(0)
 
         for i, slice in enumerate(slices):
             for j in range(self.wb):
