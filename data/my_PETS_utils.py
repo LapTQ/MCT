@@ -150,6 +150,70 @@ def load_gt(file_path, save_path=None):
     return ret
 
 
+def load_gt_splitted_on_exit(file_path, save_path=None):
+    logging.info('Loading ground truth annotation from {}'.format(file_path))
+
+    ret = []
+    f = open(file_path, 'r')
+    reader = csv.reader(f, delimiter=' ')
+
+    lost_flags = []
+    for row in reader:
+
+        tid, x1, y1, x2, y2, fid = map(int, row[:6])
+        lost_flag = True if row[6] == '1' else False
+
+        # convert to [[frame, id, x1, y1, w, h, conf, ...],...] (MOT format)
+        fid += 1
+        w = x2 - x1
+        h = y2 - y1
+
+        ret.append([fid, tid, x1, y1, w, h, 1, 1, 1])
+        lost_flags.append(lost_flag)
+    
+    f.close()
+
+    logging.info('Splitting track if a person exit camera FOV (assuming indicated by lost flag)')
+    ret = np.array(ret)
+    lost_flags = np.array(lost_flags)
+    max_tid = np.max(ret[:, 1]) + 1
+    ret_splitted = []
+    for id in np.unique(ret[:, 1]):
+        indexes = ret[:, 1] == id
+        dets = ret[indexes]
+        is_lost = lost_flags[indexes]
+        sorted_indexes = np.argsort(dets[:, 0])
+        dets = dets[sorted_indexes]
+        is_lost = is_lost[sorted_indexes]
+        for i, det in enumerate(dets):
+            if i > 0 and not is_lost[i] and is_lost[i - 1]:
+                max_tid += 1
+            det[1] = max_tid
+            if not is_lost[i]:
+                ret_splitted.append(det.tolist())
+
+    ret = ret_splitted
+    
+    if save_path is not None:
+
+        logging.info('Saving ground truth annotation to {}'.format(save_path))
+
+        parent, _ = os.path.split(save_path)
+        os.makedirs(parent, exist_ok=True)
+
+        ret_str = []
+        for line in ret:
+            ret_str.append('{},{},{:.1f},{:.1f},{:.1f},{:.1f},{},{},{:.1f}'.format(*line))
+        ret_str = '\n'.join(ret_str)
+        with open(save_path, 'w') as f:
+            f.write(ret_str)
+    
+    else:
+        logging.warning('No save path specified, skipping saving annotation')
+                
+    return ret
+
+
 def check_calibration():
 
     DATA_DIR = HERE / 'PETS09'
@@ -294,42 +358,42 @@ if __name__ == "__main__":
     #     video_writer.release()
 
 
-    # create fake SCT tracker result from GT
-    logging.warning('Creating fake SCT tracker result from GT')
+    # create fake SCT tracker result from GT splitted
+    logging.warning('Creating fake SCT tracker result (splitted on exit) from GT')
 
-    FAKE_TRACKER_DIR = TARGET_DIR / 'GTTrackerbox' / 'sct'
+    FAKE_TRACKER_DIR = TARGET_DIR / 'GTSplittedTrackerbox' / 'sct'
     os.makedirs(str(FAKE_TRACKER_DIR), exist_ok=True)
 
     for cam_id in CAMERA_LIST:
-        annot = load_gt(
+        annot = load_gt_splitted_on_exit(
             file_path=str(DATA_DIR / 'View_{:03d}.txt'.format(cam_id)), 
             save_path=str(FAKE_TRACKER_DIR / '{}_{}.txt').format(cam_id, NAME_POSTFIX)
         )
 
     
-    # create matching points between cameras
-    calibs = load_PETS_multi_calibration(str(DATA_DIR), CAMERA_LIST)
-    matching = {}
+    # # create matching points between cameras
+    # calibs = load_PETS_multi_calibration(str(DATA_DIR), CAMERA_LIST)
+    # matching = {}
     
-    for idx, cam_id in enumerate(CAMERA_LIST):
-        K,R,T = calibs[idx].K, calibs[idx].R, calibs[idx].T
-        P = calc_projection_matrix(K, R, T)
-        matching[cam_id] = get_matching_points(P)
+    # for idx, cam_id in enumerate(CAMERA_LIST):
+    #     K,R,T = calibs[idx].K, calibs[idx].R, calibs[idx].T
+    #     P = calc_projection_matrix(K, R, T)
+    #     matching[cam_id] = get_matching_points(P)
     
-    for src_cam_id, dst_cam_id in SRC2DST_CAM_LIST:
+    # for src_cam_id, dst_cam_id in SRC2DST_CAM_LIST:
 
-        cat = np.concatenate([matching[src_cam_id], matching[dst_cam_id]], axis=1)
-        matches_path = str(TARGET_DIR / 'matches_{}_to_{}.txt'.format(src_cam_id, dst_cam_id))
-        logging.warning('Createing matching points between camera {} (source) and {} (target) at {}'.format(src_cam_id, dst_cam_id, matches_path))
-        np.savetxt(matches_path, cat)
+    #     cat = np.concatenate([matching[src_cam_id], matching[dst_cam_id]], axis=1)
+    #     matches_path = str(TARGET_DIR / 'matches_{}_to_{}.txt'.format(src_cam_id, dst_cam_id))
+    #     logging.warning('Createing matching points between camera {} (source) and {} (target) at {}'.format(src_cam_id, dst_cam_id, matches_path))
+    #     np.savetxt(matches_path, cat)
 
-        sample_src_img = cv2.imread(str(DATA_DIR / 'View_{:03d}'.format(src_cam_id) / 'frame_0000.jpg'))
-        sample_dst_img = cv2.imread(str(DATA_DIR / 'View_{:03d}'.format(dst_cam_id) / 'frame_0000.jpg'))
-        H = calc_H(matching[src_cam_id], matching[dst_cam_id])
-        contour = select_ROI(sample_src_img, sample_dst_img, H)
-        dst_roi_path = str(TARGET_DIR / 'roi_{}_wrt_{}.txt'.format(dst_cam_id, src_cam_id))
-        logging.warning('Saving overlapping ROI on camera {} (w.r.t camera {}) at {}'.format(dst_cam_id, src_cam_id, dst_roi_path))
-        np.savetxt(dst_roi_path, contour.reshape(-1, 2))
+    #     sample_src_img = cv2.imread(str(DATA_DIR / 'View_{:03d}'.format(src_cam_id) / 'frame_0000.jpg'))
+    #     sample_dst_img = cv2.imread(str(DATA_DIR / 'View_{:03d}'.format(dst_cam_id) / 'frame_0000.jpg'))
+    #     H = calc_H(matching[src_cam_id], matching[dst_cam_id])
+    #     contour = select_ROI(sample_src_img, sample_dst_img, H)
+    #     dst_roi_path = str(TARGET_DIR / 'roi_{}_wrt_{}.txt'.format(dst_cam_id, src_cam_id))
+    #     logging.warning('Saving overlapping ROI on camera {} (w.r.t camera {}) at {}'.format(dst_cam_id, src_cam_id, dst_roi_path))
+    #     np.savetxt(dst_roi_path, contour.reshape(-1, 2))
 
                             
 
