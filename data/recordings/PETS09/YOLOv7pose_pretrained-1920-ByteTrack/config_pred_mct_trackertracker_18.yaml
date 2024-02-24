@@ -1,0 +1,44 @@
+RUNNING_MODE: 'offline'   # 'offline' or 'online'
+
+# camera pipeline
+CAMERA_FRAME_WIDTH: 1920
+CAMERA_FRAME_HEIGHT: 1080
+CAMERA_FPS: null
+
+# SCT pipeline
+DETECTION_MODE: 'pose'   # 'box', 'pose'         # tune
+TRACKING_MODE: 'bytetrack'
+
+# Sync
+MIN_TIME_CORRESPONDENCES: 10
+TIME_DIFF_THRESH: 0.1    # null
+
+# STA pipeline
+STA_PSEUDO_SAME_CAMERA: false
+STA_PSEUDO_IN_ROI_ACCORD_CAM1: false             # true if the gt is created by just correcting for only the association, and not the detection, of SCT
+STA_PSEUDO_IN_ROI_LOC_INFER_MODE_CAM1: 3
+LOC_INFER_MODE: 3   # 1, 2, 3                   # tune
+FP_FILTER: 'iqr'   # null, 'gmm', 'iqr'         # tune
+FP_REMAP: true                                 # tune
+MIN_SAMPLE_SIZE_TO_FP_FILTER: 15
+FP_GMM_N_COMPONENTS: 2                          # tune
+FP_GMM_STD_COEF: 3                              # tune
+FP_IQR_LOWER: 20                                # tune  20 if run in online mode, 25 if run in offline mode
+FP_IQR_UPPER: 80                                # tune  80 if run in online mode, 75 if run in offline mode
+DIST_WINDOW_SIZE: 7                             # tune
+DIST_WINDOW_BOUNDARY: 10                         # tune
+
+# Scene
+ROI_TEST_OFFSET: 0
+
+# Visualizer
+VIS_SCT_BOX_THICKNESS: 6
+VIS_SCT_LOC_RADIUS: 16
+VIS_SCT_LOC_TEXTTHICKNESS: 2
+VIS_ROI_THICKNESS: 6
+VIS_STA_MATCH_THICKNESS: 2
+
+# display pipeline
+DISPLAY_MODE: 'show'  # 'show', 'save'
+DISPLAY_WIDTH: null
+DISPLAY_HEIGHT: null
