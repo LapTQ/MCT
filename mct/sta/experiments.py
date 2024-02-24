@@ -849,7 +849,7 @@ def run():
             #     matches_path,
             #     out_video_path,
             #     mode='box' if 'pose' not in tracker_name else 'pose',
-            #     eval_str=VIS_EVAL_STR[video_set][video_id]
+            #     # eval_str=VIS_EVAL_STR[video_set][video_id]
             # )
 
             frame2track_results.append(frame2track(

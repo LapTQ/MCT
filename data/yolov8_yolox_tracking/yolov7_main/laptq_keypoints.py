@@ -30,7 +30,7 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
     im = im.copy()
     pose_limb_color = palette[[9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 16, 16]]
     pose_kpt_color = palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
-    radius = 5
+    radius = 2
     num_kpts = len(kpts) // steps
 
     for i, kid in enumerate(range(num_kpts)):
@@ -59,7 +59,7 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
             continue
         if pos2[0] % 640 == 0 or pos2[1] % 640 == 0 or pos2[0]<0 or pos2[1]<0:
             continue
-        cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
+        cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=1)
     
     return im
 
@@ -68,32 +68,45 @@ def get_loc(box, kpt, steps):
 
     locs = [kpt[i*3: i*3 + 2] for i in range(17)]
     conf = kpt[[2 + 3*i for i in range(17)]]
-    f = [None, None]
+    f = [[], []]
     i = [[15, 13, 11, 5], [16, 14, 12, 6]]
     for c in range(2):
         if conf[i[c][0]] >= 0.5:
+            if conf[i[c][2]] >= 0.5:
+                print('MODE=1')
+                f[c].append(locs[i[c][0]] + 1/8.5 * (locs[i[c][0]] - locs[i[c][2]]))
             if conf[i[c][1]] >= 0.5:
-                f[c] = locs[i[c][0]] + 1/6 * (locs[i[c][0]] - locs[i[c][1]])
-            elif conf[i[c][2]] >= 0.5:
-                f[c] = locs[i[c][0]] + 1/10 * (locs[i[c][0]] - locs[i[c][2]])
-            else:
-                f[c] = locs[i[c][0]]
-        elif conf[i[c][1]] >= 0.5:
+                print('MODE=2')
+                f[c].append(locs[i[c][0]] + 1/4.5 * (locs[i[c][0]] - locs[i[c][1]]))
+        if conf[i[c][1]] >= 0.5:
+            if conf[i[c][2]] >= 0.5:
+                print('MODE=5')
+                f[c].append(locs[i[c][1]] + 5/4.7 * (locs[i[c][1]] - locs[i[c][2]]))
             if conf[i[c][3]] >= 0.5:
-                f[c] = locs[i[c][1]] + 6/11 * (locs[i[c][1]] - locs[i[c][3]])
-            elif conf[i[c][2]] >= 0.5:
-                f[c] = locs[i[c][1]] + (locs[i[c][1]] - locs[i[c][2]])
-        elif conf[i[c][2]] >= 0.5:
+                print('MODE=4')
+                f[c].append(locs[i[c][1]] + 2/4.8 * (locs[i[c][1]] - locs[i[c][3]]))
+        if conf[i[c][2]] >= 0.5:
+            print('MODE=6')
             if conf[i[c][3]] >= 0.5:
-                f[c] = locs[i[c][2]] + (locs[i[c][2]] - locs[i[c][3]])
+                f[c].append(locs[i[c][2]] + 4/3 * (locs[i[c][2]] - locs[i[c][3]]))
+        
+        if len(f[c]) == 0 and conf[i[c][0]] >= 0.5:
+            print('MODE=3')
+            f[c].append(locs[i[c][0]])
 
     a, b, c, d = box
-    if f[0] is not None and f[1] is not None:
+    if len(f[0]) > 0  and len(f[1]) > 0:
+        print('MODE=7')
+        f[0] = np.mean(f[0], axis=0)
+        f[1] = np.mean(f[1], axis=0)
         return (f[0] + f[1]) / 2
-    elif f[0] is None and f[1] is None:
+    elif len(f[0]) == len(f[1]) == 0:
+        print('MODE=8')
         return (a, b + d/2)
     else:
-        x, y = f[0] if f[0] is not None else f[1]
+        print('MODE=9')
+        xy = f[0] if len(f[0]) > 0 else f[1]
+        x, y = np.mean(xy, axis=0)
         return (x + a) / 2, y
         
         
@@ -113,9 +126,10 @@ _ = model.float().eval()
 if torch.cuda.is_available():
     model.half().to(device)
 
-for path in ['/home/tran/Pictures/Screenshot from 41_00009_2023-04-13_08-30-00-000000.avi - 1.png']: #tqdm((HERE / 'laptq_in').glob('*')):
+for path in tqdm(Path('/home/tran/Pictures/in/').glob('*')):
 
     path = str(path)
+    print(path)
     image = cv2.imread(path)
     image = letterbox(image, 640, stride=64, auto=True)[0]
     image_ = image.copy()
@@ -136,10 +150,10 @@ for path in ['/home/tran/Pictures/Screenshot from 41_00009_2023-04-13_08-30-00-0
         kpt = output[idx, 7:]
         nimg = plot_skeleton_kpts(nimg, kpt.T, 3)
         batch_id, cls_id, a, b, c, d, conf = output[idx, :7].astype('int32')
-        cv2.rectangle(nimg, (a - c // 2, b - d // 2), (a + c // 2, b + d // 2), color=(255, 0, 0), thickness=1)
+        # cv2.rectangle(nimg, (a - c // 2, b - d // 2), (a + c // 2, b + d // 2), color=(255, 0, 0), thickness=1)
 
         loc = get_loc([a, b, c, d], kpt, steps=3)
-        cv2.circle(nimg, np.int32(loc), 6, (0, 255, 0), -1)
+        cv2.circle(nimg, np.int32(loc), 2, (0, 255, 0), -1)
         
     cv2.imwrite(str(HERE/'laptq_out/yolov7_pose_') + os.path.split(path)[1], nimg[:, :, ::-1])
 
